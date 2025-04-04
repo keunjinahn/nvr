@@ -73,8 +73,8 @@ export class MariaDBService {
         // 테이블별 컬럼 매핑
         const columnMapping = {
           cameras: {
-            columns: ['id', 'name', 'room', 'videoConfig', 'settings', 'created_at', 'updated_at'],
-            placeholders: '(?, ?, ?, ?, ?, NOW(), NOW())'
+            columns: ['name', 'room', 'videoConfig', 'settings', 'created_at', 'updated_at'],
+            placeholders: '(?, ?, ?, ?, NOW(), NOW())'
           },
           notifications: {
             columns: ['id', 'camera_id', 'type', 'message', 'created_at'],
@@ -104,7 +104,6 @@ export class MariaDBService {
           switch (tableName) {
             case 'cameras':
               return [
-                item.id,
                 item.name,
                 item.room,
                 JSON.stringify(item.videoConfig),

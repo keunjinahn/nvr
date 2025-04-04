@@ -1,7 +1,8 @@
 /* eslint-disable unicorn/prefer-number-properties */
 'use-strict';
 
-import ffmpegPath from 'ffmpeg-for-homebridge';
+import path from 'path';
+// import ffmpeg from 'ffmpeg-for-homebridge';
 
 export const uiDefaults = {
   port: 8081,
@@ -78,7 +79,9 @@ export const permissionLevels = [
   'settings:recordings:edit',
 ];
 
-export const defaultVideoProcess = ffmpegPath || 'ffmpeg';
+// FFmpeg 경로 설정
+const ffmpegPath = process.platform === 'win32' ? 'C:/ffmpeg/bin/ffmpeg.exe' : 'ffmpeg';
+export const defaultVideoProcess = ffmpegPath;
 
 export const minNodeVersion = '16.12.0';
 

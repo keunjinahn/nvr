@@ -50,7 +50,7 @@ export class MariaDBInit {
       // 카메라 테이블
       await conn.query(`
                 CREATE TABLE IF NOT EXISTS cameras (
-                    id VARCHAR(36) PRIMARY KEY,
+                    id INT AUTO_INCREMENT PRIMARY KEY,
                     name VARCHAR(255) NOT NULL,
                     room VARCHAR(255),
                     videoConfig JSON,
@@ -64,7 +64,7 @@ export class MariaDBInit {
       await conn.query(`
                 CREATE TABLE IF NOT EXISTS notifications (
                     id VARCHAR(36) PRIMARY KEY,
-                    camera_id VARCHAR(36),
+                    camera_id INT,
                     type VARCHAR(50),
                     message TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -88,7 +88,7 @@ export class MariaDBInit {
       await conn.query(`
                 CREATE TABLE IF NOT EXISTS recordings (
                     id VARCHAR(36) PRIMARY KEY,
-                    camera_id VARCHAR(36),
+                    camera_id INT,
                     file_path VARCHAR(255),
                     type VARCHAR(50),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
