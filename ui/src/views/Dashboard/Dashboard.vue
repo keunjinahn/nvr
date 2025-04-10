@@ -6,7 +6,10 @@
 
     Sidebar(ref="widgetBar" :items="items" @refreshDrag="setupDrag")
   
-
+    
+    #dashboard.tw-mt-5.tw-relative.tw-max-w-10xl(:class="itemChange || !items.length ? 'grid-stack-dragging-border' : ''")
+      .drag-info.tw-text-center(v-if="!items.length") {{ $t('drop_widgets_here') }}
+      .grid-stack(ref="gridStack")
           
   LightBox(
     ref="lightboxBanner"
