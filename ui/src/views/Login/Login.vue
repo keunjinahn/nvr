@@ -5,26 +5,46 @@
     .tw-flex.tw-flex-col.tw-p-0
       .login-header.tw-flex.tw-justify-between.tw-items-center
         .tw-block
-          h2.tw-leading-10.tw-font-black {{ $t('signin') }}
-          span.subtitle.tw-font-medium {{ $t('welcome_message') }} 
-            strong.text-primary camera.ui
+          h2.tw-leading-10.tw-font-black {{ $t('댐 관리 NVR 시스템') }}
+          span.subtitle.tw-font-medium {{ $t(' ') }} 
+            strong.text-primary
         .tw-ml-auto
-          v-img.logo(src="@/assets/img/logo.svg" width="35px")
-      v-row.tw-w-full.tw-m-0.tw-mt-5
-        v-col.tw-p-0(cols="3").redline.mr-3
-        v-col.tw-p-0(cols="3").grayline
-        
+
       v-form.login-content.tw-mt-5(ref="form" v-model="valid" lazy-validation @submit.prevent="signin")
         
-        span.login-input-label {{ $t('username') }}
-        v-text-field.tw-mb-0.login-input.tw-text-white(required v-model="user.username" :rules="rules.username" solo background-color="rgba(var(--cui-menu-default-rgb), 0.7)" color="var(--cui-primary)" :label="$t('username')")
+        span.login-input-label {{ $t('아이디') }}
+        v-text-field.tw-mb-0.login-input.tw-text-white(
+          required 
+          v-model="user.username" 
+          :rules="rules.username" 
+          solo 
+          background-color="rgba(var(--cui-menu-default-rgb), 1)" 
+          color="var(--cui-primary)" 
+          :label="$t('user')"
+        )
 
-        span.login-input-label {{ $t('password') }}
-        v-text-field.tw-mb-0.login-input(required autocomplete="current-password" v-model="user.password" :rules="rules.password" solo background-color="rgba(var(--cui-menu-default-rgb), 0.7)" color="var(--cui-primary)" :label="$t('password')" :type="showPassword ? 'text' : 'password'" :append-icon="showPassword ? icons['mdiEye'] : icons['mdiEyeOff']" @click:append="showPassword = !showPassword")
+        span.login-input-label {{ $t('패스워드') }}
+        v-text-field.tw-mb-0.login-input(
+          required 
+          autocomplete="current-password" 
+          v-model="user.password" 
+          :rules="rules.password" 
+          solo 
+          background-color="rgba(var(--cui-menu-default-rgb), 1)" 
+          color="var(--cui-primary)" 
+          :label="$t('password')" 
+          type="password"
+        )
         
-        v-btn.login-btn.tw-text-white.tw-mt-2(:loading="loading" block depressed color="var(--cui-primary)" height="48px" type="submit") {{ $t('signin') }}
+        v-btn.login-btn.tw-text-white.tw-mt-2(
+          block 
+          depressed 
+          color="var(--cui-primary)" 
+          height="48px" 
+          type="submit"
+        ) {{ $t('로그인') }}
               
-  span.tw-text-xs.text-muted {{ moduleName }} - v{{ version }}
+  span.tw-text-xs.text-muted {{ $t('수자원공사') }} - v{{ $t('1.0') }}
 </template>
 
 <script>
@@ -132,27 +152,16 @@ export default {
   width: 100%;
   max-width: 350px;
   margin: 10px;
-  background: rgba(var(--cui-bg-card-rgb));
-  border-radius: 1rem;
-  padding: 2.5rem;
-  box-shadow: 0px 2px 1px -1px rgb(0 0 0 / 5%), 0px 1px 1px 0px rgb(0 0 0 / 4%), 0px 1px 3px 0px rgb(0 0 0 / 2%) !important;
+  background: rgb(var(--cui-bg-card-rgb));
+  border-radius: 4px;
+  padding: 2rem;
 }
 
 .login-btn {
   text-transform: none;
   text-indent: unset;
   letter-spacing: unset;
-  border-radius: 10px;
-}
-
-.redline {
-  height: 5px;
-  background: var(--cui-primary);
-}
-
-.grayline {
-  height: 5px;
-  background: rgba(var(--cui-text-default-rgb), 0.4);
+  border-radius: 4px;
 }
 
 .login-input-label {

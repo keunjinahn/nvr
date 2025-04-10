@@ -1,6 +1,6 @@
 <template lang="pug">
-.loader.tw-flex.tw-justify-center.tw-align-center
-  inline-svg(:src="require('../assets/img/logo_loading_circle.svg')" title="camera.ui" aria-label="camera.ui" width="200px")
+<!-- .loader.tw-flex.tw-justify-center.tw-align-center
+  inline-svg(:src="require('../assets/img/logo_loading_circle.svg')" title="camera.ui" aria-label="camera.ui" width="200px") -->
 </template>
 
 <script>
@@ -58,7 +58,7 @@ export default {
   max-height: 100vh;
 }
 
-div >>> .cameraLens {
+div>>>.cameraLens {
   -webkit-animation: lensMove 0.8s cubic-bezier(0.47, 1.84, 0.21, 0.8) forwards,
     lensRotate 0.8s ease-in-out 0.4s forwards, lensMoveBack 0.6s cubic-bezier(0.47, 1.84, 0.21, 0.8) 1.3s forwards;
   -moz-animation: lensMove 0.8s cubic-bezier(0.47, 1.84, 0.21, 0.8) forwards, lensRotate 0.8s ease-in-out 0.4s forwards,
@@ -73,7 +73,7 @@ div >>> .cameraLens {
   transform-origin: 35% 55%;
 }
 
-div >>> .cameraLetter {
+div>>>.cameraLetter {
   -moz-animation: letterScale 0.4s cubic-bezier(0.47, 1.84, 0.21, 0.8) forwards,
     letterScaleBack 0.4s cubic-bezier(0.47, 1.84, 0.21, 0.8) 1.2s forwards;
   -o-animation: letterScale 0.4s cubic-bezier(0.47, 1.84, 0.21, 0.8) forwards,
@@ -95,6 +95,7 @@ div >>> .cameraLetter {
     -o-transform: scale(1);
     transform: scale(1);
   }
+
   100% {
     -webkit-transform: scale(0.8);
     -moz-transform: scale(0.8);
@@ -110,6 +111,7 @@ div >>> .cameraLetter {
     -o-transform: scale(0.8);
     transform: scale(0.8);
   }
+
   100% {
     -webkit-transform: scale(1);
     -moz-transform: scale(1);
@@ -125,6 +127,7 @@ div >>> .cameraLetter {
     -o-transform: translateY(0px);
     transform: translateY(0px);
   }
+
   100% {
     -webkit-transform: translateY(-40px);
     -moz-transform: translateY(-40px);
@@ -140,6 +143,7 @@ div >>> .cameraLetter {
     -o-transform: translateY(-40px);
     transform: translateY(-40px);
   }
+
   100% {
     -webkit-transform: translateY(0px);
     -moz-transform: translateY(0px);
@@ -155,6 +159,7 @@ div >>> .cameraLetter {
     -o-transform: translateY(-40px) rotate(0deg);
     transform: translateY(-40px) rotate(0deg);
   }
+
   100% {
     -webkit-transform: translateY(-40px) rotate(-360deg);
     -moz-transform: translateY(-40px) rotate(-360deg);
