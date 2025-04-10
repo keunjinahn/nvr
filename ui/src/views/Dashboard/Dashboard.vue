@@ -6,23 +6,7 @@
 
     Sidebar(ref="widgetBar" :items="items" @refreshDrag="setupDrag")
   
-    .tw-flex.tw-justify-between.tw-items-center
-      .tw-block(style="margin-left: 10px;")
-        h2.tw-leading-10 {{ $t($route.name.toLowerCase()) }}
-        span.tw-leading-3.subtitle {{ $t('welcome_back') }}, 
-          b {{ currentUser.username }}
 
-      .tw-block.widgets-included.tw-ml-auto.tw-mr-1(v-if="!showWidgetsNavi")
-        v-btn.text-muted.tw-mr-1(icon height="38px" width="38px" @click="toggleLock" :color="locked ? 'error' : 'var(--cui-text-hint)'")
-          v-icon {{ locked ? icons['mdiLock'] : icons['mdiLockOpen'] }}
-
-      .tw-block.widgets-included(v-if="!showWidgetsNavi")
-        v-btn.text-muted.tw-mr-1(icon height="38px" width="38px" @click="toggleWidgetsNavi")
-          v-icon {{ icons['mdiWidgets'] }}
-    
-    #dashboard.tw-mt-5.tw-relative.tw-max-w-10xl(:class="itemChange || !items.length ? 'grid-stack-dragging-border' : ''")
-      .drag-info.tw-text-center(v-if="!items.length") {{ $t('drop_widgets_here') }}
-      .grid-stack(ref="gridStack")
           
   LightBox(
     ref="lightboxBanner"
@@ -422,8 +406,8 @@ export default {
       return window.innerWidth && document.documentElement.clientWidth
         ? Math.min(window.innerWidth, document.documentElement.clientWidth)
         : window.innerWidth ||
-            document.documentElement.clientWidth ||
-            document.getElementsByTagName('body')[0].clientWidth;
+        document.documentElement.clientWidth ||
+        document.getElementsByTagName('body')[0].clientWidth;
     },
     windowHeight() {
       return document.getElementById('dashboard')?.offsetHeight;
@@ -488,10 +472,7 @@ export default {
 
 .grid-stack {
   /* 100vh - navbar - saveAreaTop - paddingTop - paddingBottom - title - footer */
-  min-height: calc(
-    100vh - 64px - env(safe-area-inset-top, 12px) - env(safe-area-inset-bottom, 12px) - 1.5rem - 1.5rem - 64px - 44px -
-      50px
-  );
+  min-height: calc(100vh - 64px - env(safe-area-inset-top, 12px) - env(safe-area-inset-bottom, 12px) - 1.5rem - 1.5rem - 64px - 44px - 50px);
 }
 
 .grid-stack-dragging-border {
@@ -499,24 +480,24 @@ export default {
   border-radius: 10px;
 }
 
-.grid-stack >>> .grid-stack-item-content {
+.grid-stack>>>.grid-stack-item-content {
   border-radius: 10px;
   cursor: pointer;
   box-shadow: 0px 0px 10px 3px rgb(0 0 0 / 10%);
 }
 
-.grid-stack >>> .grid-stack-placeholder {
+.grid-stack>>>.grid-stack-placeholder {
   /*border: 2px solid var(--cui-bg-disabled) !important;*/
 }
 
-.grid-stack >>> .placeholder-content {
+.grid-stack>>>.placeholder-content {
   border: none !important;
   background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='10' ry='10' stroke='%2371717133' stroke-width='4' stroke-dasharray='6%2c 14' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
   border-radius: 10px;
   background-color: rgba(var(--cui-text-default-rgb), 0.05) !important;
 }
 
-.grid-stack >>> .ui-resizable-ne {
+.grid-stack>>>.ui-resizable-ne {
   transform: none;
   background: none;
   right: 10px !important;
@@ -526,7 +507,7 @@ export default {
   z-index: 2 !important;
 }
 
-.grid-stack >>> .ui-resizable-nw {
+.grid-stack>>>.ui-resizable-nw {
   transform: none;
   background: none;
   left: 10px !important;
@@ -536,7 +517,7 @@ export default {
   z-index: 2 !important;
 }
 
-.grid-stack >>> .ui-resizable-se {
+.grid-stack>>>.ui-resizable-se {
   transform: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' style='width:24px;height:24px' viewBox='0 0 24 24'%3E%3Cpath fill='rgba(109, 109, 109, 0.397)' d='M22,22H20V20H22V22M22,18H20V16H22V18M18,22H16V20H18V22M18,18H16V16H18V18M14,22H12V20H14V22M22,14H20V12H22V14Z' /%3E%3C/svg%3E");
   background-size: 100%;
@@ -548,7 +529,7 @@ export default {
   z-index: 2 !important;
 }
 
-.grid-stack >>> .ui-resizable-sw {
+.grid-stack>>>.ui-resizable-sw {
   transform: none;
   background: none;
   left: 10px !important;
@@ -558,47 +539,47 @@ export default {
   z-index: 2 !important;
 }
 
-.grid-stack >>> .ui-resizable-e {
+.grid-stack>>>.ui-resizable-e {
   z-index: 1 !important;
   right: 10px !important;
   top: 20px !important;
   bottom: 20px !important;
 }
 
-.grid-stack >>> .ui-resizable-w {
+.grid-stack>>>.ui-resizable-w {
   z-index: 1 !important;
   left: 10px !important;
   top: 20px !important;
   bottom: 20px !important;
 }
 
-.grid-stack >>> .ui-resizable-n {
+.grid-stack>>>.ui-resizable-n {
   z-index: 1 !important;
   left: 20px !important;
   right: 20px !important;
   top: 10px !important;
 }
 
-.grid-stack >>> .ui-resizable-s {
+.grid-stack>>>.ui-resizable-s {
   z-index: 1 !important;
   left: 20px !important;
   right: 20px !important;
   bottom: 10px !important;
 }
 
-div >>> .grid-stack-item-removing .grid-stack-item-content {
+div>>>.grid-stack-item-removing .grid-stack-item-content {
   opacity: 0.5 !important;
   border: 2px solid rgba(255, 0, 0, 0.5);
   border-radius: 12px;
 }
 
-div >>> .ui-draggable-dragging .grid-stack-item-content,
-div >>> .ui-resizable-resizing .grid-stack-item-content {
+div>>>.ui-draggable-dragging .grid-stack-item-content,
+div>>>.ui-resizable-resizing .grid-stack-item-content {
   box-shadow: none !important;
 }
 
 /* animate new box */
-.grid-stack >>> .grid-stack-item:not(.grid-stack-placeholder) {
+.grid-stack>>>.grid-stack-item:not(.grid-stack-placeholder) {
   -webkit-animation: slide-in-fwd-center 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
   animation: slide-in-fwd-center 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
 }
@@ -621,18 +602,21 @@ div >>> .ui-resizable-resizing .grid-stack-item-content {
     transform: translateZ(-1400px);
     opacity: 0;
   }
+
   100% {
     -webkit-transform: translateZ(0);
     transform: translateZ(0);
     opacity: 1;
   }
 }
+
 @keyframes slide-in-fwd-center {
   0% {
     -webkit-transform: translateZ(-1400px);
     transform: translateZ(-1400px);
     opacity: 0;
   }
+
   100% {
     -webkit-transform: translateZ(0);
     transform: translateZ(0);

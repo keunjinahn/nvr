@@ -94,6 +94,7 @@ export default {
   position: fixed;
   top: 0;
   bottom: 0;
+  left: 0;
   width: 280px;
   min-width: 280px;
   max-width: 280px;
@@ -112,7 +113,8 @@ export default {
 .main-navi-show {
   width: 280px;
   min-width: 280px;
-  margin-left: 0px !important;
+  margin-left: 0 !important;
+  transform: translateX(0);
 }
 
 .logo {
@@ -183,7 +185,11 @@ export default {
 
 @media (max-width: 960px) {
   .main-navi {
-    margin-left: -280px;
+    transform: translateX(-280px);
+  }
+
+  .main-navi-show {
+    transform: translateX(0);
   }
 }
 </style>

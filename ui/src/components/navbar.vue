@@ -7,14 +7,14 @@
     .navi-wrap.pl-safe.pr-safe
       v-btn.text-default.included(@click="toggleNavi" icon height="38px" width="38px")
         v-icon {{ icons['mdiMenu'] }}
-      .tw-flex.tw-ml-auto(v-if="checkLevel('notifications:access')")
+      <!-- .tw-flex.tw-ml-auto(v-if="checkLevel('notifications:access')")
         v-badge(:value="notSize" :dot="notSize < 1" :content="notSize" color="var(--cui-primary)" offset-x="20" offset-y="20" bordered overlap)
           template(v-slot:badge)
             .badge-text.tw-flex.tw-justify-center.tw-items-center.tw-h-full.tw-w-full
               span(v-if="notSize > 99") 99+
               span(v-else) {{ notSize }}
           v-btn.text-default.tw-text-white.tw-mr-1(@click="$router.push('/notifications')" icon height="38px" width="38px")
-            v-icon {{ icons['mdiBell'] }}
+            v-icon {{ icons['mdiBell'] }} -->
 
 </template>
 
@@ -95,7 +95,7 @@ export default {
 </script>
 
 <style scoped>
-span >>> .v-badge__badge::after {
+span>>>.v-badge__badge::after {
   border-color: rgba(var(--cui-bg-app-bar-rgb)) !important;
 }
 
@@ -147,6 +147,7 @@ span >>> .v-badge__badge::after {
   .top-navi-bar {
     margin-left: 0 !important;
   }
+
   .extended-sidebar {
     margin-left: 0 !important;
   }

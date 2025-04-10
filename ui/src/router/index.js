@@ -160,27 +160,6 @@ export const routes = [
     component: () => import(/* webpackChunkName: "recordings" */ '@/views/Recordings/Recordings.vue'),
   },
   {
-    path: '/notifications',
-    name: 'Notifications',
-    meta: {
-      auth: {
-        requiresAuth: true,
-        requiredLevel: ['notifications:access'],
-      },
-      config: {
-        fixedNavbar: true,
-        showFooter: true,
-        showNavbar: true,
-        showSidebar: true,
-      },
-      navigation: {
-        main: true,
-        icon: 'mdi-bell',
-      },
-    },
-    component: () => import(/* webpackChunkName: "notifications" */ '@/views/Notifications/Notifications.vue'),
-  },
-  {
     path: '/camview',
     name: 'Camview',
     meta: {
@@ -432,27 +411,6 @@ export const routes = [
           },
         },
         component: () => import(/* webpackChunkName: "settings" */ '@/views/Settings/subpages/recordings.vue'),
-      },
-      {
-        path: 'notifications',
-        meta: {
-          name: 'Notifications',
-          child: true,
-          auth: {
-            requiresAuth: true,
-            requiredLevel: ['settings:notifications:access', 'settings:notifications:edit'],
-          },
-          config: {
-            fixedNavbar: true,
-            showFooter: true,
-            showNavbar: true,
-            showSidebar: true,
-          },
-          navigation: {
-            icon: 'mdi-bell-outline',
-          },
-        },
-        component: () => import(/* webpackChunkName: "settings" */ '@/views/Settings/subpages/notifications.vue'),
       },
       {
         path: 'rekognition',
