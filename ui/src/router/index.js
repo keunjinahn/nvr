@@ -519,6 +519,44 @@ export const routes = [
       },
     ],
   },
+  {
+    path: '/video-management',
+    name: 'VideoManagement',
+    meta: {
+      auth: {
+        requiresAuth: true,
+        requiredLevel: ['admin'],
+      },
+      config: {
+        fixedNavbar: true,
+        showFooter: true,
+        showNavbar: true,
+        showSidebar: true,
+      },
+      navigation: {
+        main: true,
+        icon: 'mdi-video',
+      },
+    },
+    component: () => import(/* webpackChunkName: "videoManagement" */ '@/views/VideoManagement/VideoManagement.vue'),
+  },
+  {
+    path: '/video-management/surveillance-areas',
+    name: 'SurveillanceAreas',
+    meta: {
+      auth: {
+        requiresAuth: true,
+        requiredLevel: ['admin'],
+      },
+      config: {
+        fixedNavbar: true,
+        showFooter: true,
+        showNavbar: true,
+        showSidebar: true,
+      },
+    },
+    component: () => import(/* webpackChunkName: "surveillanceAreas" */ '@/views/VideoManagement/SurveillanceAreas.vue'),
+  },
 ];
 
 const router = new VueRouter({

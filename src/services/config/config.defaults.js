@@ -5,7 +5,7 @@ import path from 'path';
 // import ffmpeg from 'ffmpeg-for-homebridge';
 
 export const uiDefaults = {
-  port: 8081,
+  port: 9081,
 };
 
 export const httpDefaults = {
@@ -34,9 +34,9 @@ export const mariadbDefaults = {
   sync: true,
   host: 'localhost',
   port: 3306,
-  user: 'root',
-  password: '',
-  database: 'nvr_db',
+  user: 'dbadmin',
+  password: 'p#ssw0rd',
+  database: 'nvrdb',
   connectionLimit: 10,
   connectTimeout: 10000
 };
