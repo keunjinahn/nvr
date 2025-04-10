@@ -5,7 +5,7 @@
     .tw-flex.tw-flex-col.tw-p-0
       .login-header.tw-flex.tw-justify-between.tw-items-center
         .tw-block
-          h2.tw-leading-10.tw-font-black {{ $t('댐 관리 NVR 시스템') }}
+          h2.tw-leading-10.tw-font-black {{ $t('스마트댐 모니터링 시스템') }}
           span.subtitle.tw-font-medium {{ $t(' ') }} 
             strong.text-primary
         .tw-ml-auto
