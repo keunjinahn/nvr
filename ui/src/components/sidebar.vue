@@ -95,9 +95,9 @@ export default {
   top: 0;
   bottom: 0;
   left: 0;
-  width: 280px;
-  min-width: 280px;
-  max-width: 280px;
+  width: 227px;
+  min-width: 227px;
+  max-width: 227px;
   transition: 0.2s all;
   z-index: 999;
   scrollbar-width: none;
@@ -111,14 +111,14 @@ export default {
 }
 
 .main-navi-show {
-  width: 280px;
-  min-width: 280px;
+  width: 227px;
+  min-width: 227px;
   margin-left: 0 !important;
   transform: translateX(0);
 }
 
 .logo {
-  width: 208px;
+  width: 187px;
   height: 78px;
   transition: 0.2s all;
   padding: 8px;
@@ -139,7 +139,7 @@ export default {
   transition: 0.2s all;
   border-radius: 12px !important;
   height: 80px !important;
-  width: 240px !important;
+  width: 191px !important;
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -168,7 +168,7 @@ export default {
 .logout-btn {
   margin-top: auto;
   color: rgba(255, 255, 255, 0.6) !important;
-  width: 240px !important;
+  width: 191px !important;
   height: 80px !important;
   flex-direction: row;
   padding: 0 20px;
@@ -185,7 +185,7 @@ export default {
 
 @media (max-width: 960px) {
   .main-navi {
-    transform: translateX(-280px);
+    transform: translateX(-227px);
   }
 
   .main-navi-show {

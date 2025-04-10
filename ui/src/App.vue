@@ -134,10 +134,10 @@ export default {
 }
 
 .content {
-  margin-left: 78px;
-  width: calc(100vw - 78px);
-  min-width: calc(100vw - 78px);
-  max-width: calc(100vw - 78px);
+  margin-left: 227px;
+  width: calc(100vw - 227px);
+  min-width: calc(100vw - 227px);
+  max-width: calc(100vw - 227px);
 }
 
 .overlay {
@@ -159,10 +159,10 @@ export default {
 }
 
 .extended-sidebar {
-  margin-left: 280px;
-  width: calc(100vw - 280px);
-  min-width: calc(100vw - 280px);
-  max-width: calc(100vw - 280px);
+  margin-left: 227px;
+  width: calc(100vw - 227px);
+  min-width: calc(100vw - 227px);
+  max-width: calc(100vw - 227px);
 }
 
 .fixed-navbar {
@@ -181,35 +181,35 @@ export default {
   z-index: 1;
 }
 
-div >>> .vib-hideable {
+div>>>.vib-hideable {
   transition: opacity 0.1s ease;
 }
 
-div >>> .vib-hidden {
+div>>>.vib-hidden {
   opacity: 10;
 }
 
-div >>> .vib-content {
+div>>>.vib-content {
   width: 100%;
   max-width: 800px;
   padding-left: 0.75rem !important;
   padding-right: 0.75rem !important;
 }
 
-div >>> .vib-close {
+div>>>.vib-close {
   margin-top: env(safe-area-inset-top, 0px);
   margin-right: env(safe-area-inset-right, 0px);
 }
 
-div >>> .vib-arrow-right {
+div>>>.vib-arrow-right {
   margin-right: env(safe-area-inset-right, 0px);
 }
 
-div >>> .vib-arrow-left {
+div>>>.vib-arrow-left {
   margin-left: env(safe-area-inset-left, 0px);
 }
 
-div >>> .vib-footer {
+div>>>.vib-footer {
   margin-bottom: env(safe-area-inset-bottom, 6px);
   padding-right: clamp(10px, env(safe-area-inset-right, 10px), env(safe-area-inset-right, 10px));
   padding-left: clamp(10px, env(safe-area-inset-right, 10px), env(safe-area-inset-right, 10px));
@@ -219,12 +219,14 @@ div >>> .vib-footer {
   .overlay {
     display: block;
   }
+
   .content {
     margin-left: 0 !important;
     width: 100vw;
     min-width: 100vw;
     max-width: 100vw;
   }
+
   .extended-sidebar {
     margin-left: 0 !important;
     width: 100vw;
