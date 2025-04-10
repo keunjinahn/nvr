@@ -5,7 +5,7 @@ import path from 'path';
 // import ffmpeg from 'ffmpeg-for-homebridge';
 
 export const uiDefaults = {
-  port: 9081,
+  port: 9091,
 };
 
 export const httpDefaults = {
