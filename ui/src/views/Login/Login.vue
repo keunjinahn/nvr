@@ -127,7 +127,7 @@ export default {
           if (firstStart) {
             this.$router.push('/start');
           } else {
-            this.$router.push('/dashboard');
+            this.$router.push('/cameras');
           }
         } catch (err) {
           this.loading = false;
