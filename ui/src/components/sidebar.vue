@@ -1,7 +1,7 @@
 <template lang="pug">
 .tw-flex.tw-flex-col.tw-overflow-y-auto.main-navi.main-navi-show
   .tw-flex.tw-flex-row.tw-justify-center.tw-items-center
-    .logo.tw-cursor-pointer.tw-flex.tw-items-center.tw-justify-center(@click="$router.push('/dashboard')")
+    .logo.tw-cursor-pointer.tw-flex.tw-items-center.tw-justify-center(@click="$router.push('/cameras')")
       img.tw-w-full.tw-h-full.tw-object-contain(:src="require('@/assets/img/logo.png')" title="NVR" alt="camera.ui")
   
   .tw-flex.tw-flex-col.tw-h-full.tw-items-center.tw-pt-6(key="nav")
