@@ -4,17 +4,45 @@
 .tw-py-6.tw-px-4(v-else)
   .pl-safe.pr-safe
     
-    .tw-flex.tw-justify-between
-      .header-title.tw-flex.tw-items-center
-        .page-title {{ $t($route.name.toLowerCase()) }}
-      .header-utils.tw-flex.tw-justify-center.tw-items-center
-        v-btn.tw-mr-1(v-if="showListOptions" icon height="35px" width="35px" :color="listMode ? 'var(--cui-primary)' : 'grey'" @click="changeListView(1)")
-          v-icon(size="25") {{ icons['mdiFormatListBulleted'] }}
-        v-btn(v-if="showListOptions" icon height="35px" width="35px" :color="!listMode ? 'var(--cui-primary)' : 'grey'" @click="changeListView(2)")
-          v-icon(size="25") {{ icons['mdiViewModule'] }}
+    .tw-flex.tw-justify-between.tw-items-center
+      .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-100.tw-p-1(v-if="showListOptions")
+        .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
+          :class="!listMode ? 'tw-bg-white tw-shadow-sm tw-text-primary' : 'tw-text-gray-600'"
+          @click="goToVideoView"
+        )
+          v-icon.tw-mr-2(size="50") {{ icons['mdiViewModule'] }}
+          span 영상조회        
+        .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
+          :class="listMode ? 'tw-bg-white tw-shadow-sm tw-text-primary' : 'tw-text-gray-600'"
+          @click="goToMonitoring"
+        )
+          v-icon.tw-mr-2(size="50") {{ icons['mdiFormatListBulleted'] }}
+          span 영상모니터링
+      
+      v-btn.add-video-btn(
+        elevation="1"
+        @click="showAddVideoDialog"
+        :ripple="false"
+      )
+        v-icon.tw-mr-2(size="22" color="#1E293B") {{ icons['mdiPlus'] }}
+        span.tw-font-semibold.tw-text-slate-800 영상추가
 
     .tw-mt-5
-      v-data-table.tw-w-full(v-if="listMode && cameras.length" @click:row="clickRow" :items-per-page="-1" calculate-widths disable-pagination hide-default-footer :loading="loading" :headers="headers" :items="cameras" :no-data-text="$t('no_data_available')" item-key="name" class="elevation-1" mobile-breakpoint="0")
+      v-data-table.tw-w-full(
+        v-if="listMode && cameras.length"
+        @click:row="clickRow"
+        :items-per-page="-1"
+        calculate-widths
+        disable-pagination
+        hide-default-footer
+        :loading="loading"
+        :headers="headers"
+        :items="cameras"
+        :no-data-text="$t('no_data_available')"
+        item-key="name"
+        class="elevation-1"
+        mobile-breakpoint="0"
+      )
         template(v-slot:item.status="{ item }")
           .tw-w-full.tw-text-center  
             v-icon(size="10" :color="camStates.some((cam) => cam.name === item.name && cam.status === 'ONLINE') ? 'success' : 'error'") {{ icons['mdiCircle'] }}
@@ -31,6 +59,22 @@
           .text-font-disabled {{ item.lastNotification ? item.lastNotification.time : $t('no_data') }}
         template(v-slot:item.liveFeed="{ item }")
           v-chip(color="var(--cui-primary)" dark small style="cursor: pointer" @click="$router.push(`/cameras/${item.name}`)") {{ camStates.some((cam) => cam.name === item.name && cam.status === 'ONLINE') ? $t('live') : $t('offline') }}
+        template(v-slot:item.actions="{ item }")
+          .tw-flex.tw-items-center.tw-gap-2
+            v-btn.edit-btn(
+              color="primary"
+              @click.stop="showEditVideoDialog(item)"
+              outlined
+            )
+              v-icon(left size="20") {{ icons['mdiPencil'] }}
+              span 수정
+            v-btn.delete-btn(
+              color="error"
+              @click.stop="showDeleteVideoDialog(item)"
+              outlined
+            )
+              v-icon(left size="20") {{ icons['mdiDelete'] }}
+              span 삭제
 
       div(v-for="room in rooms" :key="room" v-if="!listMode && ((room === 'Standard' && cameras.find((cam) => cam.settings.room === room)) || room !== 'Standard')")
         .tw-mt-7(v-if="room !== 'Standard'")
@@ -57,18 +101,116 @@
     showCaption
     disableScroll
   )
-  
+
+  // 영상 추가/수정 다이얼로그
+  v-dialog(
+    v-model="addVideoDialog"
+    max-width="800"
+    persistent
+  )
+    v-card.add-video-dialog
+      v-card-title.dialog-title
+        .tw-flex.tw-items-center.tw-w-full
+          v-icon.tw-mr-3(color="var(--cui-primary)" size="32") {{ icons['mdiVideo'] }}
+          .tw-flex.tw-flex-col
+            .title-text {{ isEditMode ? '열화상 영상 수정' : '열화상 영상 추가' }}
+            .subtitle-text.tw-mt-1 {{ isEditMode ? '열화상 카메라 정보를 수정합니다' : '새로운 열화상 카메라를 추가합니다' }}
+      v-card-text.dialog-content
+        .tw-flex.tw-items-center.tw-justify-center.tw-absolute.tw-inset-0.tw-z-10.tw-bg-white.tw-bg-opacity-80(v-if="isProcessing")
+          v-progress-circular(indeterminate color="var(--cui-primary)")
+        v-form(ref="form" v-model="valid")
+          .form-group
+            .input-label 영상 제목
+            v-text-field(
+              v-model="videoTitle"
+              placeholder="영상의 제목을 입력해주세요"
+              :rules="[v => !!v || '영상 제목을 입력해주세요']"
+              outlined
+              hide-details="auto"
+              class="url-input"
+              :disabled="isProcessing"
+            )
+          .form-group
+            .input-label 열화상 주소
+            v-text-field(
+              v-model="videoUrl"
+              placeholder="rtsp://username:password@camera-ip:port/stream"
+              :rules="[v => !!v || '열화상 주소를 입력해주세요']"
+              outlined
+              hide-details="auto"
+              class="url-input"
+              :disabled="isProcessing"
+            )
+            .input-helper.tw-mt-2 RTSP 스트리밍 주소를 입력해주세요
+      v-card-actions.dialog-actions
+        v-spacer
+        v-btn.cancel-btn(
+          outlined
+          @click="closeAddVideoDialog"
+          :disabled="isProcessing"
+        ) 취소
+        v-btn.confirm-btn(
+          color="var(--cui-primary)"
+          :disabled="!valid || isProcessing"
+          @click="addVideo"
+        ) 
+          v-progress-circular.tw-mr-2(
+            v-if="isProcessing"
+            indeterminate
+            size="20"
+            width="2"
+            color="white"
+          )
+          v-icon.tw-mr-2(v-else size="20") {{ isEditMode ? icons['mdiContentSave'] : icons['mdiPlus'] }}
+          span {{ isEditMode ? '수정하기' : '추가하기' }}
+
+  // 영상 삭제 다이얼로그
+  v-dialog(
+    v-model="deleteVideoDialog"
+    max-width="800"
+    persistent
+  )
+    v-card.add-video-dialog
+      v-card-title.dialog-title
+        .tw-flex.tw-items-center.tw-w-full
+          v-icon.tw-mr-3(color="var(--cui-primary)" size="32") {{ icons['mdiVideo'] }}
+          .tw-flex.tw-flex-col
+            .title-text 열화상 영상 삭제
+      v-card-text.dialog-content
+        .tw-flex.tw-items-center.tw-justify-center.tw-absolute.tw-inset-0.tw-z-10.tw-bg-white.tw-bg-opacity-80(v-if="isProcessing")
+          v-progress-circular(indeterminate color="var(--cui-primary)")
+        .tw-text-lg.tw-text-gray-700 {{ selectedCamera ? selectedCamera.name : '' }} 열화상 영상을 삭제 하시겠습니까?
+      v-card-actions.dialog-actions
+        v-spacer
+        v-btn.cancel-btn(
+          outlined
+          @click="closeDeleteVideoDialog"
+          :disabled="isProcessing"
+        ) 취소
+        v-btn.confirm-btn(
+          color="error"
+          @click="deleteVideo"
+          :disabled="isProcessing"
+        ) 
+          v-progress-circular.tw-mr-2(
+            v-if="isProcessing"
+            indeterminate
+            size="20"
+            width="2"
+            color="white"
+          )
+          span(v-else) 삭제
 </template>
 
 <script>
 import LightBox from 'vue-it-bigger';
 import 'vue-it-bigger/dist/vue-it-bigger.min.css';
 import InfiniteLoading from 'vue-infinite-loading';
-import { mdiCircle, mdiPlus, mdiFormatListBulleted, mdiViewModule } from '@mdi/js';
+import { mdiCircle, mdiPlus, mdiFormatListBulleted, mdiViewModule, mdiVideo, mdiDelete, mdiPencil, mdiContentSave } from '@mdi/js';
 import VueAspectRatio from 'vue-aspect-ratio';
 
 import { getSetting } from '@/api/settings.api';
-import { getCameras, getCameraSettings } from '@/api/cameras.api';
+import { getCameras, getCameraSettings, addCamera, removeCamera } from '@/api/cameras.api';
 import { getNotifications } from '@/api/notifications.api';
 
 import FilterCard from '@/components/filter.vue';
@@ -100,6 +242,10 @@ export default {
       mdiPlus,
       mdiFormatListBulleted,
       mdiViewModule,
+      mdiVideo,
+      mdiDelete,
+      mdiPencil,
+      mdiContentSave,
     },
 
     cameras: [],
@@ -171,11 +317,48 @@ export default {
         class: 'tw-pl-3 tw-pr-1',
         cellClass: 'tw-pl-3 tw-pr-1',
       },
+      {
+        text: '',
+        value: 'actions',
+        align: 'end',
+        sortable: false,
+        width: '100px',
+      },
     ],
 
     oldSelected: false,
     listMode: false,
     showListOptions: true,
+
+    addVideoDialog: false,
+    deleteVideoDialog: false,
+    selectedCamera: null,
+    videoUrl: '',
+    videoTitle: '',
+    valid: true,
+    isEditMode: false,
+    originalName: '',
+    isProcessing: false,
+    cam: {
+        name: '',
+        motionTimeout: 15,
+        recordOnMovement: false,
+        prebuffering: false,
+        videoConfig: {
+          source: '',
+          stillImageSource: '',
+          stimeout: 10,
+          audio: false,
+          debug: false,
+        },
+        mqtt: {},
+        smtp: {
+          email: '',
+        },
+        videoanalysis: {
+          active: false,
+        },
+      },
   }),
 
   beforeDestroy() {
@@ -185,6 +368,7 @@ export default {
   },
 
   async mounted() {
+    localStorage.setItem('listModeCameras', '2');
     const response = await getSetting('general');
     this.rooms = response.data.rooms;
     this.listMode = this.oldSelected = localStorage.getItem('listModeCameras') === '1';
@@ -296,6 +480,126 @@ export default {
             document.documentElement.clientWidth ||
             document.getElementsByTagName('body')[0].clientWidth;
     },
+    showAddVideoDialog() {
+      this.isEditMode = false;
+      this.videoTitle = '';
+      this.videoUrl = '';
+      this.addVideoDialog = true;
+    },
+    showEditVideoDialog(camera) {
+      this.isEditMode = true;
+      this.originalName = camera.name;
+      this.videoTitle = camera.name;
+      this.videoUrl = camera.videoConfig.source.split('-i ')[1];
+      this.addVideoDialog = true;
+    },
+    closeAddVideoDialog() {
+      if (!this.isProcessing) {
+        this.addVideoDialog = false;
+        this.videoUrl = '';
+        this.videoTitle = '';
+        this.valid = true;
+        this.isEditMode = false;
+        this.originalName = '';
+      }
+    },
+    async addVideo() {
+      if (this.valid && this.$refs.form.validate()) {
+        try {
+          this.isProcessing = true;  // 로딩 시작
+          
+          // 입력값 검증
+          if (!this.videoTitle || !this.videoTitle.trim()) {
+            throw new Error('영상 제목을 입력해주세요');
+          }
+          if (!this.videoUrl || !this.videoUrl.trim()) {
+            throw new Error('영상 주소를 입력해주세요');
+          }
+
+          const camera = {
+            name: this.videoTitle.trim(),
+            motionTimeout: 15,
+            recordOnMovement: false,
+            prebuffering: false,
+            videoConfig: {
+              source: `-i ${this.videoUrl.trim()}`,
+              subSource: `-i ${this.videoUrl.trim()}`,
+              stillImageSource: `-i ${this.videoUrl.trim()}`,
+              stimeout: 10,
+              audio: null,
+              debug: null,
+              rtspTransport: 'tcp',
+              vcodec: 'mp4',
+              acodec: null
+            },
+            mqtt: {},
+            smtp: {
+              email: this.videoTitle.trim()
+            },
+            videoanalysis: {
+              active: false
+            }
+          };
+
+          if (this.isEditMode) {
+            // 기존 카메라 삭제 후 새로운 정보로 추가
+            await removeCamera(this.originalName);
+            await addCamera(camera);
+            this.$toast.success('카메라가 성공적으로 수정되었습니다.');
+          } else {
+            await addCamera(camera);
+            this.$toast.success('카메라가 성공적으로 추가되었습니다.');
+          }
+          
+          // 카메라 리스트 새로고침
+          this.cameras = [];
+          this.page = 1;
+          this.infiniteId = Date.now();
+          
+          this.closeAddVideoDialog();
+        } catch (err) {
+          console.log(err);
+          this.$toast.error(err.message || (this.isEditMode ? '카메라 수정 중 오류가 발생했습니다.' : '카메라 추가 중 오류가 발생했습니다.'));
+        } finally {
+          this.isProcessing = false;  // 로딩 종료
+        }
+      }
+    },
+    goToVideoView() {
+      this.changeListView(2);
+    },
+    goToMonitoring() {
+      this.changeListView(1);
+    },
+    showDeleteVideoDialog(camera) {
+      this.selectedCamera = camera;
+      this.deleteVideoDialog = true;
+    },
+    closeDeleteVideoDialog() {
+      if (!this.isProcessing) {
+        this.deleteVideoDialog = false;
+        this.selectedCamera = null;
+      }
+    },
+    async deleteVideo() {
+      try {
+        this.isProcessing = true;  // 로딩 시작
+        await removeCamera(this.selectedCamera.name);
+        this.$toast.success('카메라가 성공적으로 삭제되었습니다.');
+        
+        // 카메라 리스트 새로고침
+        this.cameras = [];
+        this.page = 1;
+        this.infiniteId = Date.now();
+        
+        this.closeDeleteVideoDialog();
+      } catch (err) {
+        console.log(err);
+        this.$toast.error(err.message || '카메라 삭제 중 오류가 발생했습니다.');
+      } finally {
+        this.isProcessing = false;  // 로딩 종료
+      }
+    },
   },
 };
 </script>
@@ -308,11 +612,236 @@ export default {
   line-height: 1.5 !important;
 }
 
+.add-video-btn {
+  height: 48px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  border-radius: 12px !important;
+  background: #FFFFFF !important;
+  border: 2px solid #E2E8F0 !important;
+  box-shadow: 0 2px 4px rgba(148, 163, 184, 0.05) !important;
+  transition: all 0.2s ease !important;
+  padding: 0 32px !important;
+  min-width: 280px !important;
+  margin-right: 20px !important;
+}
+
+.add-video-btn:hover {
+  transform: translateY(-1px);
+  background: #FFFFFF !important;
+  border-color: var(--cui-primary) !important;
+  box-shadow: 0 4px 6px rgba(148, 163, 184, 0.1) !important;
+}
+
+.add-video-btn:active {
+  transform: translateY(0px);
+  background: #F8FAFC !important;
+  border-color: var(--cui-primary) !important;
+  box-shadow: 0 1px 2px rgba(148, 163, 184, 0.05) !important;
+}
+
+.add-video-btn .v-icon {
+  transition: transform 0.2s ease;
+  color: #64748B !important;
+}
+
+.add-video-btn:hover .v-icon {
+  transform: rotate(90deg);
+  color: var(--cui-primary) !important;
+}
+
+.add-video-btn span {
+  font-size: 0.95rem !important;
+  color: #1E293B !important;
+}
+
+.add-video-btn:hover span {
+  color: var(--cui-primary) !important;
+}
+
+.add-video-dialog {
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1) !important;
+}
+
+.dialog-title {
+  background-color: #f8fafc;
+  padding: 32px !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.title-text {
+  font-size: 1.5rem !important;
+  font-weight: 700 !important;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.subtitle-text {
+  font-size: 1rem !important;
+  color: #64748b;
+}
+
+.dialog-content {
+  padding: 32px !important;
+  background-color: #ffffff;
+}
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.input-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.input-helper {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.url-input {
+  margin-top: 4px !important;
+}
+
+.url-input >>> .v-input__slot {
+  min-height: 52px !important;
+  border-color: #e2e8f0 !important;
+}
+
+.url-input >>> .v-input__slot:hover {
+  border-color: var(--cui-primary) !important;
+}
+
+.dialog-actions {
+  padding: 24px 32px !important;
+  border-top: 1px solid #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.cancel-btn {
+  height: 44px !important;
+  min-width: 120px !important;
+  margin-right: 12px !important;
+  border: 2px solid #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+.cancel-btn:hover {
+  border-color: #cbd5e1 !important;
+  background-color: #f1f5f9 !important;
+}
+
+.confirm-btn {
+  height: 44px !important;
+  min-width: 140px !important;
+  font-weight: 600 !important;
+}
+
+.confirm-btn:not(:disabled) {
+  background: linear-gradient(45deg, var(--cui-primary), #2196F3) !important;
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2) !important;
+}
+
+.confirm-btn:disabled {
+  opacity: 0.7;
+}
+
 .header {
   display: flex;
 }
 
 div >>> .v-data-table-header__icon {
   display: none;
+}
+
+.tab-bar-container {
+  border: 1px solid rgba(var(--cui-bg-nav-border-rgb));
+  width: 600px;
+}
+
+.tab-item {
+  border-radius: 6px;
+  width: 300px;
+  justify-content: center;
+}
+
+.tab-item.tw-bg-white {
+  color: var(--cui-primary);
+}
+
+.text-primary {
+  color: var(--cui-primary) !important;
+}
+
+.edit-btn {
+  height: 36px !important;
+  min-width: 90px !important;
+  border: 2px solid #3b82f6 !important;
+  text-transform: none !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: normal !important;
+  border-radius: 8px !important;
+  color: #3b82f6 !important;
+  background: #f0f7ff !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1) !important;
+}
+
+.edit-btn:hover {
+  background: #3b82f6 !important;
+  border-color: #2563eb !important;
+  color: white !important;
+  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2) !important;
+}
+
+.edit-btn:hover .v-icon {
+  color: white !important;
+}
+
+.edit-btn:active {
+  background: #2563eb !important;
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1) !important;
+}
+
+.edit-btn .v-icon {
+  margin-right: 4px !important;
+  color: #3b82f6 !important;
+}
+
+.delete-btn {
+  height: 36px !important;
+  min-width: 90px !important;
+  border: 2px solid #ef4444 !important;
+  text-transform: none !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: normal !important;
+  border-radius: 8px !important;
+  color: #ef4444 !important;
+  background: white !important;
+  transition: all 0.2s ease !important;
+}
+
+.delete-btn:hover {
+  background: #fef2f2 !important;
+  border-color: #dc2626 !important;
+  color: #dc2626 !important;
+}
+
+.delete-btn:active {
+  background: #fee2e2 !important;
+  transform: translateY(1px);
+}
+
+.delete-btn .v-icon {
+  margin-right: 4px !important;
 }
 </style>

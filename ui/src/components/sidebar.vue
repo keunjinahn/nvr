@@ -5,10 +5,10 @@
       img.tw-w-full.tw-h-full.tw-object-contain(:src="require('@/assets/img/logo.png')" title="NVR" alt="camera.ui")
   
   .tw-flex.tw-flex-col.tw-h-full.tw-items-center.tw-pt-6(key="nav")
-    .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items(v-for="point in filteredNavigation" :key="point.name")
-      v-btn.tw-justify-center.sidebar-nav-item(@click="hideNavi" :to="point.redirect || point.to" active-class="sidebar-nav-item-active" :class="$route.path === point.to || $route.path.split('/')[1] === point.to.replace('/', '') || ($route.name === point.name && !$route.meta.child) ? 'sidebar-nav-item-active v-btn--active' : ''" plain block tile)
-        v-icon(height="28px" width="28px") {{ icons[point.icon] }}
-        span.sidebar-nav-item-text {{ point.name }}
+    .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items
+      v-btn.tw-justify-center.sidebar-nav-item(@click="$router.push('/cameras')" active-class="sidebar-nav-item-active" :class="$route.path === '/cameras' || $route.path.startsWith('/cameras/') ? 'sidebar-nav-item-active v-btn--active' : ''" plain block tile)
+        v-icon(height="28px" width="28px") {{ icons['mdi-video'] }}
+        span.sidebar-nav-item-text 영상관리
     
     .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items(v-for="menu in additionalMenus" :key="menu.name")
       v-btn.tw-justify-center.sidebar-nav-item(@click="showPreparingMessage" plain block tile)
@@ -19,6 +19,26 @@
       v-btn.tw-justify-center.sidebar-nav-item.logout-btn(@click="signout" plain block tile)
         v-icon(height="28px" width="28px") {{ icons['mdi-logout'] }}
         span.sidebar-nav-item-text {{ $t('signout') }}
+
+  v-dialog(
+    v-model="dialog"
+    max-width="400"
+    persistent
+  )
+    v-card.preparing-dialog
+      v-card-title.dialog-title
+        v-icon.mr-2(color="var(--cui-primary)" size="28") {{ icons['mdi-alert-circle'] }}
+        span 준비중
+      v-card-text.dialog-content
+        .message-text 현재 기능 준비중입니다.
+        .sub-message-text 빠른 시일 내에 서비스하도록 하겠습니다.
+      v-card-actions.dialog-actions
+        v-spacer
+        v-btn(
+          color="var(--cui-primary)"
+          text
+          @click="dialog = false"
+        ) 확인
 </template>
 
 <script>
@@ -40,6 +60,7 @@ export default {
         'mdi-alert': mdiBell,
         'mdi-account': mdiAccountGroup,
       },
+      dialog: false,
       additionalMenus: [
         { name: '녹화관리', icon: 'mdi-record' },
         { name: '계측관리', icon: 'mdi-ruler' },
@@ -64,7 +85,7 @@ export default {
 
   computed: {
     filteredNavigation() {
-      return this.navigation.filter(item => item.name === 'Dashboard').map(item => ({
+      return this.navigation.filter(item => item.name === 'carames').map(item => ({
         ...item,
         name: '영상관리'
       }));
@@ -81,7 +102,7 @@ export default {
       this.$router.push('/');
     },
     showPreparingMessage() {
-      this.$vuetify.dialog.message.info('현재 기능 준비중입니다.');
+      this.dialog = true;
     },
   },
 };
@@ -191,5 +212,47 @@ export default {
   .main-navi-show {
     transform: translateX(0);
   }
+}
+
+.preparing-dialog {
+  border-radius: 12px !important;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1) !important;
+}
+
+.dialog-title {
+  background-color: #f8f9fa;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  padding: 20px 24px !important;
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+}
+
+.dialog-content {
+  padding: 24px !important;
+}
+
+.message-text {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: #2c3e50;
+  margin-bottom: 8px;
+}
+
+.sub-message-text {
+  font-size: 0.95rem;
+  color: #6c757d;
+}
+
+.dialog-actions {
+  padding: 16px 24px !important;
+  border-top: 1px solid #edf2f7;
+}
+
+.v-btn {
+  text-transform: none !important;
+  font-weight: 600 !important;
+  font-size: 0.95rem !important;
+  padding: 0 20px !important;
 }
 </style>
