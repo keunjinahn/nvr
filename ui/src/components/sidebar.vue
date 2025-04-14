@@ -11,7 +11,13 @@
         span.sidebar-nav-item-text 영상관리
     
     .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items(v-for="menu in additionalMenus" :key="menu.name")
-      v-btn.tw-justify-center.sidebar-nav-item(@click="showPreparingMessage" plain block tile)
+      v-btn.tw-justify-center.sidebar-nav-item(
+        @click="menu.route ? $router.push(menu.route) : showPreparingMessage"
+        :class="menu.route && $route.path === menu.route ? 'sidebar-nav-item-active v-btn--active' : ''"
+        plain 
+        block 
+        tile
+      )
         v-icon(height="28px" width="28px") {{ icons[menu.icon] }}
         span.sidebar-nav-item-text {{ menu.name }}
     
@@ -62,7 +68,7 @@ export default {
       },
       dialog: false,
       additionalMenus: [
-        { name: '녹화관리', icon: 'mdi-record' },
+        { name: '녹화관리', icon: 'mdi-record', route: '/recordings' },
         { name: '계측관리', icon: 'mdi-ruler' },
         { name: '경보관리', icon: 'mdi-alert' },
         { name: '사용자관리', icon: 'mdi-account' },

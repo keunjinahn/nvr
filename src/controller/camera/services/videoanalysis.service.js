@@ -44,6 +44,18 @@ const DEFAULT_ZONE = [
   },
 ];
 
+const recordingScheduleSchema = {
+  id: { type: 'number', autoIncrement: true, primaryKey: true },
+  cameraName: { type: 'string', required: true },
+  startTime: { type: 'string', required: true }, // HH:mm format
+  endTime: { type: 'string', required: true }, // HH:mm format
+  days: { type: 'array', items: 'number', required: true }, // [0-6] for Sunday to Saturday
+  recordingType: { type: 'string', enum: ['Video', 'Snapshot'], required: true },
+  isActive: { type: 'boolean', default: true },
+  createdAt: { type: 'datetime', defaultFn: 'now' },
+  updatedAt: { type: 'datetime', defaultFn: 'now' }
+};
+
 export default class VideoAnalysisService {
   #camera;
   #controller;
@@ -270,10 +282,10 @@ export default class VideoAnalysisService {
       'pipe:1',
     ];
 
-    log.debug(
-      `Videoanalysis command: ${ConfigService.ui.options.videoProcessor} ${ffmpegArguments.join(' ')}`,
-      this.cameraName
-    );
+    // log.debug(
+    //   `Videoanalysis command: ${ConfigService.ui.options.videoProcessor} ${ffmpegArguments.join(' ')}`,
+    //   this.cameraName
+    // );
 
     let errors = [];
 
@@ -354,8 +366,8 @@ export default class VideoAnalysisService {
       }
 
       if (this.motionEventTimeout) {
-        log.debug(`New motion detected, resetting motion in ${pamDiff.dwellTime}s..`, this.cameraName);
-        log.debug(`Motion data: ${JSON.stringify(event)}}`, this.cameraName);
+        // log.debug(`New motion detected, resetting motion in ${pamDiff.dwellTime}s..`, this.cameraName);
+        // log.debug(`Motion data: ${JSON.stringify(event)}}`, this.cameraName);
 
         clearTimeout(this.motionEventTimeout);
         this.motionEventTimeout = null;
@@ -424,8 +436,7 @@ export default class VideoAnalysisService {
 
   async #triggerMotion(state, data) {
     log.info(
-      `New message: Data: ${JSON.stringify(data)} - Motion: ${state ? 'detected' : 'resetted'} - Camera: ${
-        this.cameraName
+      `New message: Data: ${JSON.stringify(data)} - Motion: ${state ? 'detected' : 'resetted'} - Camera: ${this.cameraName
       }`,
       'VIDEOANALYSIS'
     );
@@ -504,10 +515,10 @@ export default class VideoAnalysisService {
       })
       .filter((zone) => zone?.polygon?.length > 2);
 
-    log.debug(
-      `Videoanalysis: Difference: ${dif} - Sensitivity: ${sens} - Zones: ${JSON.stringify(regions)}`,
-      this.cameraName
-    );
+    // log.debug(
+    //   `Videoanalysis: Difference: ${dif} - Sensitivity: ${sens} - Zones: ${JSON.stringify(regions)}`,
+    //   this.cameraName
+    // );
 
     return regions;
   }

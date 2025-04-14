@@ -157,7 +157,7 @@ export const routes = [
         icon: 'mdi-image-multiple',
       },
     },
-    component: () => import(/* webpackChunkName: "recordings" */ '@/views/Recordings/Recordings.vue'),
+    component: () => import(/* webpackChunkName: "recordings" */ '@/views/Recordings/RecodingsManager.vue'),
   },
   {
     path: '/camview',

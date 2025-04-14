@@ -18,17 +18,17 @@ export default class Ping {
       return false;
     }
 
-    log.debug(`Incoming ping request for: ${cameraSource} - Timeout: ${timeout}s`, camera.name);
+    //log.debug(`Incoming ping request for: ${cameraSource} - Timeout: ${timeout}s`, camera.name);
 
     //for local cameras eg "-i /dev/video0"
-    if (cameraSource.startsWith('/')) {
-      log.debug(`Pinging ${cameraSource} - successfull`, camera.name);
-      return true;
-    }
+    // if (cameraSource.startsWith('/')) {
+    //   log.debug(`Pinging ${cameraSource} - successfull`, camera.name);
+    //   return true;
+    // }
 
     const url = new URL(cameraSource);
 
-    log.debug(`Pinging ${url.hostname}:${url.port || 80}`, camera.name);
+    // log.debug(`Pinging ${url.hostname}:${url.port || 80}`, camera.name);
 
     let available = false;
 
@@ -54,7 +54,7 @@ export default class Ping {
       available = response && response.alive;
     }
 
-    log.debug(`Pinging ${url.hostname}:${url.port || 80} - ${available ? 'successful' : 'failed'}`, camera.name);
+    // log.debug(`Pinging ${url.hostname}:${url.port || 80} - ${available ? 'successful' : 'failed'}`, camera.name);
 
     return available;
   }

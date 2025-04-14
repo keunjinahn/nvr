@@ -23,6 +23,12 @@ module.exports = {
         }
         : false,
     port: 9092,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:9092',
+        changeOrigin: true
+      }
+    }
   },
   outputDir: path.resolve(__dirname, '../interface'),
   productionSourceMap: false,

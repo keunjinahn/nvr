@@ -30,6 +30,7 @@ const defaultDatabase = {
   cameras: [],
   notifications: [],
   users: [],
+  schedules: [],
   settings: {
     aws: {
       active: false,
@@ -441,6 +442,10 @@ export default class Database {
 
     if (!Array.isArray(database?.users)) {
       database.users = defaultDatabase.users;
+    }
+
+    if (!Array.isArray(database?.schedules)) {
+      database.schedules = defaultDatabase.schedules;
     }
 
     if (typeof database?.settings !== 'object') {

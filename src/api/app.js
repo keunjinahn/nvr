@@ -33,6 +33,7 @@ import * as SettingsRouter from './components/settings/settings.routes.js';
 import * as SubscribeRouter from './components/subscribe/subscribe.routes.js';
 import * as SystemRouter from './components/system/system.routes.js';
 import * as UsersRouter from './components/users/users.routes.js';
+import * as SchedulesRouter from './components/schedules/schedules.routes.js';
 
 const { log } = LoggerService;
 
@@ -43,6 +44,22 @@ const specs = swaggerJsdoc(swaggerOptions);
 
 export default class App {
   constructor(options) {
+    // Initialize LoggerService
+    new LoggerService({
+      log: {
+        prefix: 'camera.ui',
+        info: console.info,
+        warn: console.warn,
+        error: console.error,
+        debug: console.debug
+      }
+    });
+
+    // Set environment variables for logging
+    process.env.CUI_LOG_MODE = options.debug ? '2' : '1';  // 2 for debug, 1 for info
+    process.env.CUI_LOG_COLOR = '1';  // Enable colored logs
+    process.env.CUI_LOG_TIMESTAMPS = '1';  // Enable timestamps
+
     app.use(cors());
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
@@ -97,12 +114,12 @@ export default class App {
             status >= 500
               ? 'redBright'
               : status >= 400
-              ? 'yellowBright'
-              : status >= 300
-              ? 'cyanBright'
-              : status >= 200
-              ? 'greenBright'
-              : 'gray';
+                ? 'yellowBright'
+                : status >= 300
+                  ? 'cyanBright'
+                  : status >= 200
+                    ? 'greenBright'
+                    : 'gray';
 
           return [
             chalk.gray(tokens.method(req, res)),
@@ -148,6 +165,10 @@ export default class App {
     SubscribeRouter.routesConfig(app);
     SystemRouter.routesConfig(app);
     UsersRouter.routesConfig(app);
+
+    log.info('Registering schedules routes...', 'App');
+    SchedulesRouter.routesConfig(app);
+    log.info('Schedules routes registered', 'App');
 
     app.get('/version', (req, res) => {
       res.status(200).send({

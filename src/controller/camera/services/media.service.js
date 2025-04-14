@@ -55,7 +55,7 @@ export default class MediaService {
         ...this.#camera.videoConfig.source.split(/\s+/),
       ];
 
-      log.debug(`Probe stream: ${ConfigService.ui.options.videoProcessor} ${arguments_.join(' ')}`, this.cameraName);
+      //log.debug(`Probe stream: ${ConfigService.ui.options.videoProcessor} ${arguments_.join(' ')}`, this.cameraName);
 
       let cp = spawn(ConfigService.ui.options.videoProcessor, arguments_, {
         env: process.env,

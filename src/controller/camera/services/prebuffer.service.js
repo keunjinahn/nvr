@@ -557,10 +557,10 @@ export default class PrebufferService {
       `${mp4Arguments}|${mpegtsArguments}`,
     ];
 
-    log.debug(
-      `Prebuffering command: ${ConfigService.ui.options.videoProcessor} ${arguments_.join(' ')}`,
-      this.cameraName
-    );
+    // log.debug(
+    //   `Prebuffering command: ${ConfigService.ui.options.videoProcessor} ${arguments_.join(' ')}`,
+    //   this.cameraName
+    // );
 
     let errors = [];
 
