@@ -31,6 +31,7 @@ const defaultDatabase = {
   notifications: [],
   users: [],
   schedules: [],
+  recordingHistory: [],
   settings: {
     aws: {
       active: false,

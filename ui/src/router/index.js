@@ -157,7 +157,30 @@ export const routes = [
         icon: 'mdi-image-multiple',
       },
     },
-    component: () => import(/* webpackChunkName: "recordings" */ '@/views/Recordings/RecodingsManager.vue'),
+    component: () => import(/* webpackChunkName: "recordings" */ '@/views/Recordings/RecodingMgr.vue'),
+  },
+  {
+    path: '/recordings2',
+    name: 'Recordings2',
+    meta: {
+      auth: {
+        requiresAuth: true,
+        requiredLevel: ['recordings:access'],
+      },
+      config: {
+        fixedNavbar: true,
+        showFooter: true,
+        showNavbar: true,
+        showSidebar: true,
+      },
+      navigation: {
+        main: true,
+        icon: 'mdi-image-multiple',
+        title: '녹화관리2',
+        parent: 'recordings:access'
+      },
+    },
+    component: () => import(/* webpackChunkName: "recordings2" */ '@/views/Recordings/RecodingMgr.vue'),
   },
   {
     path: '/camview',
