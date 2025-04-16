@@ -33,7 +33,7 @@ v-card.card.fill-height.video-card.tw-overflow-hidden.tw-flex.tw-flex-col(v-else
 /* eslint-disable vue/require-default-prop */
 import { mdiClockTimeNineOutline, mdiDownload, mdiTrashCan } from '@mdi/js';
 import { saveAs } from 'file-saver';
-
+import { getVideoThumbnail } from '@/api/recordingService.api';
 import { removeRecording } from '@/api/recordings.api';
 
 export default {
@@ -57,9 +57,7 @@ export default {
         url: '/files/' + this.recording.fileName,
       },
       removing: false,
-      src: `/files/${
-        this.recording.recordType === 'Video' ? `${this.recording.name}@2.jpeg` : this.recording.fileName
-      }`,
+      src: null,
       selected: false,
     };
   },
@@ -72,11 +70,32 @@ export default {
     },
   },
 
-  mounted() {
+  async mounted() {
     this.selected = this.selectedItems.some((item) => item.id === this.recording.id);
+    await this.loadThumbnail();
   },
 
   methods: {
+    async loadThumbnail() {
+      try {
+        if (this.recording.recordType === 'Video') {
+          const thumbnailUrl = await getVideoThumbnail(this.recording.id);
+          this.src = thumbnailUrl || '/assets/images/no-thumbnail.jpg';
+        } else {
+          this.src = `/files/${this.recording.fileName}`;
+        }
+      } catch (error) {
+        console.error('Error loading thumbnail:', error);
+        this.src = '/assets/images/no-thumbnail.jpg';
+      }
+    },
+
+    handleErrorImg() {
+      this.errorImg = true;
+      // Set a default placeholder image or error state
+      this.src = '/assets/images/no-thumbnail.jpg';
+    },
+
     download({ url, fileName }) {
       this.downloading = true;
 
@@ -125,10 +144,6 @@ export default {
       document.body.removeChild(link);
 
       downloadFinished();
-    },
-    handleErrorImg() {
-      this.errorImg = true;
-      this.src = require('../assets/img/logo.png');
     },
     async remove() {
       this.removing = true;

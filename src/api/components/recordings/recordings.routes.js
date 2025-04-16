@@ -1,6 +1,7 @@
 'use-strict';
 
 import * as RecordingsController from './recordings.controller.js';
+import * as RecordingsModel from './recordings.model.js';
 
 import * as PaginationMiddleware from '../../middlewares/pagination.middleware.js';
 import * as PermissionMiddleware from '../../middlewares/auth.permission.middleware.js';
@@ -14,6 +15,11 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
+import moment from 'moment-timezone';
+import { createHash } from 'crypto';
+import ConfigService from '../../../services/config/config.service.js';
+import { execAsync } from '../../utils/execAsync.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const logger = new LoggerService();
 
@@ -28,44 +34,90 @@ const RECORDINGS_DIR = resolve(process.env.CUI_STORAGE_PATH || 'storage', 'recor
 // 썸네일 디렉토리가 없으면 생성
 if (!fs.existsSync(THUMBNAIL_DIR)) {
   fs.mkdirSync(THUMBNAIL_DIR, { recursive: true });
+  logger.info('Created thumbnail directory:', THUMBNAIL_DIR);
 }
 
-// FFmpeg를 사용하여 비디오의 첫 프레임을 추출하는 함수
-const generateThumbnail = async (videoPath, thumbnailPath) => {
-  return new Promise((resolve, reject) => {
-    logger.debug('Generating thumbnail', { videoPath, thumbnailPath });
+async function findLatestVideoFile(directoryPath) {
+  try {
+    const files = await fs.promises.readdir(directoryPath);
+    const videoFiles = files
+      .filter(file => file.endsWith('.mp4') || file.endsWith('.avi'))
+      .map(file => ({
+        name: file,
+        path: path.join(directoryPath, file),
+        stat: fs.statSync(path.join(directoryPath, file))
+      }))
+      .sort((a, b) => b.stat.mtime.getTime() - a.stat.mtime.getTime());
 
-    const ffmpeg = spawn('ffmpeg', [
-      '-i', videoPath,           // 입력 비디오 파일
-      '-vf', 'select=eq(n\\,0)', // 첫 프레임 선택
-      '-vframes', '1',           // 1프레임만 추출
-      '-y',                      // 기존 파일 덮어쓰기
-      thumbnailPath             // 출력 썸네일 파일
-    ]);
+    return videoFiles.length > 0 ? videoFiles[0] : null;
+  } catch (error) {
+    logger.error(`Error finding latest video file: ${error.message}`);
+    return null;
+  }
+}
 
-    ffmpeg.stderr.on('data', (data) => {
-      logger.debug(`FFmpeg stderr: ${data}`);
-    });
+async function generateThumbnail(videoPath, thumbnailPath) {
+  try {
+    // 비디오 파일 존재 확인
+    if (!fs.existsSync(videoPath)) {
+      logger.error(`Video file not found at path: ${videoPath}`);
+      return false;
+    }
 
-    ffmpeg.on('close', (code) => {
-      if (code === 0) {
-        logger.info('Thumbnail generated successfully', { thumbnailPath });
-        resolve(thumbnailPath);
-      } else {
-        reject(new Error(`FFmpeg process exited with code ${code}`));
-      }
-    });
+    // 썸네일 디렉토리 생성
+    const thumbnailDir = path.dirname(thumbnailPath);
+    if (!fs.existsSync(thumbnailDir)) {
+      fs.mkdirSync(thumbnailDir, { recursive: true });
+      logger.debug(`Created thumbnail directory: ${thumbnailDir}`);
+    }
 
-    ffmpeg.on('error', (err) => {
-      logger.error('FFmpeg process error:', err);
-      reject(err);
-    });
-  });
-};
+    // 비디오 중간 지점에서 프레임 추출 (더 의미있는 썸네일을 위해)
+    const ffmpegCmd = `ffmpeg -i "${videoPath}" -vf "select=eq(n\\,100),scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2,setsar=1" -frames:v 1 -q:v 2 "${thumbnailPath}" -y`;
+    logger.debug(`Executing FFmpeg command: ${ffmpegCmd}`);
 
-// 비디오 파일 경로 생성 함수
-const getVideoPath = (cameraName, recordingDate) => {
-  return path.join(RECORDINGS_DIR, cameraName, recordingDate);
+    await execAsync(ffmpegCmd);
+
+    // 썸네일 생성 시간 메타데이터 저장
+    const thumbnailMeta = {
+      videoMtime: fs.statSync(videoPath).mtime.getTime(),
+      generatedAt: Date.now()
+    };
+    await fs.promises.writeFile(
+      `${thumbnailPath}.meta`,
+      JSON.stringify(thumbnailMeta),
+      'utf8'
+    );
+
+    logger.info(`Successfully generated thumbnail at: ${thumbnailPath}`);
+    return true;
+  } catch (error) {
+    logger.error(`Failed to generate thumbnail: ${error.message}`);
+    return false;
+  }
+}
+
+async function shouldRegenerateThumbnail(videoPath, thumbnailPath) {
+  try {
+    if (!fs.existsSync(thumbnailPath)) return true;
+
+    const metaPath = `${thumbnailPath}.meta`;
+    if (!fs.existsSync(metaPath)) return true;
+
+    const meta = JSON.parse(await fs.promises.readFile(metaPath, 'utf8'));
+    const videoMtime = fs.statSync(videoPath).mtime.getTime();
+
+    return videoMtime > meta.videoMtime;
+  } catch (error) {
+    logger.error(`Error checking thumbnail regeneration: ${error.message}`);
+    return true;
+  }
+}
+
+// 비디오 파일 경로 생성 함수 개선
+const getVideoPath = (cameraName, date) => {
+  const recordingPath = resolve(RECORDINGS_DIR, cameraName, date);
+  logger.debug('Generated video path:', recordingPath);
+  return recordingPath;
 };
 
 /**
@@ -75,12 +127,140 @@ const getVideoPath = (cameraName, recordingDate) => {
  */
 
 export const routesConfig = (app) => {
+  // Express 앱 설정 조정
+  app.set('max-http-header-size', 32768); // 32KB
+
+  // 초기 미들웨어 설정
+  app.use((req, res, next) => {
+    // 모든 요청에 대한 기본 로깅
+    logger.info('Incoming request:', {
+      method: req.method,
+      url: req.url,
+      path: req.path,
+      params: req.params,
+      query: req.query,
+      timestamp: new Date().toISOString()
+    });
+
+    // CORS 헤더 설정
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', [
+      'Origin',
+      'X-Requested-With',
+      'Content-Type',
+      'Accept',
+      'Authorization',
+      'Range',
+      'If-None-Match',
+      'If-Modified-Since'
+    ].join(', '));
+    res.header('Access-Control-Expose-Headers', [
+      'Content-Range',
+      'Accept-Ranges',
+      'Content-Length',
+      'Content-Type',
+      'ETag',
+      'Last-Modified'
+    ].join(', '));
+
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+
+    next();
+  });
+
+  // 비디오 스트리밍 라우트를 가장 먼저 등록
+  logger.info('Registering video streaming routes');
+
+  // 스트리밍 ID 기반 라우트
+  app.get('/api/recordings/stream/:id', async (req, res) => {
+    const requestId = req.headers['x-request-id'] || 'unknown';
+    const startTime = Date.now();
+    const id = req.params.id;
+
+    try {
+      // recordingHistory에서 녹화 정보 찾기
+      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
+      const recording = recordingHistory.find(r => r.id === id);
+
+      if (!recording) {
+        logger.warn(`[${requestId}] Recording not found in history: ${id}`);
+        return res.status(404).json({ error: 'Recording not found' });
+      }
+
+      // 녹화 파일 경로 생성
+      const recordingPath = path.join(
+        ConfigService.recordingsPath,
+        recording.cameraName,
+        recording.startTime.split('T')[0],
+        recording.filename
+      );
+
+      logger.debug(`[${requestId}] Streaming video: ${recordingPath}`);
+
+      if (!fs.existsSync(recordingPath)) {
+        logger.warn(`[${requestId}] Video file not found: ${recordingPath}`);
+        return res.status(404).json({ error: 'Video file not found' });
+      }
+
+      const stat = fs.statSync(recordingPath);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const chunksize = (end - start) + 1;
+        const file = fs.createReadStream(recordingPath, { start, end });
+        const head = {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunksize,
+          'Content-Type': 'video/mp4',
+        };
+        res.writeHead(206, head);
+        file.pipe(res);
+      } else {
+        const head = {
+          'Content-Length': fileSize,
+          'Content-Type': 'video/mp4',
+        };
+        res.writeHead(200, head);
+        fs.createReadStream(recordingPath).pipe(res);
+      }
+
+      const duration = Date.now() - startTime;
+      logger.info(`[${requestId}] Streaming completed in ${duration}ms`);
+
+    } catch (error) {
+      logger.error(`[${requestId}] Error streaming video:`, error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: 'Error streaming video',
+          message: error.message
+        });
+      }
+    }
+  });
+
   logger.info('Initializing recordings routes', {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     appRoutes: Object.keys(app._router.stack)
       .filter(key => app._router.stack[key].route)
       .map(key => app._router.stack[key].route.path)
+  });
+
+  // 헤더 크기 제한 설정
+  app.use((req, res, next) => {
+    // 헤더 크기 제한 증가
+    req.maxHeadersCount = 1000;
+    // 청크 크기 설정
+    req.maxRequestSize = 50 * 1024 * 1024; // 50MB
+    next();
   });
 
   /**
@@ -173,26 +353,7 @@ export const routesConfig = (app) => {
       const startTime = Date.now();
       const requestId = Math.random().toString(36).substring(7);
 
-      logger.info('Recording history request started', {
-        requestId,
-        method: req.method,
-        path: req.path,
-        query: req.query,
-        headers: {
-          'user-agent': req.headers['user-agent'],
-          'x-forwarded-for': req.headers['x-forwarded-for'],
-          'authorization': req.headers['authorization'] ? 'Bearer [REDACTED]' : undefined
-        },
-        timestamp: new Date().toISOString()
-      });
-
       try {
-        logger.debug('Fetching recording history from database', {
-          requestId,
-          database: Database.interfaceDB ? 'connected' : 'disconnected',
-          collection: 'recordingHistory'
-        });
-
         // Check if recordingHistory collection exists
         const recordingHistory = await Database.interfaceDB.chain
           .has('recordingHistory')
@@ -202,7 +363,7 @@ export const routesConfig = (app) => {
           logger.warn('Recording history collection not found', { requestId });
           return res.status(404).json({
             statusCode: 404,
-            message: "Recording history collection not found Recording not exists",
+            message: "Recording history collection not found",
             requestId
           });
         }
@@ -212,50 +373,48 @@ export const routesConfig = (app) => {
           .cloneDeep()
           .value() || [];
 
-        if (!recordings.length) {
-          logger.warn('No recordings found in history', { requestId });
-          return res.status(404).json({
-            statusCode: 404,
-            message: "No recordings found Recording not exists",
-            requestId
-          });
+        // 응답 데이터 준비
+        const responseData = recordings.map(record => ({
+          ...record,
+        }));
+
+        // 최신 기록이 먼저 오도록 정렬
+        recordings.sort((a, b) => b.id - a.id);
+
+        // ETag 생성 (데이터의 해시값)
+        const etag = createHash('md5')
+          .update(JSON.stringify(responseData))
+          .digest('hex');
+
+        // 클라이언트의 ETag와 비교
+        if (req.headers['if-none-match'] === etag) {
+          return res.status(304).end();
         }
+
+        // 캐시 컨트롤 및 ETag 헤더 설정
+        res.set({
+          'ETag': etag,
+          'Cache-Control': 'private, must-revalidate',
+          'Last-Modified': new Date().toUTCString()
+        });
 
         const duration = Date.now() - startTime;
         logger.info('Recording history fetched successfully', {
           requestId,
-          count: recordings.length,
-          duration: `${duration}ms`,
-          memoryUsage: {
-            rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
-            heapTotal: `${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)}MB`,
-            heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`
-          },
-          firstRecord: recordings[0] ? {
-            cameraName: recordings[0].cameraName,
-            startTime: recordings[0].startTime,
-            status: recordings[0].status
-          } : null
+          count: responseData.length,
+          duration: `${duration}ms`
         });
 
-        res.json(recordings);
+        return res.json(responseData);
       } catch (error) {
         const duration = Date.now() - startTime;
         logger.error('Error fetching recording history', {
           requestId,
-          error: {
-            message: error.message,
-            name: error.name,
-            stack: error.stack
-          },
-          duration: `${duration}ms`,
-          memoryUsage: {
-            rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
-            heapTotal: `${Math.round(process.memoryUsage().heapTotal / 1024 / 1024)}MB`,
-            heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`
-          }
+          error: error.message,
+          duration: `${duration}ms`
         });
-        res.status(500).json({
+
+        return res.status(500).json({
           error: 'Failed to fetch recording history',
           message: error.message,
           requestId
@@ -345,103 +504,254 @@ export const routesConfig = (app) => {
 
   /**
    * @swagger
-   * /api/recordings/thumbnail/{cameraName}/{date}:
+   * /api/recordings/thumbnail/{id}:
    *   get:
    *     tags: [Recordings]
    *     security:
    *       - bearerAuth: []
-   *     summary: Get recording thumbnail
+   *     summary: Get recording thumbnail by recording ID
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         schema:
+   *           type: string
+   *         required: true
+   *         description: ID of the recording
+   *     responses:
+   *       200:
+   *         description: Thumbnail image
+   *       404:
+   *         description: Recording or video file not found
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/recordings/thumbnail/:id', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('recordings:access'),
+    async (req, res) => {
+      const requestId = req.headers['x-request-id'] || 'unknown';
+      try {
+        const { id } = req.params;
+        logger.info(`[${requestId}] Fetching thumbnail for recording ID: ${id}`);
+
+        // Get recording info from database
+        const recording = await Database.interfaceDB.chain
+          .get('recordingHistory')
+          .find({ id })
+          .value();
+
+        if (!recording) {
+          logger.warn(`[${requestId}] Recording not found with ID: ${id}`);
+          return res.status(404).json({
+            error: 'Recording not found',
+            id
+          });
+        }
+
+        // 날짜 파싱 및 검증
+        let recordingDate;
+        try {
+          logger.debug(`[${requestId}] Raw startTime: ${recording.startTime}`);
+          if (typeof recording.startTime === 'string' && recording.startTime.length >= 10) {
+            recordingDate = recording.startTime.substring(0, 10);
+            logger.debug(`[${requestId}] Extracted date: ${recordingDate}`);
+          } else {
+            throw new Error(`Invalid startTime format: ${recording.startTime}`);
+          }
+        } catch (error) {
+          logger.error(`[${requestId}] Error parsing date:`, error);
+          return res.status(400).json({
+            error: 'Invalid date format',
+            details: error.message,
+            startTime: recording.startTime
+          });
+        }
+
+        const videoPath = getVideoPath(recording.cameraName, recordingDate);
+
+        // Check if video directory exists
+        if (!fs.existsSync(videoPath)) {
+          logger.warn(`[${requestId}] Video directory not found: ${videoPath}`);
+          return res.status(404).json({
+            error: 'Video directory not found',
+            path: videoPath
+          });
+        }
+
+        // Find the specific video file
+        const videoFile = await findVideoFileByFilename(videoPath, recording.filename);
+        if (!videoFile) {
+          logger.warn(`[${requestId}] Video file not found: ${recording.filename}`);
+          return res.status(404).json({
+            error: 'Video file not found',
+            filename: recording.filename
+          });
+        }
+
+        try {
+          // Generate thumbnail directly to buffer
+          const thumbnailBuffer = await generateThumbnailToBuffer(videoFile);
+          logger.info(`[${requestId}] Thumbnail generated successfully`);
+
+          // Send the thumbnail with proper content type
+          res.set('Content-Type', 'image/png');
+          res.send(thumbnailBuffer);
+        } catch (error) {
+          logger.error(`[${requestId}] Failed to generate thumbnail:`, error);
+          return res.status(500).json({
+            error: 'Failed to generate thumbnail',
+            details: error.message
+          });
+        }
+      } catch (error) {
+        logger.error(`[${requestId}] Error in thumbnail endpoint:`, error);
+        res.status(500).json({
+          error: 'Internal server error',
+          details: error.message
+        });
+      }
+    }
+  ]);
+
+  /**
+   * @swagger
+   * /api/recordings/video/{cameraName}/{date}/{filename}:
+   *   get:
+   *     tags: [Recordings]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Stream video recording
    *     parameters:
    *       - in: path
    *         name: cameraName
    *         schema:
    *           type: string
    *         required: true
-   *         description: Name of the camera (e.g. test1)
+   *         description: Name of the camera
    *       - in: path
    *         name: date
    *         schema:
    *           type: string
    *         required: true
    *         description: Recording date (YYYY-MM-DD format)
+   *       - in: path
+   *         name: filename
+   *         schema:
+   *           type: string
+   *         required: true
+   *         description: Name of the video file
    *     responses:
    *       200:
-   *         description: Thumbnail image
+   *         description: Video stream
    *       404:
    *         description: Video file not found
    *       500:
    *         description: Internal server error
    */
-  app.get('/api/recordings/thumbnail/:cameraName/:date', [
+  app.get('/api/recordings/video/:cameraName/:date/:filename', [
     ValidationMiddleware.validJWTNeeded,
     PermissionMiddleware.minimumPermissionLevelRequired('recordings:access'),
     async (req, res) => {
       try {
-        const { cameraName, date } = req.params;
+        const { cameraName, date, filename } = req.params;
 
         // 비디오 파일 경로 생성
-        const videoPath = getVideoPath(cameraName, date);
-        const thumbnailPath = resolve(THUMBNAIL_DIR, `${cameraName}_${date}.jpg`);
+        const videoBasePath = path.join(RECORDINGS_DIR, cameraName, date);
+        const videoPath = path.join(videoBasePath, filename);
 
-        logger.debug('Processing thumbnail request', {
+        logger.debug('Processing video stream request', {
           cameraName,
           date,
+          filename,
+          videoBasePath,
           videoPath,
-          thumbnailPath,
-          absolutePath: resolve(thumbnailPath)
+          exists: fs.existsSync(videoPath)
         });
 
-        // 썸네일이 이미 존재하는지 확인
-        if (!fs.existsSync(thumbnailPath)) {
-          // 비디오 파일이 존재하는지 확인
-          if (!fs.existsSync(videoPath)) {
-            logger.warn(`Video directory not found: ${videoPath}`);
-            return res.status(404).json({
-              error: 'Video file not found',
-              path: videoPath
-            });
+        // 파일 정보 확인
+        const stat = fs.statSync(videoPath);
+        const fileSize = stat.size;
+        const range = req.headers.range;
+
+        // 청크 크기 제한 설정
+        const maxChunkSize = 10 * 1024 * 1024; // 10MB
+
+        if (range) {
+          const parts = range.replace(/bytes=/, '').split('-');
+          let start = parseInt(parts[0], 10);
+          let end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+          // 청크 크기 제한 적용
+          if (end - start >= maxChunkSize) {
+            end = start + maxChunkSize - 1;
           }
 
-          // 디렉토리에서 첫 번째 비디오 파일 찾기
-          const files = fs.readdirSync(videoPath);
-          const videoFile = files.find(file => file.endsWith('.mp4') || file.endsWith('.avi'));
+          const chunksize = (end - start) + 1;
+          const file = fs.createReadStream(videoPath, { start, end });
+          const head = {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunksize,
+            'Content-Type': 'video/mp4'
+          };
 
-          if (!videoFile) {
-            logger.warn(`No video files found in directory: ${videoPath}`);
-            return res.status(404).json({
-              error: 'No video files found',
-              path: videoPath
-            });
-          }
+          logger.debug('Streaming video range', {
+            start,
+            end,
+            chunksize,
+            headers: head
+          });
 
-          const fullVideoPath = resolve(videoPath, videoFile);
+          res.writeHead(206, head);
+          file.pipe(res);
 
-          // 썸네일 생성
-          try {
-            await generateThumbnail(fullVideoPath, thumbnailPath);
-          } catch (error) {
-            logger.error('Error generating thumbnail:', error);
-            return res.status(500).json({
-              error: 'Failed to generate thumbnail',
-              details: error.message
-            });
-          }
+          file.on('error', (error) => {
+            logger.error('Stream error:', error);
+            if (!res.headersSent) {
+              res.status(500).json({
+                error: 'Failed to stream video',
+                details: error.message
+              });
+            }
+          });
+        } else {
+          // 전체 파일 스트리밍 시에도 청크 단위로 전송
+          const head = {
+            'Content-Length': fileSize,
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Transfer-Encoding': 'chunked'
+          };
+
+          res.writeHead(200, head);
+          const stream = fs.createReadStream(videoPath, {
+            highWaterMark: maxChunkSize
+          });
+          stream.pipe(res);
+
+          stream.on('error', (error) => {
+            logger.error('Stream error:', error);
+            if (!res.headersSent) {
+              res.status(500).json({
+                error: 'Failed to stream video',
+                details: error.message
+              });
+            }
+          });
         }
-
-        // 썸네일 파일 전송
-        const absoluteThumbnailPath = resolve(thumbnailPath);
-        logger.debug('Sending thumbnail file', { absoluteThumbnailPath });
-        res.sendFile(absoluteThumbnailPath, {
-          headers: {
-            'Content-Type': 'image/jpeg'
-          }
-        });
       } catch (error) {
-        logger.error('Error serving thumbnail:', error);
-        res.status(500).json({
-          error: 'Failed to serve thumbnail',
-          details: error.message
+        logger.error('Error streaming video:', {
+          error: error.message,
+          stack: error.stack,
+          params: req.params
         });
+
+        if (!res.headersSent) {
+          res.status(500).json({
+            error: 'Failed to stream video',
+            details: error.message
+          });
+        }
       }
     }
   ]);
@@ -510,7 +820,90 @@ export const routesConfig = (app) => {
     ValidationMiddleware.validJWTNeeded,
     PermissionMiddleware.minimumPermissionLevelRequired('notifications:edit'),
     RecordingsValidationMiddleware.hasValidFields,
-    RecordingsController.insert,
+    async (req, res) => {
+      const requestId = uuidv4();
+      const startTime = Date.now();
+
+      try {
+        const { camera, trigger, type } = req.body;
+        logger.info(`[${requestId}] Starting new recording`, { camera, trigger, type });
+
+        // 녹화 정보 생성
+        const recording = {
+          id: uuidv4(),
+          cameraName: camera,
+          startTime: new Date().toISOString(),
+          status: 'recording',
+          trigger: trigger,
+          type: type
+        };
+
+        // 녹화 디렉토리 생성
+        const recordingDate = recording.startTime.substring(0, 10);
+        const videoPath = getVideoPath(camera, recordingDate);
+        if (!fs.existsSync(videoPath)) {
+          fs.mkdirSync(videoPath, { recursive: true });
+          logger.debug(`[${requestId}] Created recording directory: ${videoPath}`);
+        }
+
+        // 카메라 스트림 URL 생성
+        const streamUrl = `rtsp://${camera}/stream`;
+
+        // 녹화 파일명 생성
+        const filename = `${recording.id}.mp4`;
+        const videoFilePath = path.join(videoPath, filename);
+
+        // 섬네일 파일명 생성
+        const thumbnailFilename = `${recording.id}.png`;
+        const thumbnailPath = path.join(videoPath, thumbnailFilename);
+
+        // 첫 프레임 캡처 및 섬네일 생성
+        try {
+          await generateThumbnailFromStream(streamUrl, thumbnailPath);
+          logger.info(`[${requestId}] Generated initial thumbnail: ${thumbnailPath}`);
+        } catch (error) {
+          logger.error(`[${requestId}] Failed to generate initial thumbnail:`, error);
+          // 섬네일 생성 실패는 녹화 시작을 막지 않음
+        }
+
+        // 녹화 시작
+        const ffmpeg = spawn('ffmpeg', [
+          '-i', streamUrl,
+          '-c:v', 'copy',
+          '-c:a', 'aac',
+          '-f', 'mp4',
+          videoFilePath
+        ]);
+
+        // 녹화 정보 저장
+        recording.filename = filename;
+        await Database.interfaceDB.chain
+          .get('recordingHistory')
+          .push(recording)
+          .write();
+
+        const duration = Date.now() - startTime;
+        logger.info(`[${requestId}] Recording started successfully in ${duration}ms`, {
+          recordingId: recording.id,
+          videoPath: videoFilePath,
+          thumbnailPath: thumbnailPath
+        });
+
+        res.status(201).json(recording);
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        logger.error(`[${requestId}] Error starting recording:`, {
+          error: error.message,
+          stack: error.stack,
+          duration: `${duration}ms`
+        });
+
+        res.status(500).json({
+          error: 'Failed to start recording',
+          message: error.message
+        });
+      }
+    }
   ]);
 
   /**
@@ -563,18 +956,124 @@ export const routesConfig = (app) => {
   app.delete('/api/recordings/:id', [
     ValidationMiddleware.validJWTNeeded,
     PermissionMiddleware.minimumPermissionLevelRequired('recordings:edit'),
-    RecordingsController.removeById,
+    async (req, res) => {
+      const requestId = req.headers['x-request-id'] || 'unknown';
+      const startTime = Date.now();
+      const id = req.params.id;
+
+      try {
+        logger.info(`[${requestId}] Deleting recording from database: ${id}`);
+
+        // 녹화 삭제 실행 (DB에서만 삭제)
+        await RecordingsModel.removeById(id);
+
+        const duration = Date.now() - startTime;
+        logger.info(`[${requestId}] Successfully deleted recording from database in ${duration}ms`);
+
+        res.status(200).json({
+          message: 'Recording deleted from database successfully',
+          id: id
+        });
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        logger.error(`[${requestId}] Error deleting recording from database:`, {
+          error: error.message,
+          stack: error.stack,
+          duration: `${duration}ms`
+        });
+
+        // Not Found 에러 처리
+        if (error.message.includes('Recording not found')) {
+          return res.status(404).json({
+            error: 'Recording not found',
+            message: error.message
+          });
+        }
+
+        res.status(500).json({
+          error: 'Failed to delete recording from database',
+          message: error.message
+        });
+      }
+    }
   ]);
 
-  logger.info('Recordings routes initialization completed', {
-    timestamp: new Date().toISOString(),
-    registeredEndpoints: [
-      '/api/recordings',
-      '/api/recordings/history',
-      '/api/recordings/status/:cameraName',
-      '/api/recordings/active',
-      '/api/recordings/thumbnail/:cameraName/:date',
-      '/api/recordings/:id'
-    ]
+  // 라우트 등록 완료 후 전체 라우트 목록 출력
+  const routes = app._router.stack
+    .filter(r => r.route)
+    .map(r => ({
+      path: r.route.path,
+      method: Object.keys(r.route.methods)[0].toUpperCase()
+    }));
+
+  logger.info('Registered routes:', {
+    count: routes.length,
+    routes: routes,
+    timestamp: new Date().toISOString()
   });
 };
+
+// Helper function to find video file by filename
+async function findVideoFileByFilename(videoPath, filename) {
+  try {
+    const files = await fs.promises.readdir(videoPath);
+    const videoFile = files.find(file => file === filename);
+
+    return videoFile ? path.join(videoPath, videoFile) : null;
+  } catch (error) {
+    logger.error(`Error finding video file for filename ${filename}:`, error);
+    return null;
+  }
+}
+
+// Helper function to generate thumbnail to buffer
+async function generateThumbnailToBuffer(videoPath) {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', videoPath,
+      '-vf', 'select=eq(n\\,1),scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2,setsar=1',
+      '-frames:v', '1',
+      '-f', 'image2',
+      '-'
+    ]);
+
+    const chunks = [];
+    ffmpeg.stdout.on('data', chunk => chunks.push(chunk));
+    ffmpeg.stderr.on('data', data => logger.debug('FFmpeg output:', data.toString()));
+
+    ffmpeg.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`FFmpeg process exited with code ${code}`));
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    });
+
+    ffmpeg.on('error', reject);
+  });
+}
+
+// Helper function to generate thumbnail from video stream
+async function generateThumbnailFromStream(streamUrl, outputPath) {
+  return new Promise((resolve, reject) => {
+    const ffmpeg = spawn('ffmpeg', [
+      '-i', streamUrl,
+      '-vf', 'select=eq(n\\,1),scale=320:180:force_original_aspect_ratio=decrease,pad=320:180:(ow-iw)/2:(oh-ih)/2,setsar=1',
+      '-frames:v', '1',
+      '-f', 'image2',
+      outputPath
+    ]);
+
+    ffmpeg.stderr.on('data', data => logger.debug('FFmpeg output:', data.toString()));
+
+    ffmpeg.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`FFmpeg process exited with code ${code}`));
+        return;
+      }
+      resolve();
+    });
+
+    ffmpeg.on('error', reject);
+  });
+}

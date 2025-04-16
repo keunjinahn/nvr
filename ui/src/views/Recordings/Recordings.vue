@@ -82,6 +82,7 @@ import { saveAs } from 'file-saver';
 import VueAspectRatio from 'vue-aspect-ratio';
 
 import { getRecordings, removeRecording, removeRecordings } from '@/api/recordings.api';
+import { getVideoThumbnail } from '@/api/recordingService.api';
 
 import { bus } from '@/main';
 
@@ -312,42 +313,51 @@ export default {
           this.page += 1;
           this.recordings.push(...response.data.result);
 
-          this.images = this.recordings.map((rec) => {
+          // Process recordings and fetch thumbnails
+          this.images = await Promise.all(this.recordings.map(async (rec) => {
             let mediaContainer = {
               type: 'image',
               caption: `${rec.camera} - ${rec.time}`,
-              src: `/files/${rec.fileName}`,
-              thumb: `/files/${rec.fileName}`,
             };
 
             if (rec.recordType === 'Video') {
-              delete mediaContainer.src;
-
-              mediaContainer = {
-                ...mediaContainer,
-                type: 'video',
-                sources: [
-                  {
-                    src: `/files/${rec.fileName}`,
-                    type: 'video/mp4',
-                  },
-                ],
-                thumb: `/files/${rec.name}@2.jpeg`,
-                width: '100%',
-                height: 'auto',
-                autoplay: false,
-              };
+              try {
+                const thumbnailUrl = await getVideoThumbnail(rec.id);
+                if (!thumbnailUrl) {
+                  console.warn(`No thumbnail available for recording ${rec.id}`);
+                }
+                mediaContainer = {
+                  ...mediaContainer,
+                  type: 'video',
+                  sources: [
+                    {
+                      src: `/files/${rec.fileName}`,
+                      type: 'video/mp4',
+                    },
+                  ],
+                  thumb: thumbnailUrl || '/assets/images/no-thumbnail.jpg',
+                  width: '100%',
+                  height: 'auto',
+                  autoplay: false,
+                };
+              } catch (error) {
+                console.error(`Error fetching thumbnail for recording ${rec.id}:`, error);
+                mediaContainer.thumb = '/assets/images/no-thumbnail.jpg';
+              }
+            } else {
+              mediaContainer.src = `/files/${rec.fileName}`;
+              mediaContainer.thumb = `/files/${rec.fileName}`;
             }
 
             return mediaContainer;
-          });
+          }));
 
           $state.loaded();
         } else {
           $state.complete();
         }
       } catch (err) {
-        console.log(err);
+        console.error('Error loading recordings:', err);
         this.$toast.error(err.message);
       }
     },

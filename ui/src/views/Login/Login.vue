@@ -74,8 +74,8 @@ export default {
       },
 
       user: {
-        username: '',
-        password: '',
+        username: 'akj',
+        password: 'test123',
       },
 
       valid: true,

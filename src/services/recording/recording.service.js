@@ -1,5 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
+import moment from 'moment-timezone';
 import LoggerService from '../logger/logger.service.js';
 import ConfigService from '../config/config.service.js';
 import Database from '../../api/database.js';
@@ -13,53 +14,13 @@ export class RecordingService {
   }
 
   async addRecordingHistory(scheduleId, cameraName, startTime, filename) {
-    try {
-      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
-
-      const newRecord = {
-        id: Date.now(), // 고유 ID 생성
-        scheduleId,
-        cameraName,
-        filename,
-        startTime,
-        endTime: null,
-        status: 'recording' // recording, completed, error
-      };
-
-      recordingHistory.push(newRecord);
-      await Database.interfaceDB.chain.set('recordingHistory', recordingHistory).value();
-      await Database.interfaceDB.write();
-
-      logger.info('Recording history added:', newRecord);
-      return newRecord.id;
-    } catch (error) {
-      logger.error('Error adding recording history:', error);
-      throw error;
-    }
+    logger.warn('Recording history is now managed by RecordingProcess');
+    return null;
   }
 
   async updateRecordingHistory(recordingId, updates) {
-    try {
-      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
-      const recordIndex = recordingHistory.findIndex(r => r.id === recordingId);
-
-      if (recordIndex === -1) {
-        throw new Error('Recording history not found');
-      }
-
-      recordingHistory[recordIndex] = {
-        ...recordingHistory[recordIndex],
-        ...updates
-      };
-
-      await Database.interfaceDB.chain.set('recordingHistory', recordingHistory).value();
-      await Database.interfaceDB.write();
-
-      logger.info('Recording history updated:', recordingHistory[recordIndex]);
-    } catch (error) {
-      logger.error('Error updating recording history:', error);
-      throw error;
-    }
+    logger.warn('Recording history is now managed by RecordingProcess');
+    return null;
   }
 
   async startRecording(cameraName, scheduleId, recordingType) {
@@ -69,20 +30,22 @@ export class RecordingService {
         return false;
       }
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      // 한국 시간 기준으로 시간 정보 생성
+      const nowMoment = moment().tz('Asia/Seoul');
+      const timestamp = nowMoment.format('YYYY-MM-DDTHH-mm-ss');
       const filename = `${cameraName}_${timestamp}.mp4`;
       const recordingPath = path.join(this.recordingsPath, cameraName, filename);
 
-      // 녹화 시작 시 기록 추가
+      // 녹화 시작 시 기록 추가 (한국 시간 사용)
       const recordingId = await this.addRecordingHistory(
         scheduleId,
         cameraName,
-        new Date().toISOString(),
+        timestamp,
         filename
       );
 
-      // 녹화 시작 시간
-      const startTime = new Date();
+      // 녹화 시작 시간 (한국 시간)
+      const startTime = nowMoment.toDate();
       const recordingInfo = {
         recordingId,
         scheduleId,
@@ -91,11 +54,11 @@ export class RecordingService {
         status: 'recording'
       };
 
-      // 녹화 폴더 생성
+      // 녹화 폴더 생성 (한국 시간 기준 날짜)
       const recordingDir = path.join(
         this.recordingsPath,
         cameraName,
-        startTime.toISOString().split('T')[0]
+        nowMoment.format('YYYY-MM-DD')
       );
       await fs.ensureDir(recordingDir);
 
@@ -103,7 +66,8 @@ export class RecordingService {
       const infoFile = path.join(recordingDir, 'recording_info.json');
       await fs.writeJson(infoFile, {
         ...recordingInfo,
-        recordingDir
+        recordingDir,
+        timestamp: timestamp
       });
 
       this.activeRecordings.set(cameraName, recordingInfo);
@@ -125,26 +89,30 @@ export class RecordingService {
 
       const recordingInfo = this.activeRecordings.get(cameraName);
       recordingInfo.status = 'stopped';
-      recordingInfo.endTime = new Date();
+
+      // 종료 시간도 한국 시간으로 설정
+      const endTimeMoment = moment().tz('Asia/Seoul');
+      recordingInfo.endTime = endTimeMoment.toDate();
 
       // 녹화 정보 파일 업데이트
       const recordingDir = path.join(
         this.recordingsPath,
         cameraName,
-        recordingInfo.startTime.toISOString().split('T')[0]
+        moment(recordingInfo.startTime).tz('Asia/Seoul').format('YYYY-MM-DD')
       );
       const infoFile = path.join(recordingDir, 'recording_info.json');
 
       if (await fs.pathExists(infoFile)) {
         await fs.writeJson(infoFile, {
           ...recordingInfo,
-          recordingDir
+          recordingDir,
+          endTimestamp: endTimeMoment.format('YYYY-MM-DDTHH-mm-ss')
         });
       }
 
-      // 녹화 종료 시 기록 업데이트
+      // 녹화 종료 시 기록 업데이트 (한국 시간 사용)
       await this.updateRecordingHistory(recordingInfo.recordingId, {
-        endTime: recordingInfo.endTime.toISOString(),
+        endTime: endTimeMoment.format('YYYY-MM-DDTHH-mm-ss'),
         status: 'completed'
       });
 
@@ -198,10 +166,25 @@ export class RecordingService {
         recordingHistory = recordingHistory.filter(r => r.status === filters.status);
       }
 
-      return recordingHistory;
+      // 결과가 비어있는 경우 빈 배열 반환
+      if (!recordingHistory || recordingHistory.length === 0) {
+        return [];
+      }
+
+      // 시간 정보 포맷팅
+      const formattedHistory = recordingHistory.map(record => ({
+        ...record,
+        startTime: record.startTime ? moment(record.startTime).tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss') : null,
+        endTime: record.endTime ? moment(record.endTime).tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss') : null
+      }));
+
+      // 최신 기록이 먼저 오도록 정렬
+      formattedHistory.sort((a, b) => b.id - a.id);
+
+      return formattedHistory;
     } catch (error) {
       logger.error('Error getting recording history:', error);
-      throw error;
+      return []; // 에러 발생 시 빈 배열 반환
     }
   }
 }

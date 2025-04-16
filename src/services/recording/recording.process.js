@@ -1,9 +1,11 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs-extra';
+import moment from 'moment-timezone';
 import Database from '../../api/database.js';
 import LoggerService from '../logger/logger.service.js';
 import ConfigService from '../config/config.service.js';
+import { nanoid } from 'nanoid';
 
 const logger = new LoggerService('RecordingProcess');
 
@@ -12,6 +14,7 @@ class RecordingProcess {
     this.activeRecordings = new Map(); // key: `${cameraName}_${scheduleId}`
     this.checkInterval = null;
     this.recordingsPath = ConfigService.recordingsPath;
+    this.lastRetryTimes = new Map();
   }
 
   isTimeInRange(currentTime, startTime, endTime) {
@@ -37,72 +40,195 @@ class RecordingProcess {
         minute: '2-digit'
       });
 
-      return schedules.filter(schedule =>
-        schedule.isActive &&
-        schedule.days_of_week.includes(currentDay) &&
-        this.isTimeInRange(currentTime, schedule.start_time, schedule.end_time)
-      );
+      // 오늘 날짜의 녹화 히스토리 확인
+      const todayStr = moment().tz('Asia/Seoul').format('YYYY-MM-DD');
+      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
+
+      const todayCompletedRecordings = recordingHistory.filter(record => {
+        const recordDate = record.startTime.split('T')[0];
+        return recordDate === todayStr &&
+          ['completed', 'stopped'].includes(record.status);
+      });
+
+      return schedules.filter(schedule => {
+        // 기본 스케줄 조건 확인
+        const isScheduleActive = schedule.isActive &&
+          schedule.days_of_week.includes(currentDay) &&
+          this.isTimeInRange(currentTime, schedule.start_time, schedule.end_time);
+
+        if (!isScheduleActive) return false;
+
+        // 이미 완료된 녹화가 있는지 확인
+        const hasCompletedRecording = todayCompletedRecordings.some(record =>
+          record.scheduleId === schedule.id &&
+          record.cameraName === schedule.cameraName
+        );
+
+        // 활성화된 스케줄이지만 이미 완료된 녹화가 있으면 제외
+        return !hasCompletedRecording;
+      });
     } catch (error) {
       logger.error('Error getting active schedules:', error);
       return [];
     }
   }
 
-  async startRecording(cameraName, scheduleId, source) {
+  async addRecordingHistory(scheduleId, cameraName, timeInfo, filename) {
     try {
-      const recordingKey = `${cameraName}_${scheduleId}`;
+      // 트랜잭션 시작 - 데이터베이스 락 획득
+      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
 
-      // 이미 녹화 중인지 더 엄격하게 확인
-      if (this.activeRecordings.has(recordingKey)) {
-        const existingRecording = this.activeRecordings.get(recordingKey);
-        if (existingRecording.process && !existingRecording.process.killed) {
-          logger.warn(`Recording already in progress for schedule: ${recordingKey}, skipping...`);
-          return;
-        } else {
-          // 프로세스가 죽었지만 Map에서 제거되지 않은 경우 정리
-          logger.info(`Cleaning up dead recording process for schedule: ${recordingKey}`);
-          await this.stopRecording(cameraName, scheduleId);
-        }
+      // 동일한 파일명으로 진행 중인 녹화가 있는지 확인
+      const existingRecordings = recordingHistory.filter(record =>
+        record.filename === filename ||
+        (record.scheduleId === scheduleId &&
+          record.cameraName === cameraName &&
+          record.status === 'recording')
+      );
+
+      // 기존 녹화들의 상태를 'stopped'로 업데이트
+      for (const existing of existingRecordings) {
+        logger.info(`Marking existing recording as stopped: ${existing.id}`);
+        existing.status = 'stopped';
+        existing.endTime = timeInfo.formattedForFile;
+        existing.updatedAt = timeInfo.formattedForFile;
       }
 
+      const newRecord = {
+        id: nanoid(),
+        scheduleId,
+        cameraName,
+        filename,
+        startTime: timeInfo.formattedForFile,
+        endTime: null,
+        status: 'recording',
+        createdAt: timeInfo.formattedForFile
+      };
+
+      // 기존 녹화 업데이트와 새 녹화 추가를 한 번에 수행
+      const updatedHistory = [
+        ...recordingHistory.filter(r => !existingRecordings.find(e => e.id === r.id)),
+        ...existingRecordings,
+        newRecord
+      ];
+
+      // 데이터베이스 업데이트를 한 번에 수행
+      await Database.interfaceDB.chain.set('recordingHistory', updatedHistory).value();
+      await Database.interfaceDB.write();
+
+      logger.info('Recording history updated:', {
+        newRecordId: newRecord.id,
+        stoppedRecords: existingRecordings.map(r => r.id),
+        filename,
+        cameraName
+      });
+
+      return newRecord.id;
+    } catch (error) {
+      logger.error('Error in addRecordingHistory:', error);
+      throw error;
+    }
+  }
+
+  async updateRecordingHistory(recordingId, updates) {
+    try {
+      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
+      const recordIndex = recordingHistory.findIndex(r => r.id === recordingId);
+
+      if (recordIndex === -1) {
+        logger.warn(`Recording history not found for ID: ${recordingId}`);
+        return;
+      }
+
+      const currentRecord = recordingHistory[recordIndex];
+
+      // 이미 종료된 녹화는 업데이트하지 않음
+      if (['completed', 'stopped', 'error'].includes(currentRecord.status) && updates.status === 'recording') {
+        logger.warn(`Skipping update for already finished recording: ${recordingId}`);
+        return;
+      }
+
+      recordingHistory[recordIndex] = {
+        ...currentRecord,
+        ...updates,
+        updatedAt: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss')
+      };
+
+      await Database.interfaceDB.chain.set('recordingHistory', recordingHistory).value();
+      await Database.interfaceDB.write();
+
+      logger.info('Recording history updated:', {
+        id: recordingId,
+        previousStatus: currentRecord.status,
+        newStatus: updates.status,
+        updates
+      });
+    } catch (error) {
+      logger.error('Error in updateRecordingHistory:', error);
+    }
+  }
+
+  async startRecording(cameraName, scheduleId, source) {
+    const recordingKey = `${cameraName}_${scheduleId}`;
+    let recordingId = null;
+
+    try {
+      // 이미 녹화 중인지 확인
+      const existingRecording = this.activeRecordings.get(recordingKey);
+      if (existingRecording) {
+        if (existingRecording.process && !existingRecording.process.killed) {
+          logger.debug(`Recording already in progress for schedule: ${recordingKey}, skipping...`);
+          return;
+        }
+        await this.stopRecording(cameraName, scheduleId);
+      }
+
+      // 시간 정보 생성 (한국 시간 기준)
+      const nowMoment = moment().tz('Asia/Seoul');
+      const timeInfo = {
+        timestamp: nowMoment.unix(),
+        formattedForFile: nowMoment.format('YYYY-MM-DDTHH-mm-ss'),
+        formattedForDisplay: nowMoment.format('YYYY-MM-DDTHH:mm:ss'),
+        dateString: nowMoment.format('YYYY-MM-DD')
+      };
+
       // 녹화 디렉토리 생성
-      const now = new Date();
       const recordingDir = path.join(
         this.recordingsPath,
         cameraName,
-        now.toISOString().split('T')[0]
+        timeInfo.dateString
       );
       await fs.ensureDir(recordingDir);
 
-      // 기존 프로세스 확인 및 종료 (OS 레벨)
-      try {
-        const killCmd = process.platform === 'win32' ?
-          `taskkill /F /IM ffmpeg.exe /FI "WINDOWTITLE eq ${recordingKey}"` :
-          `pkill -f "ffmpeg.*${recordingKey}"`;
-        await new Promise((resolve) => {
-          const kill = spawn(process.platform === 'win32' ? 'cmd' : 'sh',
-            [process.platform === 'win32' ? '/c' : '-c', killCmd]);
-          kill.on('close', resolve);
-        });
-        logger.info(`Killed any existing ffmpeg processes for schedule: ${recordingKey}`);
-      } catch (err) {
-        logger.debug(`No existing ffmpeg processes found for schedule: ${recordingKey}`);
+      // 파일명 생성
+      const filename = `${cameraName}_${timeInfo.formattedForFile}.mp4`;
+      const outputPath = path.join(recordingDir, filename);
+
+      // 기존 파일 확인 및 제거
+      if (await fs.pathExists(outputPath)) {
+        try {
+          await fs.unlink(outputPath);
+          logger.info(`Removed existing recording file: ${outputPath}`);
+        } catch (err) {
+          logger.error(`Failed to remove existing recording file: ${err.message}`);
+        }
       }
 
-      // 녹화 파일명 생성
-      const filename = `${now.getTime()}_${scheduleId}.mp4`;
-      const outputPath = path.join(recordingDir, filename);
+      // recordingHistory에 추가 - 한 번만 수행
+      try {
+        recordingId = await this.addRecordingHistory(scheduleId, cameraName, timeInfo, filename);
+      } catch (error) {
+        logger.error('Failed to add recording history:', error);
+        return;
+      }
 
       // source URL에서 -i 옵션 제거
       let rtspUrl = source;
       if (rtspUrl.includes('-i')) {
         rtspUrl = rtspUrl.replace(/-i\s+/, '').trim();
-        logger.info('Cleaned RTSP URL:', rtspUrl);
       }
 
-      logger.info(`Starting recording for schedule: ${recordingKey} with URL: ${rtspUrl}`);
-
-      // FFMPEG 프로세스 시작 - 윈도우 타이틀 추가
+      // FFMPEG 프로세스 시작
       const ffmpeg = spawn('ffmpeg', [
         '-y',
         '-rtsp_transport', 'tcp',
@@ -136,25 +262,16 @@ class RecordingProcess {
       ], {
         windowsHide: true,
         windowsVerbatimArguments: true,
-        // 프로세스 식별을 위한 윈도우 타이틀 설정
         env: { ...process.env, FFREPORT: `file=${recordingDir}/ffmpeg-${recordingKey}.log:level=32` }
       });
 
       let hasError = false;
-      let dataReceived = false;
-      let lastDataTime = Date.now();
-      let segmentStartTime = Date.now();
+      let errorMessage = '';
 
       // FFMPEG 에러 로그 처리
       ffmpeg.stderr.on('data', (data) => {
         const message = data.toString();
         logger.debug(`FFMPEG [${recordingKey}]: ${message}`);
-        lastDataTime = Date.now(); // 데이터 수신 시간 업데이트
-
-        // 스트림 데이터 수신 확인
-        if (message.includes('Input #0') || message.includes('Stream mapping')) {
-          dataReceived = true;
-        }
 
         // 주요 에러 체크
         if (message.includes('Connection refused') ||
@@ -164,108 +281,120 @@ class RecordingProcess {
           message.includes('Broken pipe') ||
           message.includes('End of file')) {
           hasError = true;
+          errorMessage = message;
           logger.error(`FFMPEG Error for schedule ${recordingKey}:`, message);
         }
-
-        // 녹화 진행 상황 로깅 (5분마다)
-        const now = Date.now();
-        if (now - segmentStartTime >= 300000) { // 5분
-          const durationMinutes = ((now - segmentStartTime) / 60000).toFixed(1);
-          logger.info(`Recording progress for ${recordingKey}: ${durationMinutes} minutes`);
-          segmentStartTime = now;
-        }
       });
-
-      // 표준 출력 처리
-      ffmpeg.stdout.on('data', (data) => {
-        lastDataTime = Date.now(); // 데이터 수신 시간 업데이트
-        logger.debug(`FFMPEG stdout [${recordingKey}]:`, data.toString());
-      });
-
-      // 주기적으로 데이터 수신 상태 체크 (30초마다)
-      const healthCheck = setInterval(() => {
-        const now = Date.now();
-        if (now - lastDataTime > 30000) { // 30초 동안 데이터가 없으면
-          logger.warn(`No data received for 30 seconds from schedule: ${recordingKey}`);
-          clearInterval(healthCheck);
-          this.stopRecording(cameraName, scheduleId).then(() => {
-            // 재시작
-            setTimeout(() => {
-              this.startRecording(cameraName, scheduleId, source);
-            }, 5000);
-          });
-        }
-      }, 30000);
 
       // 프로세스 종료 처리
       ffmpeg.on('close', async (code) => {
-        clearInterval(healthCheck); // 헬스체크 중지
         logger.info(`Recording stopped for schedule: ${recordingKey}, exit code: ${code}`);
-
-        // 비정상 종료 시 재시도 로직
-        if (code !== 0 && !hasError) {
-          logger.warn(`Abnormal exit for schedule ${recordingKey}, attempting to restart...`);
-          this.activeRecordings.delete(recordingKey);
-          // 5초 후 재시도
-          setTimeout(() => {
-            this.startRecording(cameraName, scheduleId, source);
-          }, 5000);
-          return;
-        }
-
-        this.activeRecordings.delete(recordingKey);
 
         // 파일 크기 확인
         try {
           const stats = await fs.stat(outputPath);
-          logger.info(`Recording file size: ${stats.size} bytes`);
           if (stats.size === 0) {
             logger.error(`Empty recording file detected for schedule: ${recordingKey}`);
+            await fs.unlink(outputPath);
+            // 녹화 히스토리 업데이트 - 에러 상태로
+            if (recordingId) {
+              await this.updateRecordingHistory(recordingId, {
+                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+                status: 'error',
+                errorMessage: 'Empty recording file'
+              });
+            }
+          } else {
+            // 정상 종료 시 녹화 히스토리 업데이트
+            if (recordingId) {
+              await this.updateRecordingHistory(recordingId, {
+                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+                status: hasError ? 'error' : 'completed',
+                errorMessage: hasError ? errorMessage : undefined
+              });
+            }
           }
         } catch (err) {
           logger.error(`Error checking recording file: ${err.message}`);
+          if (recordingId) {
+            await this.updateRecordingHistory(recordingId, {
+              endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+              status: 'error',
+              errorMessage: err.message
+            });
+          }
+        }
+
+        this.activeRecordings.delete(recordingKey);
+
+        // 비정상 종료 시 재시도
+        if (code !== 0 && !hasError) {
+          const lastRetryTime = this.lastRetryTimes.get(recordingKey) || 0;
+          const now = Date.now();
+          if (now - lastRetryTime > 60000) {
+            logger.warn(`Abnormal exit for schedule ${recordingKey}, attempting to restart...`);
+            this.lastRetryTimes.set(recordingKey, now);
+            // 재시도 시에는 새로운 recordingHistory 생성
+            setTimeout(() => {
+              this.startRecording(cameraName, scheduleId, source);
+            }, 5000);
+          } else {
+            logger.warn(`Skipping retry for ${recordingKey} due to frequent failures`);
+          }
         }
       });
 
       // 프로세스 에러 처리
-      ffmpeg.on('error', (err) => {
+      ffmpeg.on('error', async (err) => {
         logger.error(`FFMPEG process error for schedule ${recordingKey}:`, err);
         hasError = true;
+        if (recordingId) {
+          await this.updateRecordingHistory(recordingId, {
+            status: 'error',
+            errorMessage: err.message
+          });
+        }
       });
-
-      // 녹화 정보 저장 전에 기존 정보 정리
-      if (this.activeRecordings.has(recordingKey)) {
-        await this.stopRecording(cameraName, scheduleId);
-      }
 
       // 녹화 정보 저장
       const recordingInfo = {
+        recordingId,
         cameraName,
         scheduleId,
         process: ffmpeg,
-        startTime: now,
+        timeInfo,
         outputPath,
         hasError: false,
-        pid: ffmpeg.pid
+        pid: ffmpeg.pid,
+        startTime: Date.now()
       };
 
       this.activeRecordings.set(recordingKey, recordingInfo);
-      logger.info(`Started recording for schedule: ${recordingKey}, PID: ${ffmpeg.pid}`);
 
       // 녹화 메타데이터 저장
       const metadataPath = path.join(recordingDir, `${filename}.json`);
       await fs.writeJson(metadataPath, {
+        recordingId,
         scheduleId,
         cameraName,
-        startTime: now.toISOString(),
+        startTime: timeInfo.formattedForFile,
+        filename,
         outputPath,
-        rtspUrl
+        rtspUrl,
+        status: 'recording'
       });
 
     } catch (error) {
-      logger.error(`Failed to start recording for schedule: ${cameraName}_${scheduleId}`, error);
-      // 에러 발생 시 정리
-      await this.stopRecording(cameraName, scheduleId);
+      logger.error(`Failed to start recording for schedule: ${recordingKey}`, error);
+      // 시작 실패 시 히스토리 업데이트
+      if (recordingId) {
+        await this.updateRecordingHistory(recordingId, {
+          endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+          status: 'error',
+          errorMessage: error.message
+        });
+      }
+      this.activeRecordings.delete(recordingKey);
     }
   }
 
@@ -277,11 +406,11 @@ class RecordingProcess {
         return;
       }
 
-      // FFMPEG 프로세스 종료 전 상태 확인
+      // FFMPEG 프로세스 종료
       if (recordingInfo.process && !recordingInfo.process.killed) {
         try {
           recordingInfo.process.kill('SIGTERM');
-          // 프로세스가 즉시 종료되지 않을 경우를 대비한 강제 종료
+          // 5초 후에도 종료되지 않으면 강제 종료
           setTimeout(() => {
             try {
               if (!recordingInfo.process.killed) {
@@ -296,25 +425,21 @@ class RecordingProcess {
         }
       }
 
-      // OS 레벨에서 프로세스 정리
-      try {
-        const killCmd = process.platform === 'win32' ?
-          `taskkill /F /IM ffmpeg.exe /FI "WINDOWTITLE eq ${recordingKey}"` :
-          `pkill -f "ffmpeg.*${recordingKey}"`;
-        await new Promise((resolve) => {
-          const kill = spawn(process.platform === 'win32' ? 'cmd' : 'sh',
-            [process.platform === 'win32' ? '/c' : '-c', killCmd]);
-          kill.on('close', resolve);
+      // recordingHistory 업데이트
+      if (recordingInfo.recordingId) {
+        const endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss');
+        await this.updateRecordingHistory(recordingInfo.recordingId, {
+          endTime,
+          status: recordingInfo.hasError ? 'error' : 'stopped'
         });
-      } catch (err) {
-        logger.debug(`No additional ffmpeg processes found for schedule: ${recordingKey}`);
       }
 
       // 메타데이터 업데이트
       const metadataPath = `${recordingInfo.outputPath}.json`;
       if (await fs.pathExists(metadataPath)) {
         const metadata = await fs.readJson(metadataPath);
-        metadata.endTime = new Date().toISOString();
+        metadata.endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss');
+        metadata.status = recordingInfo.hasError ? 'error' : 'stopped';
         await fs.writeJson(metadataPath, metadata);
       }
 
@@ -323,7 +448,6 @@ class RecordingProcess {
 
     } catch (error) {
       logger.error(`Failed to stop recording for schedule: ${cameraName}_${scheduleId}`, error);
-      // 에러가 발생하더라도 Map에서는 제거
       this.activeRecordings.delete(`${cameraName}_${scheduleId}`);
     }
   }
@@ -331,7 +455,6 @@ class RecordingProcess {
   async checkAndUpdateRecordings() {
     try {
       const activeSchedules = await this.getCurrentlyActiveSchedules();
-      logger.info('Active schedules:', activeSchedules);
 
       // 현재 활성화된 스케줄의 카메라와 스케줄ID를 맵으로 관리
       const activeScheduleMap = new Map();
@@ -340,7 +463,7 @@ class RecordingProcess {
         activeScheduleMap.set(scheduleKey, schedule);
       });
 
-      // 현재 녹화 중인 프로세스 확인
+      // 현재 녹화 중인 프로세스 확인 및 중지
       for (const [recordingKey, recordingInfo] of this.activeRecordings) {
         // 해당 스케줄이 더 이상 활성화되지 않은 경우 녹화 중지
         if (!activeScheduleMap.has(recordingKey)) {
@@ -353,15 +476,28 @@ class RecordingProcess {
       for (const schedule of activeSchedules) {
         const scheduleKey = `${schedule.cameraName}_${schedule.id}`;
 
-        // 해당 스케줄에 대한 녹화가 없는 경우
-        if (!this.activeRecordings.has(scheduleKey)) {
-          logger.info(`Starting new recording for schedule: ${scheduleKey}`, {
-            cameraName: schedule.cameraName,
-            scheduleId: schedule.id,
-            source: schedule.source
-          });
-          await this.startRecording(schedule.cameraName, schedule.id, schedule.source);
+        // 이미 녹화 중인 경우 스킵
+        if (this.activeRecordings.has(scheduleKey)) {
+          continue;
         }
+
+        // 오늘 이미 완료된 녹화가 있는지 다시 한번 확인
+        const todayStr = moment().tz('Asia/Seoul').format('YYYY-MM-DD');
+        const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
+        const hasCompletedToday = recordingHistory.some(record =>
+          record.scheduleId === schedule.id &&
+          record.cameraName === schedule.cameraName &&
+          record.startTime.startsWith(todayStr) &&
+          ['completed', 'stopped'].includes(record.status)
+        );
+
+        if (hasCompletedToday) {
+          logger.info(`Skipping recording for schedule ${scheduleKey} as it was already completed today`);
+          continue;
+        }
+
+        logger.info(`Starting new recording for schedule: ${scheduleKey}`);
+        await this.startRecording(schedule.cameraName, schedule.id, schedule.source);
       }
 
     } catch (error) {
@@ -374,12 +510,12 @@ class RecordingProcess {
       this.stop();
     }
 
-    // 10초마다 스케줄 체크
+    // 체크 주기를 30초로 증가
     this.checkInterval = setInterval(() => {
       this.checkAndUpdateRecordings();
-    }, 10000);
+    }, 30000);
 
-    logger.info('Recording process started, checking schedules every 10 seconds');
+    logger.info('Recording process started, checking schedules every 30 seconds');
   }
 
   stop() {

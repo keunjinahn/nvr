@@ -3,6 +3,7 @@
 import fs from 'fs-extra';
 import moment from 'moment';
 import { customAlphabet } from 'nanoid/async';
+import path from 'path';
 
 import Cleartimer from '../../../common/cleartimer.js';
 
@@ -114,109 +115,107 @@ export const createRecording = async (data, fileBuffer) => {
 
   const id = data.id || (await nanoid());
   const room = cameraSetting ? cameraSetting.room : 'Standard';
-  const timestamp = data.timestamp || moment().unix();
-  const time = moment.unix(timestamp).format('YYYY-MM-DD HH:mm:ss');
 
-  const fileName =
-    camera.name.replace(/\s+/g, '_') +
-    '-' +
-    id +
-    '-' +
-    timestamp +
-    (data.trigger === 'motion' ? '_m' : data.trigger === 'doorbell' ? '_d' : '_c') +
-    '_CUI';
+  // 시간 정보 생성 (한국 시간 기준으로 통일)
+  const nowMoment = moment().tz('Asia/Seoul');
+  const recordingTime = {
+    timestamp: nowMoment.unix(),
+    // 한국 시간으로 파일명 생성 (밀리초 제외, Z 제외, 24시간 형식)
+    formattedForFile: nowMoment.format('YYYY-MM-DDTHH-mm-ss'),
+    // 표시용 시간 포맷 (24시간 형식)
+    formattedForDisplay: nowMoment.format('YYYY-MM-DD HH:mm:ss'),
+    dateString: nowMoment.format('YYYY-MM-DD')
+  };
 
-  const extension = data.type === 'Video' ? 'mp4' : 'jpeg';
-  const label = (data.label || 'no label').toString();
+  // 파일명 생성 (한국 시간 사용)
+  const fileName = `${camera.name}_${recordingTime.formattedForFile}.mp4`;
 
   const recording = {
     id: id,
     camera: camera.name,
-    fileName: `${fileName}.${extension}`,
-    name: fileName,
-    extension: extension,
+    fileName: fileName,
+    name: fileName.replace('.mp4', ''),
+    extension: 'mp4',
     recordStoring: true,
-    recordType: data.type,
+    recordType: 'Video',
     trigger: data.trigger,
     room: room,
-    time: time,
-    timestamp: timestamp,
-    label: label,
+    time: recordingTime.formattedForDisplay,
+    timestamp: recordingTime.timestamp,
+    label: (data.label || 'no label').toString(),
+    recordingTime: recordingTime  // 녹화 프로세스에 전달할 시간 정보
   };
 
+  // DB에 저장하기 전에 로그로 확인
+  logger.info('Creating recording with time info:', {
+    fileName,
+    formattedTime: recordingTime.formattedForFile,
+    displayTime: recordingTime.formattedForDisplay,
+    timestamp: recordingTime.timestamp
+  });
+
   if (fileBuffer) {
-    await storeVideoBuffer(camera, fileBuffer, data.path, fileName);
-    await storeSnapshotFromVideo(camera, data.path, fileName, label);
+    await storeVideoBuffer(camera, fileBuffer, data.path, fileName, recordingTime);
+    await storeSnapshotFromVideo(camera, data.path, fileName, recording.label);
   } else {
-    const isPlaceholder = data.type === 'Video';
+    const isPlaceholder = true;
     const externRecording = false;
     const storeSnapshot = true;
 
-    // eslint-disable-next-line unicorn/prefer-ternary
     if (data.imgBuffer) {
-      await storeBuffer(camera, data.imgBuffer, data.path, fileName, label, isPlaceholder, externRecording);
+      await storeBuffer(camera, data.imgBuffer, data.path, fileName, recording.label, isPlaceholder, externRecording);
     } else {
-      await getAndStoreSnapshot(camera, false, data.path, fileName, label, isPlaceholder, storeSnapshot);
+      await getAndStoreSnapshot(camera, false, data.path, fileName, recording.label, isPlaceholder, storeSnapshot);
     }
 
-    if (data.type === 'Video') {
-      if (camera.prebuffering) {
-        let filebuffer = Buffer.alloc(0);
-
-        let generator = handleFragmentsRequests(camera);
-
-        setTimeout(async () => {
-          if (generator) {
-            generator.throw();
-          }
-        }, recordingsSettings.timer * 1000);
-
-        for await (const fileBuffer of generator) {
-          filebuffer = Buffer.concat([filebuffer, Buffer.concat(fileBuffer)]);
+    if (camera.prebuffering) {
+      let filebuffer = Buffer.alloc(0);
+      let generator = handleFragmentsRequests(camera);
+      setTimeout(async () => {
+        if (generator) {
+          generator.throw();
         }
-
-        generator = null;
-
-        await storeVideoBuffer(camera, filebuffer, data.path, fileName);
-      } else {
-        await storeVideo(camera, data.path, fileName, data.timer);
+      }, recordingsSettings.timer * 1000);
+      for await (const fileBuffer of generator) {
+        filebuffer = Buffer.concat([filebuffer, Buffer.concat(fileBuffer)]);
       }
+      generator = null;
+      await storeVideoBuffer(camera, filebuffer, data.path, fileName, recordingTime);
+    } else {
+      await storeVideo(camera, data.path, fileName, data.timer, recordingTime);
     }
   }
 
+  // DB에 저장
   Database.recordingsDB.chain.push(recording).value();
+  await Database.recordingsDB.write();  // 변경사항 즉시 저장
 
   Socket.io.emit('recording', recording);
-
-  Cleartimer.setRecording(id, timestamp);
-
+  Cleartimer.setRecording(id, recordingTime.timestamp);
   return recording;
 };
 
 export const removeById = async (id) => {
-  const recPath = Database.recordingsDB.chain.get('path').cloneDeep().value();
+  try {
 
-  const recording = Database.recordingsDB.chain
-    .get('recordings')
-    .find((rec) => rec.id === id)
-    .cloneDeep()
-    .value();
+    // recordingHistory에서 삭제 (문자열 ID로 처리)
+    const recordingHistory = await Database.interfaceDB.chain
+      .get('recordingHistory')
+      .value();
 
-  if (recording) {
-    await fs.remove(recPath + '/' + recording.fileName);
-
-    if (recording.recordType === 'Video') {
-      let placehoalder = recording.fileName.split('.')[0] + '@2.jpeg';
-      await fs.remove(recPath + '/' + placehoalder);
+    if (recordingHistory) {
+      await Database.interfaceDB.chain
+        .get('recordingHistory')
+        .remove((rec) => rec.id.toString() === id.toString())
+        .value();
     }
+
+    await Database.interfaceDB.write();
+
+    return { success: true, id: id };
+  } catch (error) {
+    throw new Error(`Failed to remove recording: ${error.message}`);
   }
-
-  Cleartimer.removeRecordingTimer(id);
-
-  return Database.recordingsDB.chain
-    .get('recordings')
-    .remove((rec) => rec.id === id)
-    .value();
 };
 
 export const removeAll = async () => {

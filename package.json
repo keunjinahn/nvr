@@ -18,6 +18,7 @@
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.76.0",
     "@seydx/lowdb": "^3.0.2",
+    "@videojs-player/vue": "^1.0.0",
     "alexa-remote2": "^4.1.2",
     "axios": "^0.26.1",
     "bunyan": "^1.8.15",
@@ -61,6 +62,7 @@
     "swagger-ui-express": "^4.3.0",
     "systeminformation": "^5.11.14",
     "tar": "^6.1.11",
+    "video.js": "^7.21.7",
     "web-push": "^3.4.5"
   },
   "devDependencies": {

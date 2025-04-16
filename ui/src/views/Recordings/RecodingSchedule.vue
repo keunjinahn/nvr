@@ -313,7 +313,7 @@ export default {
       
       // 현재 시간 계산
       const now = new Date();
-      const oneHourLater = new Date(now.getTime() + (60 * 60 * 1000));
+      const oneHourLater = new Date(now.getTime() + (60 * 2 * 1000));
       
       // HH:mm 형식으로 시간 포맷팅
       const formatTime = (date) => {

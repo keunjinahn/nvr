@@ -60,9 +60,26 @@ export default class App {
     process.env.CUI_LOG_COLOR = '1';  // Enable colored logs
     process.env.CUI_LOG_TIMESTAMPS = '1';  // Enable timestamps
 
-    app.use(cors());
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
+    app.use(cors({
+      origin: '*',
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept', 'Cache-Control'],
+      exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length', 'Content-Type'],
+      credentials: true,
+      maxAge: 86400
+    }));
+
+    // Increase limits for large requests
+    app.use(express.json({ limit: '100mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+    // Increase header size limit
+    app.set('max-http-header-size', 65536); // 64KB
+
+    // Remove strict header checking
+    app.set('strict routing', false);
+    app.set('strict query parser', false);
+
     app.use(
       helmet({
         crossOriginEmbedderPolicy: false,
