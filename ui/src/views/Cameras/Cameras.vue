@@ -5,15 +5,15 @@
   .pl-safe.pr-safe
     
     .tw-flex.tw-justify-between.tw-items-center
-      .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-100.tw-p-1(v-if="showListOptions")
+      .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-800.tw-p-1(v-if="showListOptions")
         .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
-          :class="!listMode ? 'tw-bg-white tw-shadow-sm tw-text-primary' : 'tw-text-gray-600'"
+          :class="listMode ? 'tw-bg-gray-700 tw-shadow-sm tw-text-primary' : 'tw-text-gray-400'"
           @click="goToVideoView"
         )
           v-icon.tw-mr-2(size="50") {{ icons['mdiViewModule'] }}
           span 영상조회        
         .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
-          :class="listMode ? 'tw-bg-white tw-shadow-sm tw-text-primary' : 'tw-text-gray-600'"
+          :class="!listMode ? 'tw-bg-gray-700 tw-shadow-sm tw-text-primary' : 'tw-text-gray-400'"
           @click="goToMonitoring"
         )
           v-icon.tw-mr-2(size="50") {{ icons['mdiFormatListBulleted'] }}
@@ -23,8 +23,9 @@
         elevation="1"
         @click="showAddVideoDialog"
         :ripple="false"
+        v-if="listMode"
       )
-        v-icon.tw-mr-2(size="22" color="#1E293B") {{ icons['mdiPlus'] }}
+        v-icon.tw-mr-2(size="22" color="white") {{ icons['mdiPlus'] }}
         span.tw-font-semibold.tw-text-slate-800 영상추가
 
     .tw-mt-5
@@ -62,14 +63,14 @@
         template(v-slot:item.actions="{ item }")
           .tw-flex.tw-items-center.tw-gap-2
             v-btn.edit-btn(
-              color="primary"
+              color="error"
               @click.stop="showEditVideoDialog(item)"
               outlined
             )
               v-icon(left size="20") {{ icons['mdiPencil'] }}
               span 수정
             v-btn.delete-btn(
-              color="error"
+              color="primary"
               @click.stop="showDeleteVideoDialog(item)"
               outlined
             )
@@ -260,67 +261,67 @@ export default {
     backupHeaders: [],
     headers: [
       {
-        text: 'Status',
+        text: '상태',
         value: 'status',
-        align: 'start',
+        align: 'center',
         sortable: false,
         class: 'tw-py-3',
         cellClass: 'tw-py-3',
-        width: '30px',
+        width: '60px',
       },
       {
-        text: '',
+        text: '스냅샷',
         value: 'preview',
-        align: 'start',
+        align: 'center',
         sortable: false,
         width: '100px',
         class: 'tw-px-1',
         cellClass: 'tw-px-0',
       },
       {
-        text: 'Name',
+        text: '카메라이름',
         value: 'name',
-        align: 'start',
+        align: 'center',
         sortable: true,
         class: 'tw-pl-3 tw-pr-1',
         cellClass: 'tw-pl-3 tw-pr-1',
       },
       {
-        text: 'Model',
+        text: '장비모델',
         value: 'model',
-        align: 'start',
+        align: 'center',
         sortable: true,
         class: 'tw-pl-3 tw-pr-1',
         cellClass: 'tw-pl-3 tw-pr-1',
       },
       {
-        text: 'Address',
+        text: 'RTSP 주소',
         value: 'address',
-        align: 'start',
+        align: 'center',
         sortable: false,
         class: 'tw-pl-3 tw-pr-1',
         cellClass: 'tw-pl-3 tw-pr-1',
       },
+      // {
+      //   text: 'Last Motion',
+      //   value: 'lastNotification',
+      //   align: 'start',
+      //   sortable: true,
+      //   class: 'tw-pl-3 tw-pr-1',
+      //   cellClass: 'tw-pl-3 tw-pr-1',
+      // },
       {
-        text: 'Last Motion',
-        value: 'lastNotification',
-        align: 'start',
-        sortable: true,
-        class: 'tw-pl-3 tw-pr-1',
-        cellClass: 'tw-pl-3 tw-pr-1',
-      },
-      {
-        text: '',
+        text: '온라인/오프라인',
         value: 'liveFeed',
-        align: 'start',
+        align: 'center',
         sortable: false,
         class: 'tw-pl-3 tw-pr-1',
         cellClass: 'tw-pl-3 tw-pr-1',
       },
       {
-        text: '',
+        text: '수정/삭제',
         value: 'actions',
-        align: 'end',
+        align: 'center',
         sortable: false,
         width: '100px',
       },
@@ -618,9 +619,9 @@ export default {
   text-transform: none !important;
   letter-spacing: normal !important;
   border-radius: 12px !important;
-  background: #FFFFFF !important;
-  border: 2px solid #E2E8F0 !important;
-  box-shadow: 0 2px 4px rgba(148, 163, 184, 0.05) !important;
+  background: var(--cui-bg-card) !important;
+  border: 2px solid var(--cui-border-color) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
   transition: all 0.2s ease !important;
   padding: 0 32px !important;
   min-width: 280px !important;
@@ -629,21 +630,21 @@ export default {
 
 .add-video-btn:hover {
   transform: translateY(-1px);
-  background: #FFFFFF !important;
+  background: var(--cui-bg-card) !important;
   border-color: var(--cui-primary) !important;
-  box-shadow: 0 4px 6px rgba(148, 163, 184, 0.1) !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
 }
 
 .add-video-btn:active {
   transform: translateY(0px);
-  background: #F8FAFC !important;
+  background: var(--cui-bg-card-hover) !important;
   border-color: var(--cui-primary) !important;
-  box-shadow: 0 1px 2px rgba(148, 163, 184, 0.05) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
 }
 
 .add-video-btn .v-icon {
   transition: transform 0.2s ease;
-  color: #64748B !important;
+  color: var(--cui-text-muted) !important;
 }
 
 .add-video-btn:hover .v-icon {
@@ -653,7 +654,7 @@ export default {
 
 .add-video-btn span {
   font-size: 0.95rem !important;
-  color: #1E293B !important;
+  color: var(--cui-text-default) !important;
 }
 
 .add-video-btn:hover span {
@@ -663,30 +664,34 @@ export default {
 .add-video-dialog {
   border-radius: 16px !important;
   overflow: hidden !important;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1) !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2) !important;
+  background: var(--cui-bg-card) !important;
+  border: 1px solid var(--cui-border-color) !important;
 }
 
 .dialog-title {
-  background-color: #f8fafc;
+  background-color: var(--cui-bg-card) !important;
   padding: 32px !important;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--cui-border-color) !important;
 }
 
 .title-text {
   font-size: 1.5rem !important;
   font-weight: 700 !important;
-  color: #1e293b;
+  color: var(--cui-text-default) !important;
   line-height: 1.2;
+  filter: brightness(1.2);
 }
 
 .subtitle-text {
   font-size: 1rem !important;
-  color: #64748b;
+  color: var(--cui-text-default) !important;
+  opacity: 0.9;
 }
 
 .dialog-content {
   padding: 32px !important;
-  background-color: #ffffff;
+  background-color: var(--cui-bg-card) !important;
 }
 
 .form-group {
@@ -696,13 +701,15 @@ export default {
 .input-label {
   font-size: 0.95rem;
   font-weight: 600;
-  color: #334155;
+  color: var(--cui-text-default) !important;
   margin-bottom: 8px;
+  filter: brightness(1.1);
 }
 
 .input-helper {
   font-size: 0.875rem;
-  color: #64748b;
+  color: var(--cui-text-default) !important;
+  opacity: 0.8;
 }
 
 .url-input {
@@ -711,30 +718,47 @@ export default {
 
 .url-input >>> .v-input__slot {
   min-height: 52px !important;
-  border-color: #e2e8f0 !important;
+  border-color: var(--cui-border-color) !important;
+  background-color: var(--cui-bg-card) !important;
 }
 
 .url-input >>> .v-input__slot:hover {
   border-color: var(--cui-primary) !important;
 }
 
+.url-input >>> .v-text-field__slot input {
+  color: var(--cui-text-default) !important;
+  filter: brightness(1.1);
+}
+
+.url-input >>> .v-label {
+  color: var(--cui-text-default) !important;
+  opacity: 0.9;
+}
+
+.url-input >>> .v-text-field__slot input::placeholder {
+  color: var(--cui-text-muted) !important;
+  opacity: 0.7;
+}
+
 .dialog-actions {
   padding: 24px 32px !important;
-  border-top: 1px solid #e2e8f0;
-  background-color: #f8fafc;
+  border-top: 1px solid var(--cui-border-color) !important;
+  background-color: var(--cui-bg-card) !important;
 }
 
 .cancel-btn {
   height: 44px !important;
   min-width: 120px !important;
   margin-right: 12px !important;
-  border: 2px solid #e2e8f0 !important;
-  color: #64748b !important;
+  border: 2px solid var(--cui-border-color) !important;
+  color: var(--cui-text-default) !important;
+  background: var(--cui-bg-card) !important;
 }
 
 .cancel-btn:hover {
-  border-color: #cbd5e1 !important;
-  background-color: #f1f5f9 !important;
+  border-color: var(--cui-border-color-hover) !important;
+  background-color: var(--cui-bg-card-hover) !important;
 }
 
 .confirm-btn {
@@ -744,12 +768,14 @@ export default {
 }
 
 .confirm-btn:not(:disabled) {
-  background: linear-gradient(45deg, var(--cui-primary), #2196F3) !important;
-  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.2) !important;
+  background: linear-gradient(45deg, var(--cui-primary), var(--cui-primary-dark)) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2) !important;
 }
 
 .confirm-btn:disabled {
   opacity: 0.7;
+  background: var(--cui-bg-card) !important;
+  color: var(--cui-text-default) !important;
 }
 
 .header {
@@ -782,62 +808,62 @@ div >>> .v-data-table-header__icon {
 .edit-btn {
   height: 36px !important;
   min-width: 90px !important;
-  border: 2px solid #3b82f6 !important;
+  border: 2px solid var(--cui-border-color) !important;
   text-transform: none !important;
   font-weight: 600 !important;
   font-size: 0.9rem !important;
   letter-spacing: normal !important;
   border-radius: 8px !important;
-  color: #3b82f6 !important;
-  background: #f0f7ff !important;
+  color: var(--cui-text-default) !important;
+  background: var(--cui-bg-card) !important;
   transition: all 0.2s ease !important;
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
 }
 
 .edit-btn:hover {
-  background: #3b82f6 !important;
-  border-color: #2563eb !important;
-  color: white !important;
-  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2) !important;
+  background: var(--cui-bg-card-hover) !important;
+  border-color: var(--cui-border-color-hover) !important;
+  color: var(--cui-text-default) !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
 }
 
 .edit-btn:hover .v-icon {
-  color: white !important;
+  color: var(--cui-text-default) !important;
 }
 
 .edit-btn:active {
-  background: #2563eb !important;
+  background: var(--cui-bg-card-hover) !important;
   transform: translateY(1px);
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
 }
 
 .edit-btn .v-icon {
   margin-right: 4px !important;
-  color: #3b82f6 !important;
+  color: var(--cui-text-default) !important;
 }
 
 .delete-btn {
   height: 36px !important;
   min-width: 90px !important;
-  border: 2px solid #ef4444 !important;
+  border: 2px solid var(--cui-danger) !important;
   text-transform: none !important;
   font-weight: 600 !important;
   font-size: 0.9rem !important;
   letter-spacing: normal !important;
   border-radius: 8px !important;
-  color: #ef4444 !important;
-  background: white !important;
+  color: var(--cui-danger) !important;
+  background: var(--cui-bg-card) !important;
   transition: all 0.2s ease !important;
 }
 
 .delete-btn:hover {
-  background: #fef2f2 !important;
-  border-color: #dc2626 !important;
-  color: #dc2626 !important;
+  background: var(--cui-bg-card-hover) !important;
+  border-color: var(--cui-danger) !important;
+  color: var(--cui-danger) !important;
 }
 
 .delete-btn:active {
-  background: #fee2e2 !important;
+  background: var(--cui-bg-card-hover) !important;
   transform: translateY(1px);
 }
 
