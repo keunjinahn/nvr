@@ -9,7 +9,7 @@
           .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-800.tw-p-1
             .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
               :class="currentTab === 'search' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
-              @click="changeTab('search')"
+              @click.prevent
             )
               v-icon.tw-mr-2(size="24") {{ icons['mdiPlayCircle'] }}
               span 녹화영상조회
