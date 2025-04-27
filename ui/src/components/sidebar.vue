@@ -68,8 +68,7 @@ export default {
       },
       dialog: false,
       additionalMenus: [
-        // { name: '녹화관리2', icon: 'mdi-record', route: '/recordings2' },
-        { name: '녹화관리', icon: 'mdi-record'},
+        { name: '녹화관리', icon: 'mdi-record', route: '/recordings' },
         { name: '계측관리', icon: 'mdi-ruler' },
         { name: '경보관리', icon: 'mdi-alert' },
         { name: '사용자관리', icon: 'mdi-account' },

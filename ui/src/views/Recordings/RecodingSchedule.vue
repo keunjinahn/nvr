@@ -9,9 +9,11 @@
           v-btn.add-schedule-btn(
             elevation="1"
             @click="openAddDialog"
+            color="primary"
+            outlined
           )
-            v-icon.tw-mr-2(size="22" color="#1E293B") {{ icons['mdiPlus'] }}
-            span.tw-font-semibold.tw-text-slate-800 스케줄 추가
+            v-icon.tw-mr-2(size="20") {{ icons['mdiPlus'] }}
+            span 스케줄 추가
 
         v-card.tw-mt-2
           v-data-table(
@@ -544,80 +546,97 @@ export default {
 }
 
 .add-schedule-btn {
-  background-color: #F8FAFC !important;
-  border: 1px solid #E2E8F0 !important;
-  height: 38px !important;
-  padding: 0 16px !important;
-  border-radius: 6px !important;
-  
-  &:hover {
-    background-color: #F1F5F9 !important;
-    border-color: #CBD5E1 !important;
-    transform: translateY(-1px);
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05) !important;
-  }
+  height: 36px !important;
+  min-width: 90px !important;
+  border: 2px solid var(--cui-border-color) !important;
+  text-transform: none !important;
+  font-weight: 600 !important;
+  font-size: 0.9rem !important;
+  letter-spacing: normal !important;
+  border-radius: 8px !important;
+  color: var(--cui-text-default) !important;
+  background: var(--cui-bg-card) !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
 
-  &:active {
-    transform: translateY(0);
-  }
+.add-schedule-btn:hover {
+  background: var(--cui-bg-card-hover) !important;
+  border-color: var(--cui-border-color-hover) !important;
+  color: var(--cui-text-default) !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
+}
+
+.add-schedule-btn:hover .v-icon {
+  color: var(--cui-text-default) !important;
+}
+
+.add-schedule-btn:active {
+  background: var(--cui-bg-card-hover) !important;
+  transform: translateY(1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.add-schedule-btn .v-icon {
+  margin-right: 4px !important;
+  color: var(--cui-text-default) !important;
 }
 
 .edit-btn {
   height: 36px !important;
   min-width: 90px !important;
-  border: 2px solid #3b82f6 !important;
+  border: 2px solid var(--cui-border-color) !important;
   text-transform: none !important;
   font-weight: 600 !important;
   font-size: 0.9rem !important;
   letter-spacing: normal !important;
   border-radius: 8px !important;
-  color: #3b82f6 !important;
-  background: white !important;
+  color: var(--cui-text-default) !important;
+  background: var(--cui-bg-card) !important;
   transition: all 0.2s ease !important;
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
 }
 
 .edit-btn:hover {
-  background: #3b82f6 !important;
-  border-color: #2563eb !important;
-  color: white !important;
-  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2) !important;
+  background: var(--cui-bg-card-hover) !important;
+  border-color: var(--cui-border-color-hover) !important;
+  color: var(--cui-text-default) !important;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15) !important;
 }
 
 .edit-btn:hover .v-icon {
-  color: white !important;
+  color: var(--cui-text-default) !important;
 }
 
 .edit-btn:active {
-  background: #2563eb !important;
+  background: var(--cui-bg-card-hover) !important;
   transform: translateY(1px);
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
 }
 
 .edit-btn .v-icon {
   margin-right: 4px !important;
-  color: #3b82f6 !important;
+  color: var(--cui-text-default) !important;
 }
 
 .delete-btn {
   height: 36px !important;
   min-width: 90px !important;
-  border: 2px solid #ef4444 !important;
+  border: 2px solid var(--cui-danger) !important;
   text-transform: none !important;
   font-weight: 600 !important;
   font-size: 0.9rem !important;
   letter-spacing: normal !important;
   border-radius: 8px !important;
-  color: #ef4444 !important;
-  background: white !important;
+  color: red !important;
+  background: var(--cui-bg-card) !important;
   transition: all 0.2s ease !important;
   box-shadow: 0 2px 4px rgba(239, 68, 68, 0.1) !important;
 }
 
 .delete-btn:hover {
-  background: #ef4444 !important;
-  border-color: #dc2626 !important;
+  background: var(--cui-danger) !important;
+  border-color: var(--cui-danger-hover) !important;
   color: white !important;
   box-shadow: 0 4px 6px rgba(239, 68, 68, 0.2) !important;
 }
@@ -627,13 +646,13 @@ export default {
 }
 
 .delete-btn:active {
-  background: #dc2626 !important;
+  background: var(--cui-danger-hover) !important;
   transform: translateY(1px);
   box-shadow: 0 2px 4px rgba(239, 68, 68, 0.1) !important;
 }
 
 .delete-btn .v-icon {
   margin-right: 4px !important;
-  color: #ef4444 !important;
+  color: var(--cui-danger) !important;
 }
 </style>

@@ -134,36 +134,14 @@
             class="elevation-1"
             @click:row="handleRowClick"
           )
-            template(#item.thumbnail="{ item }")
-              .tw-flex.tw-items-center.tw-justify-center.tw-relative.tw-bg-black.tw-rounded.tw-overflow-hidden(
-                style="width: 120px; height: 68px;"
-              )
-                .tw-absolute.tw-inset-0.tw-flex.tw-items-center.tw-justify-center(
-                  v-if="!thumbnails[item.id]"
-                )
-                  v-progress-circular(
-                    indeterminate 
-                    color="primary"
-                    size="24"
-                  )
-                img.tw-w-full.tw-h-full.tw-object-cover(
-                  v-else
-                  :src="thumbnails[item.id]"
-                  @error="handleThumbnailError(item)"
-                )
-                .tw-absolute.tw-inset-0.tw-flex.tw-items-center.tw-justify-center.tw-bg-black.tw-bg-opacity-50(
-                  v-if="thumbnailErrors[item.id]"
-                )
-                  v-icon(
-                    color="grey"
-                    size="40"
-                  ) {{ icons.mdiVideo }}
-            
-            template(#item.startTime="{ item }")
+            template(#item.formattedStartTime="{ item }")
               span {{ item.formattedStartTime }}
             
-            template(#item.endTime="{ item }")
+            template(#item.formattedEndTime="{ item }")
               span {{ item.formattedEndTime }}
+            
+            template(#item.filename="{ item }")
+              span {{ item.filename }}
             
             template(#item.status="{ item }")
               v-chip(
@@ -173,12 +151,15 @@
               ) {{ getStatusText(item.status) }}
             
             template(#item.actions="{ item }")
-              v-icon(
+              v-btn(
+                icon
                 small
-                class="mr-2"
                 @click.stop="confirmDelete(item)"
                 color="error"
-              ) {{ icons.mdiDelete }}
+                class="delete-btn"
+              )
+                v-icon(color="red") {{ icons.mdiDelete }}
+                span(class="error--text") 삭제
             
             template(#no-data)
               .text-center.pa-4
@@ -202,9 +183,9 @@
           v-icon {{ icons.mdiClose }}
       v-divider
       v-card-text.pa-0
-        .video-container.pa-4(v-if="selectedVideo")
-          div.video-wrapper
-            video.video-player(
+        .video-container.tw-flex.tw-gap-4(style="position:relative;")
+          .video-player.tw-flex-1
+            video(
               ref="videoPlayer"
               controls
               :src="videoUrl"
@@ -212,6 +193,9 @@
               crossorigin="anonymous"
               preload="metadata"
               controlsList="nodownload"
+              width="480"
+              height="270"
+              style="background:#000;"
             )
           .video-info.mt-4
             v-row
@@ -221,28 +205,28 @@
                     v-icon {{ icons.mdiCamera }}
                   v-list-item-content
                     v-list-item-title 카메라
-                    v-list-item-subtitle {{ selectedVideo.cameraName }}
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.cameraName : '' }}
               v-col(cols="12" sm="6")
                 v-list-item(dense)
                   v-list-item-icon
                     v-icon {{ icons.mdiCalendar }}
                   v-list-item-content
                     v-list-item-title 녹화 시작
-                    v-list-item-subtitle {{ selectedVideo.formattedStartTime }}
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.formattedStartTime : '' }}
               v-col(cols="12" sm="6")
                 v-list-item(dense)
                   v-list-item-icon
                     v-icon {{ icons.mdiClockOutline }}
                   v-list-item-content
                     v-list-item-title 녹화 종료
-                    v-list-item-subtitle {{ selectedVideo.formattedEndTime }}
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.formattedEndTime : '' }}
               v-col(cols="12" sm="6")
                 v-list-item(dense)
                   v-list-item-icon
                     v-icon {{ icons.mdiFile }}
                   v-list-item-content
                     v-list-item-title 파일명
-                    v-list-item-subtitle {{ selectedVideo.filename }}
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.filename : '' }}
         .error-container.pa-4(v-if="videoError")
           v-alert(
             type="error"
@@ -251,7 +235,7 @@
           ) {{ videoError }}
       v-card-actions.pa-4
         v-spacer
-        v-btn(
+        v-btn.close-btn(
           color="primary"
           text
           @click="closeVideoDialog"
@@ -291,7 +275,8 @@ import {
   mdiCheckboxMarkedCircle,
   mdiClose,
   mdiClockOutline,
-  mdiDelete
+  mdiDelete,
+  mdiPlay
 } from '@mdi/js'
 import { getRecordingHistory} from '@/api/recordingService.api.js';
 import { format } from 'date-fns';
@@ -315,7 +300,8 @@ export default {
       mdiCheckboxMarkedCircle,
       mdiClose,
       mdiClockOutline,
-      mdiDelete
+      mdiDelete,
+      mdiPlay
     },
     loading: false,
     recordingHistory: [],
@@ -329,39 +315,12 @@ export default {
       status: ''
     },
     headers: [
-      { 
-        text: '영상',
-        align: 'center',
-        sortable: false,
-        value: 'thumbnail',
-        width: '150px'
-      },
-      { 
-        text: '카메라',
-        align: 'start',
-        value: 'cameraName'
-      },
-      { 
-        text: '시작 시간',
-        align: 'center',
-        value: 'startTime'
-      },
-      { 
-        text: '종료 시간',
-        align: 'center',
-        value: 'endTime'
-      },
-      { 
-        text: '파일명',
-        align: 'start',
-        value: 'filename'
-      },
-      { 
-        text: '상태',
-        align: 'center',
-        value: 'status'
-      },
-      { text: '작업', value: 'actions', sortable: false },
+      { text: '카메라', value: 'cameraName' },
+      { text: '시작 시간', value: 'formattedStartTime' },
+      { text: '종료 시간', value: 'formattedEndTime' },
+      { text: '파일명', value: 'filename' },
+      { text: '상태', value: 'status' },
+      { text: '작업', value: 'actions', sortable: false, align: 'center' }
     ],
     statusOptions: [
       { text: '녹화중', value: 'recording' },
@@ -428,24 +387,7 @@ export default {
   },
 
   watch: {
-    'searchFilters.dateRange': {
-      handler(newRange) {
-        if (newRange.length === 2) {
-          const [start, end] = newRange;
-          this.searchFilters.dateRangeText = `${start} ~ ${end}`;
-        } else {
-          this.searchFilters.dateRangeText = '';
-        }
-      },
-      deep: true
-    },
-    
-    thumbnails: {
-      deep: true,
-      handler() {
-        this.updateCanvases();
-      }
-    }
+
   },
 
   created() {
@@ -566,11 +508,22 @@ export default {
       if (!dateString) {
         return '-';
       }
+      // 날짜 포맷 변환: T16-04-05 -> T16:04:05
+      function fixDateString(dateStr) {
+        if (!dateStr) return null;
+        return dateStr.replace(
+          /T(\d{2})-(\d{2})-(\d{2})/,
+          (match, p1, p2, p3) => `T${p1}:${p2}:${p3}`
+        );
+      }
+      const fixed = fixDateString(dateString);
+      const parsed = new Date(fixed);
+      if (isNaN(parsed.getTime())) return '-';
       try {
-        return format(new Date(dateString), 'yyyy-MM-dd HH:mm:ss', { locale: ko });
+        return format(parsed, 'yyyy-MM-dd HH:mm:ss', { locale: ko });
       } catch (error) {
         console.error('Error formatting date:', error);
-        return dateString;
+        return '-';
       }
     },
 
@@ -773,6 +726,10 @@ export default {
         });
       });
     },
+
+    playAllVideos() {
+      // Implementation of playAllVideos method
+    },
   }
 };
 </script>
@@ -782,9 +739,13 @@ export default {
   padding: 20px;
 
   .search-card {
+    background-color: var(--cui-bg-gray-800) !important;
+    border: 1px solid rgba(var(--cui-bg-nav-border-rgb));
     border-radius: 8px;
     
     .search-title {
+      color: var(--cui-text-default) !important;
+      background-color: var(--cui-bg-gray-800) !important;
       padding: 16px 20px;
       display: flex;
       align-items: center;
@@ -795,17 +756,78 @@ export default {
     }
 
     .search-content {
+      background-color: var(--cui-bg-gray-800) !important;
       padding: 20px;
-      background-color: #f8f9fa;
     }
   }
 
+  .v-text-field {
+    background-color: var(--cui-bg-gray-700) !important;
+  }
+
+  .v-text-field >>> .v-label {
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-text-field >>> .v-input__slot {
+    background-color: var(--cui-bg-gray-700) !important;
+    border-color: var(--cui-border-color) !important;
+  }
+
+  .v-text-field >>> input {
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-text-field >>> .v-icon {
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-select {
+    background-color: var(--cui-bg-gray-700) !important;
+  }
+
+  .v-select >>> .v-label {
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-select >>> .v-input__slot {
+    background-color: var(--cui-bg-gray-700) !important;
+    border-color: var(--cui-border-color) !important;
+  }
+
+  .v-select >>> .v-select__selection {
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-select >>> .v-icon {
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-menu__content {
+    background-color: var(--cui-bg-gray-700) !important;
+    border: 1px solid var(--cui-border-color) !important;
+  }
+
+  .v-date-picker-table {
+    background-color: var(--cui-bg-gray-700) !important;
+  }
+
+  .v-date-picker-table >>> .v-btn {
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-date-picker-table >>> .v-btn--active {
+    background-color: var(--cui-primary) !important;
+    color: white !important;
+  }
+
   .v-chip {
-    margin: 2px;
-    
-    .v-icon {
-      font-size: 16px;
-    }
+    background-color: var(--cui-bg-gray-700) !important;
+    color: var(--cui-text-default) !important;
+  }
+
+  .v-chip >>> .v-icon {
+    color: var(--cui-text-default) !important;
   }
 
   .v-data-table ::v-deep {
@@ -823,28 +845,98 @@ export default {
   }
 
   .video-player-card {
+    background-color: var(--cui-bg-gray-800) !important;
+    border: 1px solid rgba(var(--cui-bg-nav-border-rgb));
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+
+    .v-card-title {
+      color: var(--cui-text-default) !important;
+      font-size: 1.25rem;
+      font-weight: 500;
+      padding: 16px 24px;
+      border-bottom: 1px solid rgba(var(--cui-bg-nav-border-rgb));
+      display: flex;
+      align-items: center;
+
+      .v-btn--icon {
+        color: var(--cui-text-default) !important;
+      }
+    }
+
     .video-container {
-      background-color: #f8f9fa;
+      background-color: var(--cui-bg-gray-800);
       border-radius: 4px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
 
       .video-wrapper {
         position: relative;
         width: 100%;
+        max-width: 900px;
+        margin: 0 auto;
         background-color: #000;
         border-radius: 4px;
         overflow: hidden;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 
         .video-player {
           width: 100%;
-          max-height: 450px;
+          max-height: 600px;
           background-color: #000;
+          display: block;
+          margin: 0 auto;
         }
       }
 
       .video-info {
-        background-color: white;
+        width: 100%;
+        max-width: 900px;
+        margin: 24px auto 0;
+        background-color: var(--cui-bg-gray-700);
         border-radius: 4px;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        padding: 16px;
+
+        .v-list-item {
+          padding: 8px 16px;
+
+          .v-list-item-icon {
+            .v-icon {
+              color: var(--cui-text-default) !important;
+            }
+          }
+
+          .v-list-item-content {
+            .v-list-item-title {
+              color: var(--cui-text-default) !important;
+              font-weight: 500;
+              opacity: 0.9;
+            }
+
+            .v-list-item-subtitle {
+              color: var(--cui-text-default) !important;
+              opacity: 0.7;
+            }
+          }
+        }
+      }
+    }
+
+    .v-card-actions {
+      padding: 16px 24px;
+      border-top: 1px solid rgba(var(--cui-bg-nav-border-rgb));
+
+      .v-btn {
+        &.close-btn {
+          background-color: var(--cui-text-default) !important;
+          color: var(--cui-bg-gray-800) !important;
+          padding: 0 24px;
+          height: 36px;
+          font-weight: 500;
+        }
       }
     }
 
@@ -853,7 +945,34 @@ export default {
       display: flex;
       align-items: center;
       justify-content: center;
+      background-color: var(--cui-bg-gray-700);
+      border-radius: 4px;
+      margin: 20px;
     }
+  }
+
+  .v-card-title {
+    color: var(--cui-text-default) !important;
+    font-size: 1.25rem;
+    font-weight: 500;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(var(--cui-bg-nav-border-rgb));
+  }
+
+  .v-btn {
+    color: var(--cui-text-default) !important;
+    
+    &.v-btn--icon {
+      background-color: var(--cui-bg-gray-700);
+      border-radius: 4px;
+      padding: 8px;
+    }
+  }
+
+  .v-dialog {
+    max-width: 1200px;
+    width: 95%;
+    margin: 0 auto;
   }
 
   .v-data-table ::v-deep .actions-column {
@@ -887,6 +1006,66 @@ export default {
       justify-content: center;
       background: rgba(0, 0, 0, 0.5);
     }
+  }
+
+  .delete-btn {
+    height: 36px !important;
+    min-width: 90px !important;
+    border: 2px solid var(--cui-danger) !important;
+    text-transform: none !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    letter-spacing: normal !important;
+    border-radius: 8px !important;
+    color: red !important;
+    background: var(--cui-bg-card) !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.1) !important;
+  }
+
+  .delete-btn:hover {
+    background: var(--cui-danger) !important;
+    border-color: var(--cui-danger) !important;
+    color: white !important;
+    box-shadow: 0 4px 6px rgba(239, 68, 68, 0.2) !important;
+  }
+
+  .delete-btn:hover .v-icon {
+    color: white !important;
+  }
+
+  .delete-btn:active {
+    background: var(--cui-danger) !important;
+    border-color: var(--cui-danger) !important;
+    color: white !important;
+    transform: translateY(1px);
+    box-shadow: 0 2px 4px rgba(239, 68, 68, 0.1) !important;
+  }
+
+  .delete-btn .v-icon {
+    margin-right: 4px !important;
+    color: var(--cui-danger) !important;
+  }
+
+  .custom-play-btn {
+    background: #222e50 !important;
+    color: #fff !important;
+    border-radius: 8px !important;
+    font-weight: bold !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+    min-width: 120px;
+    min-height: 40px;
+  }
+
+  .custom-play-btn:hover {
+    background: #1a1f3c !important;
+    color: #ffd700 !important;
+  }
+
+  .video-player video {
+    width: 480px !important;
+    height: 270px !important;
+    background: #000;
   }
 }
 </style> 
