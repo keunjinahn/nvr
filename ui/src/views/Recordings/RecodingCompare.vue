@@ -29,14 +29,14 @@
                 :style="expandedVideo === 2 ? 'width: 1600px; height: 900px;' : 'width: 640px; height: 360px;'"
               )
           .button-box.button-box-dark
-            v-btn.play-all-btn.common-dark-btn(@click="playAllVideos")
+            v-btn.play-all-btn.common-dark-btn(color="gray" @click="playAllVideos")
               v-icon(left class="common-dark-btn__icon") {{ icons.mdiPlay }}
               span 모두 재생
-            v-btn.pause-all-btn.common-dark-btn(@click="togglePauseAllVideos")
-              v-icon(left class="common-dark-btn__icon") {{ isPaused ? 'mdi-play' : 'mdi-pause' }}
+            v-btn.play-all-btn.common-dark-btn(color="gray" @click="togglePauseAllVideos")
+              v-icon(left class="common-dark-btn__icon") {{ isPaused ? icons.mdiPlay : icons.mdiPause }}
               span {{ isPaused ? '재생' : '일시정지' }}
-            v-btn.stop-all-btn.common-dark-btn(@click="stopAllVideos")
-              v-icon(left class="common-dark-btn__icon") mdi-stop
+            v-btn.play-all-btn.common-dark-btn(color="gray" @click="stopAllVideos")
+              v-icon(left class="common-dark-btn__icon") {{ icons.mdiStop }}
               span 중지
 
         v-card.mt-4
@@ -429,13 +429,13 @@ export default {
   .play-all-btn {
     height: 36px !important;
     min-width: 120px !important;
-    border: 2px solid var(--cui-primary) !important;
+    border: 2px solid white !important;
     text-transform: none !important;
     font-weight: 600 !important;
     font-size: 0.9rem !important;
     letter-spacing: normal !important;
     border-radius: 8px !important;
-    color: var(--cui-primary) !important;
+    color: white !important;
     background: var(--cui-bg-card) !important;
     transition: all 0.2s ease !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;

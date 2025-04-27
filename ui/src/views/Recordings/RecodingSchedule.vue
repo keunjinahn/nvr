@@ -5,11 +5,11 @@
     v-row
       v-col(cols="12")
         .tw-flex.tw-justify-between.tw-items-center.tw-mb-4.tw-px-1
-          span.tw-text-xl.tw-font-semibold.tw-text-gray-800 녹화 스케줄 관리
+          span.tw-text-xl.tw-font-semibold.tw-text-white-800 녹화 스케줄 관리
           v-btn.add-schedule-btn(
             elevation="1"
             @click="openAddDialog"
-            color="primary"
+            color="white"
             outlined
           )
             v-icon.tw-mr-2(size="20") {{ icons['mdiPlus'] }}
@@ -37,7 +37,7 @@
             template(#[`item.actions`]="{ item }")
               .tw-flex.tw-items-center.tw-gap-2
                 v-btn.edit-btn(
-                  color="primary"
+                  color="white"
                   @click="editSchedule(item)"
                   outlined
                 )
@@ -63,11 +63,11 @@
           v-icon(v-else color="primary") {{ icons['mdiPlus'] }}
           span.text-h5 {{ isEdit ? '스케줄 수정' : '새 스케줄 추가' }}
         v-card-text
-          v-form(
+          v-form.dialog-form-halfwidth(
             ref="form"
             v-model="valid"
           )
-            v-select(
+            v-select.dialog-field(
               v-model="editedItem.cameraName"
               :items="cameras"
               item-text="name"
@@ -80,7 +80,7 @@
             )
             v-row
               v-col(cols="12" sm="6")
-                v-text-field(
+                v-text-field.dialog-field(
                   v-model="editedItem.startTime"
                   label="시작 시간"
                   type="time"
@@ -88,14 +88,14 @@
                   required
                 )
               v-col(cols="12" sm="6")
-            v-text-field(
+                v-text-field.dialog-field(
                   v-model="editedItem.endTime"
                   label="종료 시간"
                   type="time"
                   :rules="[v => !!v || '종료 시간을 입력해주세요']"
                   required
                 )
-            v-select(
+            v-select.dialog-field(
               v-model="editedItem.days"
               :items="daysOptions"
               item-text="text"
@@ -106,7 +106,7 @@
               :rules="[v => v.length > 0 || '최소 하나의 요일을 선택해주세요']"
               required
             )
-            v-select(
+            v-select.dialog-field(
               v-model="editedItem.recordingType"
               :items="recordingTypes"
               label="녹화 유형"
@@ -114,21 +114,11 @@
               required
             )
         v-card-actions
-        v-spacer
-          v-btn(
-            color="grey darken-1"
-            text
-            @click="closeDialog"
-          ) 취소
-          v-btn(
-            color="primary"
-            text
-            @click="saveSchedule"
-            :loading="saving"
-            :disabled="!valid"
-          ) {{ isEdit ? '수정' : '저장' }}
+          .actions-wrapper
+            v-btn.cancel-btn(@click="closeDialog") 취소
+            v-btn.save-btn(:loading="saving" :disabled="!valid" @click="saveSchedule") {{ isEdit ? '수정' : '저장' }}
 
-  v-dialog(
+  v-dialog.delete-dialog(
       v-model="deleteDialog"
       max-width="400px"
     )
@@ -137,7 +127,7 @@
           v-icon(color="error") {{ icons['mdiAlert'] }}
           span 스케줄 삭제
         v-card-text.tw-py-4
-          .tw-mb-2.tw-font-medium 다음 스케줄을 삭제하시겠습니까?
+          .tw-mb-2.tw-font-medium.tw-text-white 다음 스케줄을 삭제하시겠습니까?
           .tw-bg-gray-50.tw-p-3.tw-rounded.tw-mb-4(v-if="selectedSchedule")
             .tw-mb-1
               span.tw-font-semibold 카메라: 
@@ -150,18 +140,13 @@
               span {{ selectedSchedule.formattedDays }}
           .tw-text-red-600 이 작업은 되돌릴 수 없습니다.
         v-card-actions
-        v-spacer
-          v-btn(
-            color="grey darken-1"
-            text
-            @click="deleteDialog = false"
-          ) 취소
-          v-btn(
-          color="error"
-            text
-            @click="deleteSchedule"
-            :loading="deleting"
-          ) 삭제
+          .actions-wrapper
+            v-btn.cancel-btn(@click="deleteDialog = false") 취소
+            v-btn.save-btn(
+              color="error"
+              :loading="deleting"
+              @click="deleteSchedule"
+            ) 삭제
 </template>
 
 <script>
@@ -246,7 +231,7 @@ export default {
       { text: '토요일', value: 6 },
     ],
 
-    recordingTypes: ['Video', 'Snapshot'],
+    recordingTypes: ['Video'],
     selectedSchedule: null,
   }),
 
@@ -654,5 +639,130 @@ export default {
 .delete-btn .v-icon {
   margin-right: 4px !important;
   color: var(--cui-danger) !important;
+}
+
+.v-dialog .v-card,
+.v-dialog .v-card-text {
+  background: #232323 !important;
+  color: #e0e0e0 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.45) !important;
+}
+.dialog-form-halfwidth {
+  width: 50% !important;
+  min-width: 320px;
+  margin: 0 auto;
+}
+.dialog-field {
+  background: #232323 !important;
+  color: #e0e0e0 !important;
+  border-radius: 8px !important;
+  margin-bottom: 18px !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.dialog-field .v-label {
+  font-weight: 500 !important;
+  color: #bfc4d1 !important;
+  opacity: 0.95;
+  padding-left: 8px !important;
+  margin-bottom: 6px !important;
+}
+.dialog-field .v-input__slot,
+.dialog-field input,
+.dialog-field .v-select__selection {
+  color: #e0e0e0 !important;
+  background: #232323 !important;
+  padding-left: 14px !important;
+  padding-right: 14px !important;
+}
+.v-select__selections .v-chip {
+  background: #444 !important;
+  color: #e0e0e0 !important;
+  font-weight: 500;
+}
+.v-select__selections .v-chip .v-chip__content {
+  color: #e0e0e0 !important;
+}
+.v-select__selections .v-chip .v-icon {
+  color: #e0e0e0 !important;
+}
+.v-input--is-focused .dialog-field .v-input__slot {
+  border: 1.5px solid #6c63ff !important;
+}
+.cancel-btn {
+  background: #232323 !important;
+  color: #bfc4d1 !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  border: 1px solid #444 !important;
+  margin-right: 12px !important;
+  box-shadow: none !important;
+}
+.cancel-btn:hover {
+  background: #444 !important;
+  color: #fff !important;
+  border: 1.5px solid #fff !important;
+}
+.save-btn {
+  background: #232323 !important;
+  color: #e0e0e0 !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  border: 1px solid #6c63ff !important;
+  box-shadow: none !important;
+}
+.save-btn:hover {
+  background: #444 !important;
+  color: #ffd700 !important;
+  border: 1.5px solid #ffd700 !important;
+}
+.v-card-title {
+  color: #e0e0e0 !important;
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: transparent !important;
+  border-bottom: 1px solid #333 !important;
+  padding: 24px 32px 32px 32px !important;
+}
+.v-card-text {
+  padding: 0 32px 12px 32px !important;
+}
+.v-card-actions {
+  padding: 16px 32px 24px 32px !important;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.cancel-btn, .save-btn {
+  min-width: 120px !important;
+  max-width: 240px;
+  width: auto !important;
+}
+
+.v-dialog.delete-dialog .v-card,
+.v-dialog.delete-dialog .v-card-title {
+  background: #181818 !important;
+}
+.v-dialog.delete-dialog .v-card-text .tw-bg-gray-50 {
+  background: #232323 !important;
+  background-color: #232323 !important;
+  color: #fff !important;
+}
+.v-dialog.delete-dialog .v-card-text .tw-bg-gray-50 span,
+.v-dialog.delete-dialog .v-card-text .tw-bg-gray-50 {
+  color: #fff !important;
+}
+
+.actions-wrapper {
+  width: 100%;
+  text-align: center;
+}
+.actions-wrapper > * {
+  margin: 0 8px;
+  display: inline-block;
 }
 </style>
