@@ -49,7 +49,7 @@ export default {
       mdiFormatListBulleted,
       mdiCompareHorizontal
     },
-    currentTab: 'search'
+    currentTab: 'schedule'
   }),
 
   async mounted() {
