@@ -12,7 +12,7 @@
     
     .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items(v-for="menu in additionalMenus" :key="menu.name")
       v-btn.tw-justify-center.sidebar-nav-item(
-        @click="menu.route ? $router.push(menu.route) : showPreparingMessage"
+        @click="handleMenuClick(menu)"
         :class="menu.route && $route.path === menu.route ? 'sidebar-nav-item-active v-btn--active' : ''"
         plain 
         block 
@@ -69,6 +69,7 @@ export default {
       dialog: false,
       additionalMenus: [
         { name: '녹화관리', icon: 'mdi-record', route: '/recordings' },
+        // { name: '계측관리', icon: 'mdi-ruler', route: '/events' },
         { name: '계측관리', icon: 'mdi-ruler' },
         { name: '경보관리', icon: 'mdi-alert' },
         { name: '사용자관리', icon: 'mdi-account' },
@@ -109,6 +110,14 @@ export default {
     },
     showPreparingMessage() {
       this.dialog = true;
+    },
+    handleMenuClick(menu) {
+      const preparingMenus = ['계측관리', '경보관리', '사용자관리'];
+      if (preparingMenus.includes(menu.name)) {
+        this.showPreparingMessage();
+      } else if (menu.route) {
+        this.$router.push(menu.route);
+      }
     },
   },
 };
@@ -232,6 +241,7 @@ export default {
   padding: 20px 24px !important;
   font-size: 1.25rem !important;
   font-weight: 600 !important;
+  color: #2c3e50;
 }
 
 .dialog-content {

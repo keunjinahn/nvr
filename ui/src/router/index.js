@@ -162,6 +162,29 @@ export const routes = [
     component: () => import(/* webpackChunkName: "recordings" */ '@/views/Recordings/RecodingMgr.vue'),
   },
   {
+    path: '/events',
+    name: 'Events',
+    meta: {
+      auth: {
+        requiresAuth: true,
+        requiredLevel: ['events:access'],
+      },
+      config: {
+        fixedNavbar: true,
+        showFooter: true,
+        showNavbar: true,
+        showSidebar: true,
+      },
+      navigation: {
+        main: true,
+        icon: 'mdi-image-multiple',
+        title: '이벤트관리리',
+        parent: 'events:access'
+      },
+    },
+    component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventMgr.vue'),
+  },
+  {
     path: '/camview',
     name: 'Camview',
     meta: {

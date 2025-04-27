@@ -34,6 +34,7 @@ import * as SubscribeRouter from './components/subscribe/subscribe.routes.js';
 import * as SystemRouter from './components/system/system.routes.js';
 import * as UsersRouter from './components/users/users.routes.js';
 import * as SchedulesRouter from './components/schedules/schedules.routes.js';
+import * as EventsRouter from './components/events/events.routes.js';
 
 const { log } = LoggerService;
 
@@ -182,10 +183,12 @@ export default class App {
     SubscribeRouter.routesConfig(app);
     SystemRouter.routesConfig(app);
     UsersRouter.routesConfig(app);
+    app.use('/api', EventsRouter.default || EventsRouter);
 
     log.info('Registering schedules routes...', 'App');
     SchedulesRouter.routesConfig(app);
     log.info('Schedules routes registered', 'App');
+
 
     app.get('/version', (req, res) => {
       res.status(200).send({

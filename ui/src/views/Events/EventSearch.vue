@@ -7,7 +7,7 @@
         v-card.search-card.mb-4
           v-card-title.search-title
             v-icon.mr-2(color="primary") {{ icons.mdiMagnify }}
-            span 녹화 기록 검색
+            span 이벤트 이력 조회
             v-spacer
             v-btn(
               color="primary"
@@ -22,20 +22,9 @@
             v-row(align="center" justify="start")
               v-col(cols="12" sm="2")
                 v-text-field(
-                  v-model="searchFilters.cameraName"
-                  label="카메라 이름"
+                  v-model="searchFilters.eventType"
+                  label="이벤트 종류"
                   prepend-inner-icon="mdi-camera"
-                  dense
-                  outlined
-                  hide-details="auto"
-                  clearable
-                  @input="handleSearch"
-                )
-              v-col(cols="12" sm="2")
-                v-text-field(
-                  v-model="searchFilters.filename"
-                  label="파일명"
-                  prepend-inner-icon="mdi-file"
                   dense
                   outlined
                   hide-details="auto"
@@ -74,39 +63,19 @@
                     color="primary"
                     @change="handleDateRangeChange"
                   )
-              v-col(cols="12" sm="2")
-                v-select(
-                  v-model="searchFilters.status"
-                  :items="statusOptions"
-                  label="상태"
-                  prepend-inner-icon="mdi-checkbox-marked-circle"
-                  dense
-                  outlined
-                  hide-details="auto"
-                  clearable
-                  @input="handleSearch"
-                )
               v-col(cols="12" sm="4")
                 v-chip-group(
                   v-if="activeFiltersCount > 0"
                   column
                 )
                   v-chip(
-                    v-if="searchFilters.cameraName"
+                    v-if="searchFilters.eventType"
                     small
                     close
-                    @click:close="searchFilters.cameraName = ''"
+                    @click:close="searchFilters.eventType = ''"
                   )
                     v-icon(left small) {{ icons.mdiCamera }}
-                    | {{ searchFilters.cameraName }}
-                  v-chip(
-                    v-if="searchFilters.filename"
-                    small
-                    close
-                    @click:close="searchFilters.filename = ''"
-                  )
-                    v-icon(left small) {{ icons.mdiFile }}
-                    | {{ searchFilters.filename }}
+                    | {{ searchFilters.eventType }}
                   v-chip(
                     v-if="searchFilters.dateRange.length === 2"
                     small
@@ -115,20 +84,12 @@
                   )
                     v-icon(left small) {{ icons.mdiCalendar }}
                     | {{ searchFilters.dateRangeText }}
-                  v-chip(
-                    v-if="searchFilters.status"
-                    small
-                    close
-                    @click:close="searchFilters.status = ''"
-                  )
-                    v-icon(left small) {{ icons.mdiCheckboxMarkedCircle }}
-                    | {{ getStatusText(searchFilters.status) }}
     v-row
       v-col(cols="12")
         v-card
           v-data-table(
             :headers="headers"
-            :items="filteredRecordingHistory"
+            :items="filteredEventHistory"
             :loading="loading"
             :items-per-page="10"
             class="elevation-1"
@@ -178,14 +139,13 @@
         v-spacer
         v-btn(
           icon
-          color="white"
           @click="closeVideoDialog"
         )
           v-icon {{ icons.mdiClose }}
       v-divider
       v-card-text.pa-0
-        .video-container.tw-flex.tw-flex-col.tw-gap-4(style="position:relative;")
-          .video-player.tw-flex-1.tw-flex.tw-justify-center
+        .video-container.tw-flex.tw-gap-4(style="position:relative;")
+          .video-player.tw-flex-1
             video(
               ref="videoPlayer"
               controls
@@ -194,41 +154,40 @@
               crossorigin="anonymous"
               preload="metadata"
               controlsList="nodownload"
-              width="576"
-              height="324"
-              style="background:#000; max-width:100%; display:block;"
+              width="480"
+              height="270"
+              style="background:#000;"
             )
-          .video-info.mt-4.tw-flex.tw-justify-center
-            v-card.elevation-2.tw-w-full.tw-max-w-xl.tw-p-4.tw-bg-gray-800.tw-border.tw-border-gray-600
-              v-row
-                v-col(cols="12" sm="6")
-                  v-list-item(dense)
-                    v-list-item-icon
-                      v-icon {{ icons.mdiCamera }}
-                    v-list-item-content
-                      v-list-item-title 카메라
-                      v-list-item-subtitle(style="color:white;") {{ selectedVideo ? selectedVideo.cameraName : '' }}
-                v-col(cols="12" sm="6")
-                  v-list-item(dense)
-                    v-list-item-icon
-                      v-icon {{ icons.mdiCalendar }}
-                    v-list-item-content
-                      v-list-item-title 녹화 시작
-                      v-list-item-subtitle(style="color:white;") {{ selectedVideo ? selectedVideo.formattedStartTime : '' }}
-                v-col(cols="12" sm="6")
-                  v-list-item(dense)
-                    v-list-item-icon
-                      v-icon {{ icons.mdiClockOutline }}
-                    v-list-item-content
-                      v-list-item-title 녹화 종료
-                      v-list-item-subtitle(style="color:white;") {{ selectedVideo ? selectedVideo.formattedEndTime : '' }}
-                v-col(cols="12" sm="6")
-                  v-list-item(dense)
-                    v-list-item-icon
-                      v-icon {{ icons.mdiFile }}
-                    v-list-item-content
-                      v-list-item-title 파일명
-                      v-list-item-subtitle(style="color:white; white-space:normal; word-break:break-all;") {{ selectedVideo ? selectedVideo.filename : '' }}
+          .video-info.mt-4
+            v-row
+              v-col(cols="12" sm="6")
+                v-list-item(dense)
+                  v-list-item-icon
+                    v-icon {{ icons.mdiCamera }}
+                  v-list-item-content
+                    v-list-item-title 카메라
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.cameraName : '' }}
+              v-col(cols="12" sm="6")
+                v-list-item(dense)
+                  v-list-item-icon
+                    v-icon {{ icons.mdiCalendar }}
+                  v-list-item-content
+                    v-list-item-title 녹화 시작
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.formattedStartTime : '' }}
+              v-col(cols="12" sm="6")
+                v-list-item(dense)
+                  v-list-item-icon
+                    v-icon {{ icons.mdiClockOutline }}
+                  v-list-item-content
+                    v-list-item-title 녹화 종료
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.formattedEndTime : '' }}
+              v-col(cols="12" sm="6")
+                v-list-item(dense)
+                  v-list-item-icon
+                    v-icon {{ icons.mdiFile }}
+                  v-list-item-content
+                    v-list-item-title 파일명
+                    v-list-item-subtitle {{ selectedVideo ? selectedVideo.filename : '' }}
         .error-container.pa-4(v-if="videoError")
           v-alert(
             type="error"
@@ -238,7 +197,7 @@
       v-card-actions.pa-4
         v-spacer
         v-btn.close-btn(
-          color="white"
+          color="primary"
           text
           @click="closeVideoDialog"
         ) 닫기
@@ -251,12 +210,11 @@
     v-card
       v-card-title.headline 녹화 삭제
       v-card-text
-        span(style="color: white;") 선택한 녹화를 삭제하시겠습니까?
+        | 선택한 녹화를 삭제하시겠습니까?
         .mt-2.grey--text.text--darken-1 {{ selectedRecordingToDelete ? selectedRecordingToDelete.filename : '' }}
       v-card-actions
         v-spacer
         v-btn(
-          color="white"
           text
           @click="deleteDialog = false"
         ) 취소
@@ -281,12 +239,10 @@ import {
   mdiDelete,
   mdiPlay
 } from '@mdi/js'
-import { getRecordingHistory} from '@/api/recordingService.api.js';
-import { format } from 'date-fns';
-import { ko } from 'date-fns/locale';
+import { getEventHistory } from '@/api/eventHistory.api.js';
 
 export default {
-  name: 'RecodingSearch',
+  name: 'EventSearch',
 
   components: {},
 
@@ -307,23 +263,23 @@ export default {
       mdiPlay
     },
     loading: false,
-    recordingHistory: [],
+    eventHistory: [],
     thumbnails: {},
     dateMenu: false,
     searchFilters: {
-      cameraName: '',
-      filename: '',
+      eventType: '',
       dateRange: [],
-      dateRangeText: '',
-      status: ''
+      dateRangeText: ''
     },
+    eventTypeOptions: [
+      { text: '객체', value: 'OBJECT' },
+      { text: '온도', value: 'TEMP' }
+    ],
     headers: [
-      { text: '카메라', value: 'cameraName' },
-      { text: '시작 시간', value: 'formattedStartTime' },
-      { text: '종료 시간', value: 'formattedEndTime' },
-      { text: '파일명', value: 'filename' },
-      { text: '상태', value: 'status' },
-      { text: '작업', value: 'actions', sortable: false, align: 'center' }
+      { text: '이벤트 종류', value: 'eventType' },
+      { text: '상세 종류', value: 'eventDetailType' },
+      { text: '생성일자', value: 'createdAt' },
+      { text: '녹화영상ID', value: 'recordingId' }
     ],
     statusOptions: [
       { text: '녹화중', value: 'recording' },
@@ -343,48 +299,40 @@ export default {
   }),
 
   computed: {
-    formattedRecordingHistory() {
-      return this.recordingHistory.map((record) => ({
+    formattedEventHistory() {
+      return this.eventHistory.map((record) => ({
         ...record,
-        formattedStartTime: this.formatDateTime(record.startTime),
-        formattedEndTime: this.formatDateTime(record.endTime)
+        formattedStartTime: this.formatDateTime(record.createdAt),
+        formattedEndTime: this.formatDateTime(record.createdAt)
       }));
     },
 
     hasActiveFilters() {
-      return this.activeFiltersCount > 0
+      return !!this.searchFilters.eventType || this.searchFilters.dateRange.length === 2;
     },
 
     activeFiltersCount() {
       let count = 0
-      if (this.searchFilters.cameraName) count++
-      if (this.searchFilters.filename) count++
+      if (this.searchFilters.eventType) count++
       if (this.searchFilters.dateRange.length === 2) count++
-      if (this.searchFilters.status) count++
       return count
     },
 
-    filteredRecordingHistory() {
-      return this.formattedRecordingHistory.filter((record) => {
-        const matchCamera = !this.searchFilters.cameraName ||
-          record.cameraName.toLowerCase().includes(this.searchFilters.cameraName.toLowerCase())
-
-        const matchFilename = !this.searchFilters.filename ||
-          record.filename.toLowerCase().includes(this.searchFilters.filename.toLowerCase())
-
-        const matchStatus = !this.searchFilters.status ||
-          record.status === this.searchFilters.status
+    filteredEventHistory() {
+      return this.formattedEventHistory.filter((record) => {
+        const matchType = !this.searchFilters.eventType ||
+          record.eventType === this.searchFilters.eventType
 
         let matchDate = true
         if (this.searchFilters.dateRange.length === 2) {
-          const recordDate = new Date(record.startTime)
+          const recordDate = new Date(record.createdAt)
           const startDate = new Date(this.searchFilters.dateRange[0])
           const endDate = new Date(this.searchFilters.dateRange[1])
           endDate.setHours(23, 59, 59, 999)
           matchDate = recordDate >= startDate && recordDate <= endDate
         }
 
-        return matchCamera && matchFilename && matchDate && matchStatus
+        return matchType && matchDate
       })
     }
   },
@@ -401,7 +349,7 @@ export default {
   },
 
   mounted() {
-    this.fetchRecordingHistory();
+    this.fetchEventHistory();
   },
 
   beforeDestroy() {
@@ -426,74 +374,21 @@ export default {
   },
 
   methods: {
-    async fetchRecordingHistory() {
+    async fetchEventHistory() {
       this.loading = true;
       try {
-        const response = await getRecordingHistory();
-        console.log('Recording history response:', response);
-        
-        if (Array.isArray(response)) {
-          this.recordingHistory = response.map(record => ({
-            ...record,
-            id: record.id || '',
-            cameraName: record.cameraName || 'Unknown Camera',
-            filename: record.filename || 'Unknown File',
-            startTime: record.startTime || new Date().toISOString(),
-            endTime: record.endTime || new Date().toISOString(),
-            status: record.status || 'error'
-          }));
-          await this.fetchThumbnails();
-        } else {
-          console.error('Invalid response format:', response);
-          this.recordingHistory = [];
-        }
+        const response = await getEventHistory();
+        this.eventHistory = response;
       } catch (error) {
-        console.error('Failed to fetch recording history:', error);
-        this.recordingHistory = [];
+        this.eventHistory = [];
       } finally {
         this.loading = false;
       }
     },
 
-    async fetchThumbnails() {
-      console.log('Starting fetchThumbnails...');
-      for (const record of this.recordingHistory) {
-        if (!record.id) {
-          console.warn('Record missing ID:', record);
-          continue;
-        }
-        
-        try {
-          // 녹화 파일명에서 확장자를 제거하고 .png로 변경
-          const thumbnailFilename = record.filename.replace(/\.[^/.]+$/, '.png');
-          const thumbnailUrl = `http://localhost:9091/api/recordings/thumbnail/${record.id}/${thumbnailFilename}`;
-          
-          // 섬네일 URL을 저장
-          this.$set(this.thumbnails, record.id, thumbnailUrl);
-          
-          // 이미지 로드 테스트
-          const img = new Image();
-          img.onload = () => {
-            console.log(`Thumbnail loaded successfully for recording ${record.id}`);
-          };
-          img.onerror = () => {
-            console.warn(`Failed to load thumbnail for recording ${record.id}`);
-            this.$set(this.thumbnailErrors, record.id, true);
-            this.$set(this.thumbnails, record.id, '/assets/images/no-thumbnail.jpg');
-          };
-          img.src = thumbnailUrl;
-          
-        } catch (error) {
-          console.error(`Error setting thumbnail for recording ${record.id}:`, error);
-          this.$set(this.thumbnailErrors, record.id, true);
-          this.$set(this.thumbnails, record.id, '/assets/images/no-thumbnail.jpg');
-        }
-      }
-    },
-
     handleSearch() {
       // 검색 조건이 변경될 때마다 필터링된 결과가 자동으로 업데이트됩니다
-      // computed 속성인 filteredRecordingHistory가 처리합니다
+      // computed 속성인 filteredEventHistory가 처리합니다
     },
 
     handleDateRangeChange(range) {
@@ -511,23 +406,9 @@ export default {
       if (!dateString) {
         return '-';
       }
-      // 날짜 포맷 변환: T16-04-05 -> T16:04:05
-      function fixDateString(dateStr) {
-        if (!dateStr) return null;
-        return dateStr.replace(
-          /T(\d{2})-(\d{2})-(\d{2})/,
-          (match, p1, p2, p3) => `T${p1}:${p2}:${p3}`
-        );
-      }
-      const fixed = fixDateString(dateString);
-      const parsed = new Date(fixed);
-      if (isNaN(parsed.getTime())) return '-';
-      try {
-        return format(parsed, 'yyyy-MM-dd HH:mm:ss', { locale: ko });
-      } catch (error) {
-        console.error('Error formatting date:', error);
-        return '-';
-      }
+      const d = new Date(dateString);
+      if (isNaN(d.getTime())) return '-';
+      return d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
     },
 
     getStatusColor(status) {
@@ -551,13 +432,7 @@ export default {
     },
 
     resetFilters() {
-      this.searchFilters = {
-        cameraName: '',
-        filename: '',
-        dateRange: [],
-        dateRangeText: '',
-        status: ''
-      }
+      this.searchFilters = { eventType: '', dateRange: [], dateRangeText: '' };
     },
 
     async handleRowClick(record) {
@@ -681,7 +556,7 @@ export default {
           throw new Error(errorData.message || '녹화 삭제에 실패했습니다.');
         }
 
-        await this.fetchRecordingHistory();
+        await this.fetchEventHistory();
         this.$toast.success('녹화가 성공적으로 삭제되었습니다.');
         this.deleteDialog = false;
       } catch (error) {
@@ -896,17 +771,34 @@ export default {
       }
 
       .video-info {
-        max-width: 576px;
         width: 100%;
-        margin: 0 auto;
-        .v-card {
-          background: var(--cui-bg-gray-800) !important;
-          border: 1.5px solid var(--cui-border-color) !important;
-          border-radius: 12px !important;
-          box-shadow: 0 2px 12px rgba(0,0,0,0.12) !important;
-        }
-        .v-list-item-title, .v-list-item-subtitle {
-          color: white !important;
+        max-width: 900px;
+        margin: 24px auto 0;
+        background-color: var(--cui-bg-gray-700);
+        border-radius: 4px;
+        padding: 16px;
+
+        .v-list-item {
+          padding: 8px 16px;
+
+          .v-list-item-icon {
+            .v-icon {
+              color: var(--cui-text-default) !important;
+            }
+          }
+
+          .v-list-item-content {
+            .v-list-item-title {
+              color: var(--cui-text-default) !important;
+              font-weight: 500;
+              opacity: 0.9;
+            }
+
+            .v-list-item-subtitle {
+              color: var(--cui-text-default) !important;
+              opacity: 0.7;
+            }
+          }
         }
       }
     }
@@ -1052,20 +944,6 @@ export default {
     width: 480px !important;
     height: 270px !important;
     background: #000;
-  }
-
-  .icon-btn.rounded-circle {
-    border-radius: 50% !important;
-    min-width: 40px !important;
-    min-height: 40px !important;
-    background: rgba(255,255,255,0.08) !important;
-    color: #fff !important;
-    transition: background 0.2s;
-  }
-
-  .icon-btn.rounded-circle:hover {
-    background: var(--cui-primary) !important;
-    color: #fff !important;
   }
 }
 </style> 

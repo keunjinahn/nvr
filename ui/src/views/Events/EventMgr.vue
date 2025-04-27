@@ -12,35 +12,26 @@
               @click="changeTab('search')"
             )
               v-icon.tw-mr-2(size="24") {{ icons['mdiPlayCircle'] }}
-              span 녹화영상조회
+              span 이벤트조회
             .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
               :class="currentTab === 'schedule' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
-              @click="changeTab('schedule')"
+              @click="changeTab('setting')"
             )
               v-icon.tw-mr-2(size="24") {{ icons['mdiFormatListBulleted'] }}
-              span 녹화스케줄관리
-            .tab-item.tw-px-4.tw-py-2.tw-cursor-not-allowed.tw-flex.tw-items-center.tw-transition-all.tw-opacity-50(
-              :class="currentTab === 'compare' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
-              :disabled="true"
-              @click.prevent
-            )
-              v-icon.tw-mr-2(size="24") {{ icons['mdiCompareHorizontal'] }}
-              span 녹화비교
+              span 이벤트설정
         component(:is="currentComponent")
 </template>
 
 <script>
 import { mdiPlayCircle, mdiFormatListBulleted, mdiCompareHorizontal } from '@mdi/js';
-import RecodingSearch from './RecodingSearch.vue';
-import RecodingSchedule from './RecodingSchedule.vue';
-import RecodingCompare from './RecodingCompare.vue';
+import EventSearch from './EventSearch.vue';
+import EventSetting from './EventSetting.vue';
 export default {
-  name: 'RecodingMgr',
+  name: 'EventgMgr',
 
   components: {
-    RecodingSearch,
-    RecodingSchedule,
-    RecodingCompare
+    EventSearch,
+    EventSetting,
   },
 
   data: () => ({
@@ -64,7 +55,7 @@ export default {
 
   computed: {
     currentComponent() {
-      return this.currentTab === 'search' ? 'RecodingSearch' : this.currentTab === 'schedule' ? 'RecodingSchedule' : 'RecodingCompare';
+      return this.currentTab === 'search' ? 'EventSearch' : 'EventSetting';
     }
   }
 };
