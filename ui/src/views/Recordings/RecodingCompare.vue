@@ -15,29 +15,30 @@
                 crossorigin="anonymous"
                 preload="metadata"
                 controlsList="nodownload"
-                :style="expandedVideo === 1 ? 'width: 1600px; height: 900px;' : 'width: 640px; height: 360px;'"
+                :style="expandedVideo === 1 ? 'width: 1600px; height: 900px;' : 'width: 800px; height: 600px;'"
               )
-            .video-player.tw-flex-1(:class="{ expanded: expandedVideo === 2 }" @click="expandVideo(2)")
-              video(
-                ref="videoPlayer2"
-                controls
-                :src="selectedVideo2"
-                @error="handleVideoError"
-                crossorigin="anonymous"
-                preload="metadata"
-                controlsList="nodownload"
-                :style="expandedVideo === 2 ? 'width: 1600px; height: 900px;' : 'width: 640px; height: 360px;'"
-              )
-          .button-box.button-box-dark
-            v-btn.play-all-btn.common-dark-btn(color="gray" @click="playAllVideos")
-              v-icon(left class="common-dark-btn__icon") {{ icons.mdiPlay }}
-              span 모두 재생
-            v-btn.play-all-btn.common-dark-btn(color="gray" @click="togglePauseAllVideos")
-              v-icon(left class="common-dark-btn__icon") {{ isPaused ? icons.mdiPlay : icons.mdiPause }}
-              span {{ isPaused ? '재생' : '일시정지' }}
-            v-btn.play-all-btn.common-dark-btn(color="gray" @click="stopAllVideos")
-              v-icon(left class="common-dark-btn__icon") {{ icons.mdiStop }}
-              span 중지
+            .tw-flex.tw-gap-4
+              .video-player.tw-flex-1(:class="{ expanded: expandedVideo === 2 }" @click="expandVideo(2)")
+                video(
+                  ref="videoPlayer2"
+                  controls
+                  :src="selectedVideo2"
+                  @error="handleVideoError"
+                  crossorigin="anonymous"
+                  preload="metadata"
+                  controlsList="nodownload"
+                  :style="expandedVideo === 2 ? 'width: 1600px; height: 900px;' : 'width: 800px; height: 600px;'"
+                )
+              .button-box.button-box-dark
+                v-btn.play-all-btn.common-dark-btn(color="gray" @click="playAllVideos")
+                  v-icon(left class="common-dark-btn__icon") {{ icons.mdiPlay }}
+                  span 모두 재생
+                v-btn.play-all-btn.common-dark-btn(color="gray" @click="togglePauseAllVideos")
+                  v-icon(left class="common-dark-btn__icon") {{ isPaused ? icons.mdiPlay : icons.mdiPause }}
+                  span {{ isPaused ? '재생' : '일시정지' }}
+                v-btn.play-all-btn.common-dark-btn(color="gray" @click="stopAllVideos")
+                  v-icon(left class="common-dark-btn__icon") {{ icons.mdiStop }}
+                  span 중지
 
         v-card.mt-4
           v-data-table(
@@ -698,15 +699,16 @@ export default {
 }
 
 .button-box-dark {
-  border: 2px solid #222e50;
   border-radius: 12px;
-  background: #23263a;
+  background: #1e1e20;
   padding: 24px 0 16px 0;
   margin: 32px 0 16px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   box-shadow: 0 4px 24px rgba(0,0,0,0.25);
-  min-width: 130px;
+  min-width: 200px;
+  max-height:200px;
 }
 </style> 

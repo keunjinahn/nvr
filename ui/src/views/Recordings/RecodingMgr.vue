@@ -9,7 +9,7 @@
           .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-800.tw-p-1
             .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
               :class="currentTab === 'search' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
-              @click.prevent
+              @click="changeTab('search')"
             )
               v-icon.tw-mr-2(size="24") {{ icons['mdiPlayCircle'] }}
               span 녹화영상조회
@@ -22,7 +22,7 @@
             .tab-item.tw-px-4.tw-py-2.tw-cursor-not-allowed.tw-flex.tw-items-center.tw-transition-all.tw-opacity-50(
               :class="currentTab === 'compare' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
               :disabled="true"
-              @click.prevent
+              @click="changeTab('compare')"
             )
               v-icon.tw-mr-2(size="24") {{ icons['mdiCompareHorizontal'] }}
               span 녹화비교
@@ -49,7 +49,7 @@ export default {
       mdiFormatListBulleted,
       mdiCompareHorizontal
     },
-    currentTab: 'schedule'
+    currentTab: 'search'
   }),
 
   async mounted() {

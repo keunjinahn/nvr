@@ -14,8 +14,17 @@
                 height="75"
                 width="200"
               )
-                v-icon.tw-mr-2(size="24") {{ icons['mdiPlayCircle'] }}
-                span 이벤트조회
+                v-icon.tw-mr-2(size="24") {{ icons['mdiHistory'] }}
+                span 경보이력
+              v-btn.tab-btn(
+                :color="currentTab === 'status' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
+                @click="changeTab('status')"
+                text
+                height="75"
+                width="200"
+              )
+                v-icon.tw-mr-2(size="24") {{ icons['mdiAlert'] }}
+                span 경보현황
               v-btn.tab-btn(
                 :color="currentTab === 'setting' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
                 @click="changeTab('setting')"
@@ -23,35 +32,16 @@
                 height="75"
                 width="200"
               )
-                v-icon.tw-mr-2(size="24") {{ icons['mdiFormatListBulleted'] }}
-                span 이벤트설정
-              v-btn.tab-btn(
-                :color="currentTab === 'statistic' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
-                @click="changeTab('statistic')"
-                text
-                height="75"
-                width="200"
-              )
-                v-icon.tw-mr-2(size="24") {{ icons['mdiChartLine'] }}
-                span 분석통계
-              v-btn.tab-btn(
-                :color="currentTab === 'report' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
-                @click="changeTab('report')"
-                text
-                height="75"
-                width="200"
-              )
-                v-icon.tw-mr-2(size="24") {{ icons['mdiFileDocument'] }}
-                span 보고서출력
+                v-icon.tw-mr-2(size="24") {{ icons['mdiCog'] }}
+                span 경보설정
         router-view
 </template>
 
 <script>
 import { 
-  mdiPlayCircle, 
-  mdiFormatListBulleted, 
-  mdiChartLine,
-  mdiFileDocument
+  mdiHistory, 
+  mdiAlert, 
+  mdiCog
 } from '@mdi/js';
 
 export default {
@@ -59,10 +49,9 @@ export default {
 
   data: () => ({
     icons: {
-      mdiPlayCircle,
-      mdiFormatListBulleted,
-      mdiChartLine,
-      mdiFileDocument
+      mdiHistory,
+      mdiAlert,
+      mdiCog
     },
     currentTab: 'search'
   }),
@@ -78,7 +67,7 @@ export default {
   methods: {
     changeTab(tab) {
       this.currentTab = tab;
-      this.$router.push(`/events/${tab}`);
+      this.$router.push(`/notifications/${tab}`);
     }
   },
 

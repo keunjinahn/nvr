@@ -167,7 +167,7 @@ export const routes = [
     meta: {
       auth: {
         requiresAuth: true,
-        requiredLevel: ['events:access'],
+        requiredLevel: [],
       },
       config: {
         fixedNavbar: true,
@@ -178,11 +178,163 @@ export const routes = [
       navigation: {
         main: true,
         icon: 'mdi-image-multiple',
-        title: '이벤트관리리',
-        parent: 'events:access'
+        title: '이벤트관리'
       },
     },
     component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventMgr.vue'),
+    children: [
+      {
+        path: '',
+        redirect: 'search'
+      },
+      {
+        path: 'search',
+        name: 'EventSearch',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventSearch.vue')
+      },
+      {
+        path: 'setting',
+        name: 'EventSetting',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventSetting.vue')
+      },
+      {
+        path: 'statistic',
+        name: 'EventStatistic',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventStatistic.vue')
+      },
+      {
+        path: 'report',
+        name: 'EventReport',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventReport.vue')
+      }
+    ]
+  },
+  {
+    path: '/notifications',
+    name: 'Notifications',
+    meta: {
+      auth: {
+        requiresAuth: true,
+        requiredLevel: [],
+      },
+      config: {
+        fixedNavbar: true,
+        showFooter: true,
+        showNavbar: true,
+        showSidebar: true,
+      },
+      navigation: {
+        main: true,
+        icon: 'mdi-image-multiple',
+        title: '경보관리'
+      },
+    },
+    component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationMgr.vue'),
+    children: [
+      {
+        path: '',
+        redirect: 'search'
+      },
+      {
+        path: 'search',
+        name: 'NotificationSearch',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationSearch.vue')
+      },
+      {
+        path: 'status',
+        name: 'NotificationStatus',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationStatus.vue')
+      },
+      {
+        path: 'setting',
+        name: 'NotificationSetting',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationSetting.vue')
+      },
+    ]
   },
   {
     path: '/camview',
@@ -539,6 +691,27 @@ export const routes = [
       },
     },
     component: () => import(/* webpackChunkName: "surveillanceAreas" */ '@/views/VideoManagement/SurveillanceAreas.vue'),
+  },
+  {
+    path: '/user-management',
+    name: 'UserManagement',
+    meta: {
+      auth: {
+        requiresAuth: true,
+        requiredLevel: ['admin'],
+      },
+      config: {
+        fixedNavbar: true,
+        showFooter: true,
+        showNavbar: true,
+        showSidebar: true,
+      },
+      navigation: {
+        main: true,
+        icon: 'mdi-account-group',
+      },
+    },
+    component: () => import(/* webpackChunkName: "user-management" */ '@/views/UserManagement/UserMgr.vue'),
   },
 ];
 

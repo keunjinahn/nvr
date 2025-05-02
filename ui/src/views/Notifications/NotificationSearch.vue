@@ -7,7 +7,7 @@
         v-card.search-card.mb-4
           v-card-title.search-title
             v-icon.mr-2(color="primary") {{ icons.mdiMagnify }}
-            span 이벤트 이력 조회
+            span 경보 이력 조회
             v-spacer
             v-btn(
               color="primary"
@@ -23,7 +23,7 @@
               v-col(cols="12" sm="2")
                 v-text-field(
                   v-model="searchFilters.eventType"
-                  label="이벤트 종류"
+                  label="경보 종류"
                   prepend-inner-icon="mdi-camera"
                   dense
                   outlined
@@ -269,16 +269,16 @@ export default {
       dateRangeText: ''
     },
     eventTypeOptions: [
-      { text: '객체', value: 'OBJECT' },
+      { text: '누수', value: 'LEAK' },
       { text: '온도', value: 'TEMP' }
     ],
     headers: [
       { text: '순번', value: 'id', width: '80px' },
-      { text: '이벤트 발생시간', value: 'eventTime', width: '180px' },
-      { text: '이벤트 발생 포인트', value: 'point', width: '150px' },
+      { text: '경보 발생시간', value: 'eventTime', width: '180px' },
+      { text: '경보 발생 포인트', value: 'point', width: '150px' },
       { text: '열화상영상이름', value: 'thermalImage', width: '150px' },
-      { text: '이벤트Type', value: 'eventType', width: '120px' },
-      { text: '이벤트종류', value: 'eventCategory', width: '120px' },
+      { text: '경보종류', value: 'eventType', width: '120px' },
+      { text: '경보단계', value: 'eventCategory', width: '120px' },
       { text: '처리결과', value: 'status', width: '120px' },
       { text: '라이브영상이동', value: 'liveView', width: '120px', sortable: false },
       { text: '녹화영상이동', value: 'recordingView', width: '120px', sortable: false }
@@ -305,7 +305,7 @@ export default {
         point: 'P001',
         thermalImage: '댐영상1',
         eventType: '온도',
-        eventCategory: '누수',
+        eventCategory: '1단계',
         status: '미처리'
       },
       {
@@ -313,8 +313,8 @@ export default {
         eventTime: '2024-03-20 11:20:45',
         point: 'P002',
         thermalImage: '댐영상2',
-        eventType: '객체',
-        eventCategory: '균열',
+        eventType: '누수',
+        eventCategory: '2단계',
         status: '대기'
       },
       {
@@ -323,7 +323,7 @@ export default {
         point: 'P003',
         thermalImage: '댐영상3',
         eventType: '온도',
-        eventCategory: '누수',
+        eventCategory: '3단계',
         status: '처리'
       },
       {
@@ -331,8 +331,8 @@ export default {
         eventTime: '2024-03-20 13:45:20',
         point: 'P004',
         thermalImage: '댐영상4',
-        eventType: '객체',
-        eventCategory: '사람',
+        eventType: '누수',
+        eventCategory: '4단계',
         status: '미처리'
       },
       {
@@ -340,8 +340,8 @@ export default {
         eventTime: '2024-03-20 14:50:10',
         point: 'P005',
         thermalImage: '댐영상1',
-        eventType: '객체',
-        eventCategory: '동물',
+        eventType: '누수',
+        eventCategory: '5단계',
         status: '대기'
       },
       {
@@ -350,7 +350,7 @@ export default {
         point: 'P006',
         thermalImage: '댐영상2',
         eventType: '온도',
-        eventCategory: '균열',
+        eventCategory: '6단계',
         status: '처리'
       },
       {
@@ -358,8 +358,8 @@ export default {
         eventTime: '2024-03-20 16:10:45',
         point: 'P007',
         thermalImage: '댐영상3',
-        eventType: '객체',
-        eventCategory: '사람',
+        eventType: '누수',
+        eventCategory: '7단계',
         status: '미처리'
       },
       {
@@ -368,7 +368,7 @@ export default {
         point: 'P008',
         thermalImage: '댐영상4',
         eventType: '온도',
-        eventCategory: '누수',
+        eventCategory: '8단계',
         status: '대기'
       },
       {
@@ -376,8 +376,8 @@ export default {
         eventTime: '2024-03-20 18:30:20',
         point: 'P009',
         thermalImage: '댐영상1',
-        eventType: '객체',
-        eventCategory: '동물',
+        eventType: '누수',
+        eventCategory: '9단계',
         status: '처리'
       },
       {
@@ -386,7 +386,7 @@ export default {
         point: 'P010',
         thermalImage: '댐영상2',
         eventType: '온도',
-        eventCategory: '균열',
+        eventCategory: '10단계',
         status: '미처리'
       }
     ],

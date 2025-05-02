@@ -29,6 +29,7 @@
     "connect-history-api-fallback": "^1.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "echarts": "^5.6.0",
     "express": "^4.17.3",
     "ffmpeg-for-homebridge": "^2.1.7",
     "fs-extra": "^10.1.0",
@@ -66,9 +67,11 @@
     "web-push": "^3.4.5"
   },
   "devDependencies": {
-    "@babel/core": "^7.17.9",
+    "@babel/core": "^7.26.10",
     "@babel/eslint-parser": "^7.17.0",
     "@babel/eslint-plugin": "^7.17.7",
+    "@babel/preset-env": "^7.26.9",
+    "babel-loader": "^10.0.0",
     "concurrently": "6.5.1",
     "eslint": "^8.14.0",
     "eslint-config-prettier": "^8.5.0",

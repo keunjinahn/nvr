@@ -69,10 +69,9 @@ export default {
       dialog: false,
       additionalMenus: [
         { name: '녹화관리', icon: 'mdi-record', route: '/recordings' },
-        // { name: '계측관리', icon: 'mdi-ruler', route: '/events' },
-        { name: '계측관리', icon: 'mdi-ruler' },
-        { name: '경보관리', icon: 'mdi-alert' },
-        { name: '사용자관리', icon: 'mdi-account' },
+        { name: '계측관리', icon: 'mdi-ruler', route: '/events' },
+        { name: '경보관리', icon: 'mdi-alert', route: '/notifications' },
+        { name: '사용자관리', icon: 'mdi-account', route: '/user-management' },
       ],
       navigation: routes
         .map((route) => {
@@ -112,7 +111,7 @@ export default {
       this.dialog = true;
     },
     handleMenuClick(menu) {
-      const preparingMenus = ['계측관리', '경보관리', '사용자관리'];
+      const preparingMenus = [];
       if (preparingMenus.includes(menu.name)) {
         this.showPreparingMessage();
       } else if (menu.route) {

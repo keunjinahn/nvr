@@ -23,6 +23,11 @@ import ToastOptions from '@/common/toast.defaults.js';
 import socket from '@/common/socket-instance';
 import VueSocketIOExt from 'vue-socket.io-extended';
 
+import ECharts from 'vue-echarts';
+import 'echarts';
+
+Vue.component('v-chart', ECharts);
+
 Vue.use(Toast, ToastOptions);
 Vue.use(VueSocketIOExt, socket, { store });
 

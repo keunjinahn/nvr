@@ -18,7 +18,6 @@ v-app.app(:style="$route.name === 'Camview' ? 'background: #121212 !important' :
         .overlay(v-if="showOverlay")
 
         v-main.tw-relative(:class="$route.name !== 'Login' && $route.name !== 'Start' && $route.name !== '404' && ($route.meta.config && !$route.meta.config.showMinifiedNavbar && $route.meta.config.showSidebar ? 'content ' : '') + (extendSidebar ? 'extended-sidebar' : '')")
-          Navbar(v-if="$route.meta.config && $route.meta.config.showNavbar")
           .router-container.tw-relative(:class="$route.meta.config && $route.meta.config.fixedNavbar ? 'fixed-navbar' : ''")
             transition(name='fade' mode='out-in')
               router-view
@@ -166,7 +165,7 @@ export default {
 }
 
 .fixed-navbar {
-  margin-top: calc(64px + env(safe-area-inset-top, 0px));
+  margin-top: 0px;
 }
 
 .add-button {

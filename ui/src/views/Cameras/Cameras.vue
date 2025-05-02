@@ -80,13 +80,34 @@
       div(v-for="room in rooms" :key="room" v-if="!listMode && ((room === 'Standard' && cameras.find((cam) => cam.settings.room === room)) || room !== 'Standard')")
         .tw-mt-7(v-if="room !== 'Standard'")
         
-        h4(style="font-weight: 700;") {{ room === 'Standard' ? $t('standard') : room }}
         v-divider.tw-mt-3
 
-        v-layout.tw-mt-5(row wrap)
-          v-flex.tw-mb-3.tw-px-2(v-if="!listMode && camera.settings.room === room" xs12 sm6 md4 lg3 v-for="camera in cameras" :key="camera.name")
-            vue-aspect-ratio(ar="4:3")
-              VideoCard(:camera="camera" title titlePosition="bottom" snapshot)
+        v-layout.tw-mt-5(
+          row 
+          wrap
+          :style="cameras.length === 4 ? 'margin-left: 10%; margin-right: 10%; width: 80%;' : ''"
+        )
+          v-flex.tw-mb-3.tw-px-2(
+            v-if="!listMode && camera.settings.room === room" 
+            v-for="camera in cameras" 
+            :key="camera.name"
+            :class="cameras.length === 4 ? 'xs12 sm6 md6 lg6' : 'xs12 sm6 md4 lg3'"
+            :style="cameras.length === 4 ? 'max-width: 50%; flex-basis: 50%;' : ''"
+          )
+            .video-container(
+              :style="cameras.length === 4 ? 'padding: 10px;' : ''"
+            )
+              vue-aspect-ratio(
+                ar="16:9"
+                :style="cameras.length === 4 ? 'max-width: 100%;' : ''"
+              )
+                VideoCard(
+                  :camera="camera" 
+                  title 
+                  titlePosition="bottom"
+                  stream
+                  :style="'width: 100%; height: 100%; min-height: 0;'"
+                )
 
     infinite-loading(:identifier="infiniteId", @infinite="infiniteHandler")
       div(slot="spinner")
@@ -869,5 +890,44 @@ div >>> .v-data-table-header__icon {
 
 .delete-btn .v-icon {
   margin-right: 4px !important;
+}
+
+.video-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.video-container >>> .vue-aspect-ratio {
+  width: 100%;
+  max-width: 100%;
+}
+
+.video-container >>> .video-card {
+  width: 100%;
+  height: 100%;
+  background: var(--cui-bg-card);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+@media (min-width: 1200px) {
+  .video-container {
+    padding: 15px;
+  }
+}
+
+@media (max-width: 1199px) {
+  .video-container {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 960px) {
+  .video-container {
+    padding: 8px;
+  }
 }
 </style>

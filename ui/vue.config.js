@@ -152,6 +152,31 @@ module.exports = {
     /*performance: {
       hints: process.env.NODE_ENV === 'production' ? false : 'warning',
     },*/
+    module: {
+      rules: [
+        {
+          test: /\.js$/,
+          include: [
+            path.resolve(__dirname, 'node_modules/vue-echarts'),
+            path.resolve(__dirname, 'node_modules/resize-detector'),
+            path.resolve(__dirname, 'node_modules/@vue/composition-api')
+          ],
+          use: {
+            loader: 'babel-loader',
+            options: {
+              presets: [
+                ['@babel/preset-env', {
+                  targets: {
+                    browsers: ['> 1%', 'last 2 versions', 'not dead']
+                  }
+                }]
+              ],
+              plugins: ['@babel/plugin-proposal-optional-chaining']
+            }
+          }
+        }
+      ]
+    },
     resolve: {
       alias: {
         jquery: path.resolve(__dirname, 'node_modules/gridstack/dist/jq/jquery.js'),
