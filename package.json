@@ -63,6 +63,7 @@
     "swagger-ui-express": "^4.3.0",
     "systeminformation": "^5.11.14",
     "tar": "^6.1.11",
+    "v-click-outside": "^3.2.0",
     "video.js": "^7.21.7",
     "web-push": "^3.4.5"
   },

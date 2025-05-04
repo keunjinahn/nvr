@@ -37,6 +37,9 @@ export default {
     regions: {
       handler() {
         this.refreshCoords();
+        this.$nextTick(() => {
+          this.resetHandles();
+        });
       },
       deep: true,
     },
@@ -72,10 +75,10 @@ export default {
 
   methods: {
     placeHandle(coord) {
-      return {
-        left: Math.round((coord[0] / 100) * this.width) + 'px',
-        top: Math.round((coord[1] / 100) * this.height) + 'px',
-      };
+      const left = Math.round((coord[0] / 100) * this.width) + 'px';
+      const top = Math.round((coord[1] / 100) * this.height) + 'px';
+      console.log('placeHandle:', { left, top }, 'coord:', coord, 'width:', this.width, 'height:', this.height);
+      return { left, top };
     },
 
     handleAdded(payload) {
@@ -105,8 +108,9 @@ export default {
       if (!el || !coord) {
         return;
       }
-
-      Object.assign(el.style, this.placeHandle(coord));
+      const style = this.placeHandle(coord);
+      console.log('styleHandle:', style, 'coord:', coord);
+      Object.assign(el.style, style);
     },
 
     makeDraggable(el) {

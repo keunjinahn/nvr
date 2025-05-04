@@ -43,6 +43,15 @@
               )
                 v-icon.tw-mr-2(size="24") {{ icons['mdiFileDocument'] }}
                 span 보고서출력
+              v-btn.tab-btn(
+                :color="currentTab === 'area' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
+                @click="changeTab('area')"
+                text
+                height="75"
+                width="200"
+              )
+                v-icon.tw-mr-2(size="24") {{ icons['mdiMapMarkerRadius'] }}
+                span 감시영역설정
         router-view
 </template>
 
@@ -51,7 +60,8 @@ import {
   mdiPlayCircle, 
   mdiFormatListBulleted, 
   mdiChartLine,
-  mdiFileDocument
+  mdiFileDocument,
+  mdiMapMarkerRadius
 } from '@mdi/js';
 
 export default {
@@ -62,7 +72,8 @@ export default {
       mdiPlayCircle,
       mdiFormatListBulleted,
       mdiChartLine,
-      mdiFileDocument
+      mdiFileDocument,
+      mdiMapMarkerRadius
     },
     currentTab: 'search'
   }),

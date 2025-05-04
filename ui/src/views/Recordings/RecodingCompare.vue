@@ -15,7 +15,7 @@
                 crossorigin="anonymous"
                 preload="metadata"
                 controlsList="nodownload"
-                :style="expandedVideo === 1 ? 'width: 1600px; height: 900px;' : 'width: 800px; height: 600px;'"
+                :style="expandedVideo === 1 ? 'width: 1280px; height: 720px;' : 'width: 640px; height: 480px;'"
               )
             .tw-flex.tw-gap-4
               .video-player.tw-flex-1(:class="{ expanded: expandedVideo === 2 }" @click="expandVideo(2)")
@@ -27,7 +27,7 @@
                   crossorigin="anonymous"
                   preload="metadata"
                   controlsList="nodownload"
-                  :style="expandedVideo === 2 ? 'width: 1600px; height: 900px;' : 'width: 800px; height: 600px;'"
+                  :style="expandedVideo === 2 ? 'width: 1280px; height: 720px;' : 'width: 640px; height: 480px;'"
                 )
               .button-box.button-box-dark
                 v-btn.play-all-btn.common-dark-btn(color="gray" @click="playAllVideos")

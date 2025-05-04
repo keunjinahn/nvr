@@ -254,6 +254,23 @@ export const routes = [
           }
         },
         component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventReport.vue')
+      },
+      {
+        path: 'area',
+        name: 'EventArea',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventArea.vue')
       }
     ]
   },

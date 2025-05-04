@@ -158,31 +158,11 @@ export default {
   }),
 
   async mounted() {
-    //document.addEventListener('touchstart', this.onTouchStart, false);
-
     if (!this.hideController) {
       document.addEventListener('keydown', this.logKey);
     }
-
-    if (this.camera.lastNotification) {
-      const notification = this.camera.lastNotification;
-      this.images = [
-        {
-          title: `${notification.camera} - ${notification.time}`,
-          src: `/files/${notification.fileName}`,
-          thumb:
-            notification.recordType === 'Video'
-              ? `/files/${notification.name}@2.jpeg`
-              : `/files/${notification.fileName}`,
-        },
-      ];
-    }
-
     this.timeout = this.camera.settings.streamTimeout || 60;
-
-    if (this.stream) {
-      this.startStream();
-    } else if (this.snapshot || this.refreshSnapshot) {
+    if (this.snapshot || this.refreshSnapshot) {
       this.startSnapshot();
     }
   },
@@ -249,20 +229,6 @@ export default {
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       return isMobile;
     },
-    /*onUnlocked() {
-      if (this.player) {
-        this.player.volume = 1;
-      }
-
-      document.removeEventListener('touchstart', this.onTouchStart);
-    },
-    onTouchStart() {
-      if (this.player) {
-        this.player.audioOut.unlock(this.onUnlocked);
-      }
-
-      document.removeEventListener('touchstart', this.onTouchStart);
-    },*/
     pauseStream() {
       if (this.player) {
         this.player.source.pause(true);
@@ -381,6 +347,14 @@ export default {
       }
     },
     async startStream() {
+      console.log('startStream called', this.camera, this.$refs.streamBox, this.stream);
+      if (!this.$refs.streamBox) {
+        await this.$nextTick();
+        if (!this.$refs.streamBox) {
+          console.warn('streamBox not ready');
+          return;
+        }
+      }
       try {
         const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
 
@@ -506,6 +480,37 @@ export default {
         this.player.source.write(buffer);
       }
     },
+  },
+  watch: {
+    camera: {
+      handler(newVal) {
+        
+        if (
+          this.stream &&
+          newVal &&
+          newVal.videoConfig &&
+          newVal.videoConfig.source &&
+          Object.keys(newVal.videoConfig).length > 0
+        ) {
+          if (this.player) {
+            this.stopStream();
+          }
+          console.log('watch:camera - startStream 조건 만족', newVal);
+          this.startStream();
+        }
+      },
+      immediate: true,
+      deep: true,
+    },
+    'camera.videoConfig.source'(newVal) {
+      if (this.stream && newVal) {
+        if (this.player) {
+          this.stopStream();
+        }
+        console.log('watch:camera.videoConfig.source - startStream 조건 만족', newVal);
+        this.startStream();
+      }
+    }
   },
 };
 </script>

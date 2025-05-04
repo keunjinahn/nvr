@@ -2,9 +2,9 @@
   #playground_container.playground-container.flex
     section.playground(:class="{ customizing: customizing, start: !regions.length }" @click="addHandle")
       .sandbox(:style="{ width: width + 20 + 'px', height: height + 20 + 'px' }")
-        draggables(:regions="regions" :width="width" :height="height" @updateHandle="updateHandle")
+        draggables(:regions="regions" :width="width" :height="height" :customizing="customizing" @updateHandle="updateHandle")
         .shadowboard.on(:style="background")
-        .clipboard(v-for="(region, i) in regions" :key="`clipboard-${i}`" :style="[{ 'clip-path': clipCSS(region.coords) }, { '-webkit-clip-path': clipCSS(region.coords) }, background]")
+        .clipboard(v-for="(region, i) in regions" :key="`clipboard-${i}`" :style="[{ 'clip-path': clipCSS(region.coords) }, { '-webkit-clip-path': clipCSS(region.coords) }, background, { opacity: 0.5 }]")
 
 </template>
 

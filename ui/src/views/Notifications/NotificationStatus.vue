@@ -6,14 +6,6 @@
         v-card.notification-card
           .camera-status
             .status-header
-              span.status-title 경보 현황
-              v-spacer
-              v-btn(
-                icon
-                @click="refreshCameras"
-                :loading="loading"
-              )
-                v-icon {{ icons['mdiRefresh'] }}
             .camera-list-container
               .camera-grid(v-if="cameras && cameras.length > 0")
                 .camera-box(
@@ -73,7 +65,7 @@
             .display-box.right-box
               .right-box-content
                 .top-box
-                  .gauge-title 현재 경보 단계
+
                   .gauge-container
                     .gauge-meter(ref="gaugeChart")
                 .center-box
@@ -527,14 +519,14 @@ export default {
     .camera-status {
       background-color: #2d2d2d;
       border-radius: 8px;
-      margin-bottom: 16px;
-      padding: 16px;
+      margin-bottom: 10px;
+      padding: 2px;
       
       .status-header {
         display: flex;
         flex-direction: row;
         align-items: center;
-        margin-bottom: 16px;
+        margin-bottom: 10px;
         
         .status-title {
           font-size: 1.25rem;
@@ -582,6 +574,9 @@ export default {
           border-radius: 4px;
           padding: 8px;
           overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
           
           &.active {
             background: #3d3d3d;
@@ -589,27 +584,46 @@ export default {
           }
           
           .camera-thumbnail {
-            width: 100%;
-            height: 120px;
+            width: 100px;
+            height: 80px;
             margin-bottom: 8px;
             border-radius: 4px;
             overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             
             :deep(.video-card) {
-              width: 100%;
-              height: 100%;
+              width: 100px;
+              height: 80px;
               background: transparent;
+              display: flex;
+              align-items: center;
+              justify-content: center;
               
               .video-card-content {
                 border-radius: 4px;
+                width: 100px;
+                height: 80px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                video, img {
+                  width: 100px;
+                  height: 80px;
+                  object-fit: contain;
+                }
               }
             }
           }
           
           .camera-info {
+            width: 100%;
             padding: 4px;
             cursor: pointer;
             transition: all 0.3s ease;
+            text-align: center;
             
             &:hover {
               background: #3d3d3d;
@@ -618,7 +632,7 @@ export default {
             
             .camera-name {
               color: #ffffff;
-              font-size: 1.1rem;
+              font-size: 0.7rem;
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
@@ -634,15 +648,16 @@ export default {
       display: flex;
       gap: 16px;
       margin-top: auto;
+      height: calc(100vh - 300px);
       
       .display-box {
         background-color: #2d2d2d;
         border: 1px solid #3d3d3d;
         border-radius: 4px;
-        min-height: 200px;
+        height: 100%;
 
         &.left-box {
-          width: 20%;
+          width: 15%;
           
           .alert-history {
             height: 100%;
@@ -650,62 +665,38 @@ export default {
             flex-direction: column;
             
             .alert-history-title {
-              padding: 16px;
-              font-size: 1.1rem;
+              padding: 12px;
+              font-size: 0.95rem;
               color: #ffffff;
               border-bottom: 1px solid #3d3d3d;
+              flex-shrink: 0;
             }
             
             .alert-history-table {
               flex: 1;
               overflow-y: auto;
               padding: 8px;
+              min-height: 0;
               
-              &::-webkit-scrollbar {
-                width: 8px;
-              }
-              
-              &::-webkit-scrollbar-track {
-                background: #1e1e1e;
-                border-radius: 4px;
-              }
-              
-              &::-webkit-scrollbar-thumb {
-                background: #3d3d3d;
-                border-radius: 4px;
-                
-                &:hover {
-                  background: #4d4d4d;
-                }
-              }
-
               .table-row {
                 background: #1e1e1e;
                 border-radius: 4px;
                 margin-bottom: 8px;
                 
-                &:last-child {
-                  margin-bottom: 0;
-                }
-                
                 .table-item {
                   display: flex;
                   justify-content: space-between;
-                  padding: 8px 12px;
+                  padding: 6px 10px;
                   border-bottom: 1px solid #2d2d2d;
-                  
-                  &:last-child {
-                    border-bottom: none;
-                  }
                   
                   .item-label {
                     color: #888888;
-                    font-size: 0.9rem;
+                    font-size: 0.8rem;
                   }
                   
                   .item-value {
                     color: #ffffff;
-                    font-size: 0.9rem;
+                    font-size: 0.8rem;
                   }
                 }
               }
@@ -729,6 +720,9 @@ export default {
             .video-card-content {
               border-radius: 4px;
               overflow: hidden;
+              display: flex;
+              align-items: center;
+              justify-content: center;
             }
           }
           
@@ -741,28 +735,25 @@ export default {
             
             .no-video-text {
               color: #666666;
-              font-size: 1.1rem;
+              font-size: 0.9rem;
             }
           }
         }
 
         &.right-box {
-          width: 20%;
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          padding: 16px;
-
+          width: 25%;
+          
           .right-box-content {
+            height: 100%;
             display: flex;
             flex-direction: column;
-            gap: 16px;
-            height: 100%;
+            gap: 12px;
+            padding: 12px;
 
             .top-box, .center-box, .bottom-box {
               background: #1e1e1e;
               border-radius: 4px;
-              padding: 16px;
+              padding: 12px;
               flex: 1;
               display: flex;
               flex-direction: column;
@@ -770,8 +761,8 @@ export default {
 
             .gauge-title, .chart-title, .table-title {
               color: #ffffff;
-              font-size: 1rem;
-              margin-bottom: 12px;
+              font-size: 0.45rem;
+              margin-bottom: 10px;
               text-align: center;
             }
 
@@ -796,35 +787,38 @@ export default {
 
             .alert-table {
               flex: 1;
-              display: flex;
-              flex-direction: column;
-              overflow: hidden;
-
+              overflow-y: auto;
+              min-height: 0;
+              
               .table-header {
                 display: flex;
                 background: #2d2d2d;
+                padding: 6px;
                 border-radius: 4px 4px 0 0;
-                padding: 8px;
-
+                margin-bottom: 1px;
+                
                 .header-cell {
                   flex: 1;
                   color: #ffffff;
-                  font-size: 0.9rem;
+                  font-size: 0.7rem;
                   text-align: center;
+                  font-weight: 600;
                 }
               }
 
               .table-body {
-                flex: 1;
                 overflow-y: auto;
-                background: #1e1e1e;
-                border-radius: 0 0 4px 4px;
-
+                
                 .table-row {
                   display: flex;
-                  padding: 8px;
+                  padding: 6px;
                   border-bottom: 1px solid #2d2d2d;
-
+                  transition: background-color 0.2s;
+                  
+                  &:hover {
+                    background: #2d2d2d;
+                  }
+                  
                   &:last-child {
                     border-bottom: none;
                   }
@@ -832,8 +826,16 @@ export default {
                   .table-cell {
                     flex: 1;
                     color: #ffffff;
-                    font-size: 0.9rem;
+                    font-size: 0.7rem;
                     text-align: center;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    padding: 0 4px;
+                    
+                    &:first-child {
+                      color: #888888;
+                    }
                   }
                 }
               }
