@@ -39,6 +39,34 @@
               @updateHandle="updateHandle"
               style="position:absolute;top:-10px;left:-10px;width:100%;height:100%;pointer-events:all;z-index:10;"
             )
+          .options-panel(style="margin-top: 10px; padding: 10px; background-color: #1e1e20; border-radius: 8px;")
+            .option-item(v-for="(option, key) in options" :key="key" style="margin-bottom: 5px;")
+              v-row(align="center" no-gutters)
+                v-col(cols="3")
+                  span(style="color: #fff; font-size: 14px;") {{ option.label }}
+                v-col(cols="8")
+                  v-slider(
+                    v-model="option.value"
+                    :min="1"
+                    :max="100"
+                    @input="updateOptions"
+                    color="primary"
+                    hide-details
+                    class="mt-0"
+                  )
+                v-col(cols="1")
+                  span.text-right(style="color: #fff; font-size: 14px;") {{ option.value }}
+            .description-field(style="margin-top: 10px;")
+              v-text-field(
+                v-model="description"
+                label="Description"
+                outlined
+                dense
+                hide-details
+                dark
+                background-color="#2a2a2a"
+                color="primary"
+              )
           .tw-flex.tw-justify-center.tw-mt-4
           .button-box.button-box-dark.tw-flex.tw-flex-row.tw-gap-4
             v-btn(@click="customizing ? finishCustom() : startCustom()")
@@ -47,23 +75,56 @@
               v-icon {{ icons.mdiUndo }}
             v-btn(@click="clear")
               v-icon {{ icons.mdiRefresh }}
-            <!-- .refresh-button-container
-              v-btn(
-                fab
-                small
-                color="secondary"
-                @click="refreshVideo"
-                :loading="refreshing"
-              )
-                v-icon {{ icons.mdiRefresh }} -->
+            v-btn(@click="add")
+              v-icon {{ icons.mdiPlus }}
+        v-col(cols="6")
+          v-data-table(
+            :headers="tableHeaders"
+            :items="eventAreaList"
+            item-key="id"
+            class="elevation-1"
+            @click:row="onRowClick"
+          )
+            template(#[`item.no`]="{ index }")
+              span {{ index + 1 }}
+            template(#[`item.cameraName`]="{ item }")
+              span {{ getCameraName(item.cameraId) }}
+            template(#[`item.description`]="{ item }")
+              span {{ item.description }}
+            template(v-slot:item.actions="{ item }")
+              .tw-flex.tw-items-center.tw-gap-2
+                v-btn.edit-btn(
+                  color="white"
+                  @click.stop="editRow(item)"
+                  outlined
+                )
+                  v-icon(left size="20" ) {{ icons['mdiPencil'] }}
+                  span 수정
+                v-btn.delete-btn(
+                  color="error"
+                  @click.stop="confirmDelete(item)"
+                  outlined
+                )
+                  v-icon(left size="20") {{ icons['mdiDelete'] }}
+                  span 삭제              
+
+          v-dialog(v-model="deleteDialog" max-width="400px")
+            v-card
+              v-card-title.error--text 삭제 확인
+              v-card-text 정말 삭제하시겠습니까?
+              v-card-actions
+                v-btn(@click="deleteDialog = false") 취소
+                v-btn(color="error" @click="deleteRow") 삭제
 </template>
 
 <script>
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
 import { getNotifications } from '@/api/notifications.api';
 import VideoCard from '@/components/camera-card.vue';
-import { mdiRefresh, mdiMapMarkerRadius, mdiCheckboxMarkedCircle, mdiUndo } from '@mdi/js';
+import { mdiRefresh, mdiMapMarkerRadius, mdiCheckboxMarkedCircle, mdiUndo, mdiPlus, mdiPencil, mdiDelete } from '@mdi/js';
 import Playground from '@/components/playground.vue';
+import { addEventArea, getEventAreas, updateEventArea, deleteEventArea } from '@/api/eventArea.api';
+
 export default {
   name: 'EventArea',
 
@@ -79,18 +140,49 @@ export default {
       selectedCamera: null,
       videoKey: '',
       refreshing: false,
+      description: '',
       icons: {
         mdiMapMarkerRadius,
         mdiCheckboxMarkedCircle,
         mdiUndo,
-        mdiRefresh
+        mdiRefresh,
+        mdiPlus,
+        mdiPencil,
+        mdiDelete
       },
       playgroundOptions: {},
       playgroundWidth: 740,
       playgroundHeight: 480,
       regions: [],
       customizing: false,
-      
+      options: {
+        forceCloseTimer: {
+          label: 'Force Close Timer',
+          value: 30
+        },
+        dwellTimer: {
+          label: 'Dwell Timer',
+          value: 50
+        },
+        sensitivity: {
+          label: 'Sensitivity',
+          value: 75
+        },
+        difference: {
+          label: 'Difference',
+          value: 50
+        }
+      },
+      eventAreaList: [],
+      tableHeaders: [
+        { text: 'No', value: 'no', sortable: false },
+        { text: '카메라', value: 'cameraName' },
+        { text: 'Description', value: 'description' },
+        { text: '작업', value: 'actions', sortable: false, align: 'center' }
+      ],
+      deleteDialog: false,
+      rowToDelete: null,
+      editId: null,
     };
   },
   watch: {
@@ -211,6 +303,112 @@ export default {
         this.regions[rIndex].finished = true;
       }
     },
+
+    updateOptions() {
+      this.$emit('options-updated', {
+        forceCloseTimer: this.options.forceCloseTimer.value,
+        dwellTimer: this.options.dwellTimer.value,
+        sensitivity: this.options.sensitivity.value,
+        difference: this.options.difference.value,
+        description: this.description
+      });
+    },
+
+    async add() {
+      if (!this.selectedCamera) {
+        this.$toast.error('카메라를 선택해주세요.');
+        return;
+      }
+      const cameraId = this.cameraList.findIndex(cam => cam.name === this.selectedCamera.name);
+      const exist = this.eventAreaList.find(e => e.cameraId === cameraId && e.description === this.description);
+      const eventAreaData = {
+        cameraId,
+        options: {
+          forceCloseTimer: this.options.forceCloseTimer.value,
+          dwellTimer: this.options.dwellTimer.value,
+          sensitivity: this.options.sensitivity.value,
+          difference: this.options.difference.value
+        },
+        regions: this.regions,
+        description: this.description
+      };
+      if (exist) {
+        // 수정
+        await updateEventArea(exist.id, eventAreaData);
+        this.$toast.success('수정되었습니다.');
+      } else {
+        // 추가
+        await addEventArea(eventAreaData);
+        this.$toast.success('이벤트 영역이 저장되었습니다.');
+      }
+      this.clear();
+      this.description = '';
+      this.editId = null;
+      await this.loadEventAreas();
+    },
+
+    async loadEventAreas() {
+      try {
+        const res = await getEventAreas();
+        this.eventAreaList = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
+      } catch (e) {
+        console.error('eventArea API error:', e);
+        this.eventAreaList = [];
+      }
+    },
+
+    getCameraName(cameraId) {
+      return this.cameraList[cameraId]?.name || '';
+    },
+
+    onRowClick(item) {
+      // row 클릭 시 왼쪽 폼/비디오/영역 값 세팅
+      this.editId = item.id;
+      this.selectedCameraName = this.getCameraName(item.cameraId);
+      this.options.forceCloseTimer.value = item.options.forceCloseTimer;
+      this.options.dwellTimer.value = item.options.dwellTimer;
+      this.options.sensitivity.value = item.options.sensitivity;
+      this.options.difference.value = item.options.difference;
+      this.regions = JSON.parse(JSON.stringify(item.regions));
+      this.description = item.description;
+      this.customizing = true;
+    },
+
+    async editRow(item) {
+      // 현재 폼의 값으로 update
+      const cameraId = this.cameraList.findIndex(cam => cam.name === this.selectedCameraName);
+      const eventAreaData = {
+        cameraId,
+        options: {
+          forceCloseTimer: this.options.forceCloseTimer.value,
+          dwellTimer: this.options.dwellTimer.value,
+          sensitivity: this.options.sensitivity.value,
+          difference: this.options.difference.value
+        },
+        regions: this.regions,
+        description: this.description
+      };
+      await updateEventArea(item.id, eventAreaData);
+      this.$toast.success('수정되었습니다.');
+      this.customizing = false;
+      this.editId = null;
+      await this.loadEventAreas();
+    },
+
+    confirmDelete(item) {
+      this.rowToDelete = item;
+      this.deleteDialog = true;
+    },
+
+    async deleteRow() {
+      if (this.rowToDelete) {
+        await deleteEventArea(this.rowToDelete.id);
+        this.$toast.success('삭제되었습니다.');
+        this.deleteDialog = false;
+        this.rowToDelete = null;
+        await this.loadEventAreas();
+      }
+    },
   },
   async mounted() {
     try {
@@ -238,12 +436,11 @@ export default {
     } catch (err) {
       this.$toast.error(err.message);
     }
-    this.updatePlaygroundSize();
-    window.addEventListener('resize', this.updatePlaygroundSize);
     // 전역 cleanup 함수 등록
     window.cleanupEventArea = () => {
       this.cleanupResources();
     };
+    await this.loadEventAreas();
   }
 };
 </script>
