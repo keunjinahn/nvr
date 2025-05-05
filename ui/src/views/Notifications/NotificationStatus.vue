@@ -10,8 +10,9 @@
               .camera-grid(v-if="cameras && cameras.length > 0")
                 .camera-box(
                   v-for="(camera, index) in cameras"
-                  :key="index"
+                  :key="`camera-${index}`"
                   :class="{ 'active': selectedCameraIndex === index }"
+                  @click="selectCamera(index)"
                 )
                   .camera-thumbnail
                     VideoCard(
@@ -23,9 +24,7 @@
                       hideIndicatorFullscreen
                       :style="{ height: '120px' }"
                     )
-                  .camera-info(
-                    @click="selectCamera(index)"
-                  )
+                  .camera-info
                     .camera-name {{ camera.name }}
               .no-cameras(v-else)
                 span.no-cameras-text 카메라 목록이 없습니다. ({{ cameras.length }})
@@ -53,12 +52,14 @@
             .display-box.center-box
               VideoCard(
                 v-if="selectedCamera"
-                :ref="selectedCamera.name"
+                :ref="`main-${selectedCamera.name}`"
+                :key="`video-${selectedCamera.name}-${videoKey}`"
                 :camera="selectedCamera"
                 stream
                 noLink
                 hideNotifications
                 hideIndicatorFullscreen
+                :style="{ height: '100%' }"
               )
               .no-video(v-else)
                 span.no-video-text 영상을 선택해주세요
@@ -109,6 +110,7 @@ export default {
     loading: false,
     cameras: [],
     selectedCameraIndex: null,
+    videoKey: 0,
     currentAlertLevel: '대기',
     alertChart: null,
     gaugeChart: null,
@@ -281,32 +283,26 @@ export default {
     },
 
     selectCamera(index) {
-      console.log('Selecting camera:', { index, camera: this.cameras[index] });
       if (this.selectedCameraIndex === index) return;
       
-      const oldCamera = this.selectedCamera;
+      // 이전 선택된 카메라의 VideoCard 인스턴스 정리
+      if (this.selectedCamera) {
+        const prevRef = this.$refs[`main-${this.selectedCamera.name}`];
+        if (prevRef && prevRef[0]) {
+          prevRef[0].destroy();
+        }
+      }
+
       this.selectedCameraIndex = index;
-      
-      // Stop old streams
-      if (oldCamera?.name) {
-        if (this.$refs[oldCamera.name]?.[0]) {
-          this.$refs[oldCamera.name][0].stopStream();
+      this.videoKey++; // 비디오 키 업데이트로 VideoCard 재생성
+
+      // 새로 선택된 카메라의 VideoCard 초기화
+      this.$nextTick(() => {
+        const newRef = this.$refs[`main-${this.selectedCamera.name}`];
+        if (newRef && newRef[0]) {
+          newRef[0].initialize();
         }
-        if (this.$refs[`thumbnail-${oldCamera.name}`]?.[0]) {
-          this.$refs[`thumbnail-${oldCamera.name}`][0].stopStream();
-        }
-      }
-      
-      // Start new streams
-      const newCamera = this.selectedCamera;
-      if (newCamera?.name) {
-        if (this.$refs[newCamera.name]?.[0]) {
-          this.$refs[newCamera.name][0].refreshStream();
-        }
-        if (this.$refs[`thumbnail-${newCamera.name}`]?.[0]) {
-          this.$refs[`thumbnail-${newCamera.name}`][0].refreshStream();
-        }
-      }
+      });
     },
 
     async refreshCameras() {
@@ -577,6 +573,12 @@ export default {
           display: flex;
           flex-direction: column;
           align-items: center;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          
+          &:hover {
+            transform: scale(1.02);
+          }
           
           &.active {
             background: #3d3d3d;
@@ -712,6 +714,10 @@ export default {
           overflow: hidden;
           padding: 8px;
           
+          position: relative;
+          height: 100%;
+          min-height: 400px;
+          
           :deep(.video-card) {
             width: 100%;
             height: 100%;
@@ -727,16 +733,12 @@ export default {
           }
           
           .no-video {
-            width: 100%;
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            
-            .no-video-text {
-              color: #666666;
-              font-size: 0.9rem;
-            }
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #666;
           }
         }
 
@@ -848,9 +850,30 @@ export default {
 }
 
 .camera-box {
+  cursor: pointer;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    transform: scale(1.02);
+  }
+  
   &.active {
-    background-color: #3d3d3d;
-    border-color: var(--cui-primary);
+    border: 2px solid #4CAF50;
+  }
+}
+
+.display-box.center-box {
+  position: relative;
+  height: 100%;
+  min-height: 400px;
+  
+  .no-video {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: #666;
   }
 }
 </style> 
