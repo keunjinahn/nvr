@@ -121,14 +121,9 @@ export default {
         try {
           await this.$store.dispatch('auth/login', { ...this.user });
 
-          const response = await getConfig();
-          const firstStart = response.data.firstStart;
+          await getConfig();
 
-          if (firstStart) {
-            this.$router.push('/start');
-          } else {
-            this.$router.push('/cameras');
-          }
+          this.$router.push('/cameras');
         } catch (err) {
           this.loading = false;
           console.log(err);

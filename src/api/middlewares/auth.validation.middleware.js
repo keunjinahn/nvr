@@ -31,7 +31,10 @@ const getBearerToken = async (username, password) => {
         let sessionTimer = payload.sessionTimer || 14400;
         payload.salt = crypto.randomBytes(16).toString('base64');
 
-        return jwt.sign(payload, jwtSecret, { expiresIn: sessionTimer });
+        const token = jwt.sign(payload, jwtSecret, { expiresIn: sessionTimer });
+        await AuthModel.insert(token, user.id);
+
+        return token;
       }
     }
   }
@@ -42,6 +45,7 @@ export const validJWTNeeded = async (req, res, next) => {
     const authorization = await getBearerToken(req.query.username, req.query.password);
     if (authorization) {
       req.headers['authorization'] = `Bearer ${authorization}`;
+      console.log('[AUTH] Generated Bearer token from query params');
     }
   }
 
@@ -51,15 +55,18 @@ export const validJWTNeeded = async (req, res, next) => {
       let authorization = authHeader.split(/\s+/);
 
       if (authorization[0] !== 'Bearer') {
+        console.log('[AUTH] Authorization header is not Bearer:', authHeader);
         return res.status(401).send({
           statusCode: 401,
           message: 'Unauthorized',
         });
       } else {
         //check if user/token exists in database and is still valid
-        const user = AuthModel.findByToken(authorization[1]);
+        const user = await AuthModel.findByToken(authorization[1]);
+        console.log('[AUTH] Token DB lookup result:', user);
 
         if (!user || (user && !user.valid)) {
+          console.log('[AUTH] Token not found or not valid');
           return res.status(401).send({
             statusCode: 401,
             message: 'Token expired',
@@ -67,16 +74,19 @@ export const validJWTNeeded = async (req, res, next) => {
         }
 
         req.jwt = jwt.verify(authorization[1], jwtSecret);
+        console.log('[AUTH] JWT verified:', req.jwt);
 
         return next();
       }
     } catch (error) {
+      console.log('[AUTH] JWT verification error:', error);
       return res.status(401).send({
         statusCode: 401,
         message: error,
       });
     }
   } else {
+    console.log('[AUTH] No Authorization header present');
     return res.status(401).send({
       statusCode: 401,
       message: 'Unauthorized',

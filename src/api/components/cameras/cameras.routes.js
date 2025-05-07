@@ -55,7 +55,6 @@ export const routesConfig = (app) => {
    */
   app.get('/api/cameras', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:access'),
     CamerasController.list,
     PaginationMiddleware.pages,
   ]);
@@ -94,7 +93,6 @@ export const routesConfig = (app) => {
    */
   app.post('/api/cameras', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:edit'),
     CamerasValidationMiddleware.hasValidFields,
     CamerasController.insert,
   ]);
@@ -117,7 +115,6 @@ export const routesConfig = (app) => {
    */
   app.delete('/api/cameras', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:edit'),
     CamerasController.removeAll,
   ]);
 
@@ -148,7 +145,6 @@ export const routesConfig = (app) => {
    */
   app.get('/api/cameras/:name/feed', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:access'),
     CamerasController.getByName,
   ]);
 
@@ -179,7 +175,6 @@ export const routesConfig = (app) => {
    */
   app.get('/api/cameras/:name', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:access'),
     CamerasController.getByName,
   ]);
 
@@ -218,7 +213,6 @@ export const routesConfig = (app) => {
    */
   app.patch('/api/cameras/:name', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:edit'),
     CamerasController.patchByName,
   ]);
 
@@ -249,7 +243,6 @@ export const routesConfig = (app) => {
    */
   app.delete('/api/cameras/:name', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:edit'),
     CamerasController.removeByName,
   ]);
 
@@ -285,7 +278,6 @@ export const routesConfig = (app) => {
    */
   app.get('/api/cameras/:name/settings', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:access'),
     CamerasController.getCameraSettingsByName,
   ]);
 
@@ -326,7 +318,6 @@ export const routesConfig = (app) => {
    */
   app.get('/api/cameras/:name/snapshot', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:access'),
     CamerasController.getSnapshotByName,
   ]);
 
@@ -357,7 +348,6 @@ export const routesConfig = (app) => {
    */
   app.get('/api/cameras/:name/status', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('cameras:access'),
     CamerasController.getStatusByName,
   ]);
 

@@ -59,7 +59,7 @@ export default {
       //this.connected = false;
     },
     // eslint-disable-next-line no-unused-vars
-    diskSpace(data) {},
+    diskSpace(data) { },
     async unauthenticated() {
       console.log('Disconnected from socket, unauthenticated!');
       this.connected = false;
@@ -227,11 +227,13 @@ export default {
     },
   },
   created() {
-    this.$socket.client.io.opts.extraHeaders = {
-      Authorization: `Bearer ${this.currentUser?.access_token}`,
-    };
-
-    this.$socket.client.open();
+    // access_token이 없으면 소켓 연결 시도하지 않음
+    if (this.currentUser?.access_token) {
+      this.$socket.client.io.opts.extraHeaders = {
+        Authorization: `Bearer ${this.currentUser.access_token}`,
+      };
+      this.$socket.client.open();
+    }
   },
   methods: {
     closeHandler() {
@@ -244,8 +246,20 @@ export default {
       } else if (typeof page === 'string') {
         return this.$route.name === page || this.$route.meta.name === page;
       }
-
       return false;
+    },
+    reconnectSocket() {
+      // 로그인 성공 시 호출: 최신 토큰으로 소켓 재연결
+      if (this.currentUser?.access_token) {
+        this.$socket.client.io.opts.extraHeaders = {
+          Authorization: `Bearer ${this.currentUser.access_token}`,
+        };
+        this.$socket.client.open();
+      }
+    },
+    disconnectSocket() {
+      // 로그아웃 시 호출: 소켓 연결 닫기
+      this.$socket.client.close();
     },
   },
 };

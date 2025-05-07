@@ -34,8 +34,7 @@ export const login = async (req, res) => {
     req.body.salt = salt;
 
     let token = jwt.sign(req.body, jwtSecret, { expiresIn: sessionTimer });
-
-    AuthModel.insert(token);
+    await AuthModel.insert(token);
 
     if (sessionTimer / 3600 <= 25) {
       setTimeout(() => {
@@ -61,27 +60,19 @@ export const login = async (req, res) => {
 export const logout = async (req, res) => {
   try {
     let authHeader = req.headers['authorization'] || req.headers['Authorization'];
-    let authorization = authHeader ? req.headers['authorization'].split(/\s+/) : false;
+    let authorization = authHeader ? authHeader.split(/\s+/) : false;
 
     let token = authorization && authorization[0] === 'Bearer' ? authorization[1] : false;
 
     if (token) {
-      AuthModel.invalidateByToken(token);
+      await AuthModel.invalidateByToken(token);
     }
-
-    /* Using this would accidentally revoke a token from another device (from same user)
-    let userName = req.jwt
-      ? req.jwt.username
-      : false;
-
-    if(userName){
-      AuthModel.invalidateByName(userName);
-    }*/
 
     await Database.interfaceDB.write();
 
     res.sendStatus(200);
   } catch (error) {
+    console.error('[LOGOUT ERROR]', error);
     res.status(500).send({
       statusCode: 500,
       message: error.message,

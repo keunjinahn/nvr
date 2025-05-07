@@ -3,6 +3,8 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Model, DataTypes } from 'sequelize';
+import sequelize from './index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageJson = fs.readJsonSync(path.resolve(__dirname, '../package.json'));

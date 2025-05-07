@@ -194,101 +194,32 @@ export default class Database {
     Database.recordingsDB = new Low(new MemorySync());
     Database.notificationsDB = new Low(new MemorySync()); //used for system events (errors)
 
-    Database.interfaceDB = new Low(new JSONFile(Database.databaseFilePath));
     await Database.interfaceDB.read();  // 기존 데이터 읽기
-    log.info('process.env.MARIADB_ENABLED : ' + process.env.MARIADB_ENABLED);
-    // MariaDB 초기화 (활성화된 경우)
-    if (process.env.MARIADB_ENABLED === 'true') {
-      log.info('MariaDB integration enabled, initializing...');
-      try {
-        // MariaDBInit을 사용하여 데이터베이스 초기화
-        await MariaDBInit.initializeDatabase();
-
-        // 기존 JSON 데이터를 MariaDB로 동기화
-        if (Database.interfaceDB.data) {
-          log.info('Syncing existing data to MariaDB...');
-          const mariaDBService = new MariaDBService();
-          await mariaDBService.syncData('cameras', Database.interfaceDB.data.cameras);
-          await mariaDBService.syncData('notifications', Database.interfaceDB.data.notifications);
-          await mariaDBService.syncData('users', Database.interfaceDB.data.users);
-        }
-      } catch (error) {
-        log.error('Failed to initialize MariaDB:', error);
-      }
+    if (Database.interfaceDB.data === null) {
+      Database.interfaceDB.data = defaultDatabase;
+      await Database.interfaceDB.write();
     }
-
-
-    Database.recordingsDB.read();
-    Database.tokensDB.read();
-    Database.notificationsDB.read();
-
-    Database.interfaceDB.data = Database.interfaceDB.data || defaultDatabase;
-    Database.tokensDB.data = Database.tokensDB.data || defaultTokensDatabase;
-    Database.recordingsDB.data = Database.recordingsDB.data || defaultRecordingsDatabase;
-    Database.notificationsDB.data = Database.notificationsDB.data || defaultNotificationsDatabase;
-
     Database.interfaceDB.chain = lodash.chain(Database.interfaceDB.data);
+
+    if (Database.tokensDB.data === null) {
+      Database.tokensDB.data = defaultTokensDatabase;
+      await Database.tokensDB.write();
+    }
     Database.tokensDB.chain = lodash.chain(Database.tokensDB.data);
-    Database.recordingsDB.chain = lodash.chain(Database.recordingsDB.data);
+
+    if (Database.notificationsDB.data === null) {
+      Database.notificationsDB.data = defaultNotificationsDatabase;
+      await Database.notificationsDB.write();
+    }
     Database.notificationsDB.chain = lodash.chain(Database.notificationsDB.data);
 
-    await Database.#ensureDatabaseValues();
-    await Database.#initializeUser();
-    await Database.writeConfigCamerasToDB();
-    await Database.refreshRecordingsDatabase();
+    if (Database.recordingsDB.data === null) {
+      Database.recordingsDB.data = defaultRecordingsDatabase;
+      await Database.recordingsDB.write();
+    }
+    Database.recordingsDB.chain = lodash.chain(Database.recordingsDB.data);
 
-    await Database.interfaceDB.chain.set('version', process.env.CUI_VERSION).value();
     await Database.startAtHomeAutomation();
-    await Cleartimer.start(Database.interfaceDB, Database.recordingsDB);
-
-    await Database.interfaceDB.write();
-
-    LoggerService.notificationsDB = Database.notificationsDB;
-
-    Socket.watchSystem();
-
-    // MariaDB 동기화 (활성화된 경우)
-    if (MariadbConfig.enabled && MariadbConfig.sync) {
-      await this.syncToMariaDB();
-    }
-
-    return {
-      interface: Database.interfaceDB,
-      tokens: Database.tokensDB,
-      recordings: Database.recordingsDB,
-      notifications: Database.notificationsDB,
-    };
-  }
-
-  async syncToMariaDB() {
-    if (!MariadbConfig.enabled || !MariadbConfig.sync) return;
-
-    try {
-      // 카메라 데이터 동기화
-      const cameras = await Database.interfaceDB.chain.get('cameras').value();
-      await MariaDBService.syncData(cameras, 'cameras');
-
-      // 알림 데이터 동기화
-      const notifications = await Database.interfaceDB.chain.get('notifications').value();
-      await MariaDBService.syncData(notifications, 'notifications');
-
-      // 사용자 데이터 동기화
-      const users = await Database.interfaceDB.chain.get('users').value();
-      await MariaDBService.syncData(users, 'users');
-
-      log.info('All data synced to MariaDB successfully');
-    } catch (error) {
-      log.error('Error syncing data to MariaDB:', error);
-    }
-  }
-
-  // 데이터 변경 시 MariaDB 동기화를 위한 메서드 추가
-  static async writeToDatabase() {
-    await Database.interfaceDB.write();
-
-    if (MariadbConfig.enabled && MariadbConfig.sync) {
-      await this.syncToMariaDB();
-    }
   }
 
   static async startAtHomeAutomation() {

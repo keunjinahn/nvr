@@ -754,7 +754,11 @@ router.beforeEach(async (to, from, next) => {
       await checkLogin();
 
       if (to.meta.auth.requiredLevel.length > 0) {
-        const granted = user.permissionLevel.some(
+        const permissionLevels = Array.isArray(user.permissionLevel)
+          ? user.permissionLevel
+          : [user.permissionLevel];
+
+        const granted = permissionLevels.some(
           (level) => to.meta.auth.requiredLevel.includes(level) || level === 'admin'
         );
 

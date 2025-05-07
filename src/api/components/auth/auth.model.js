@@ -1,33 +1,40 @@
 'use-strict';
 
 import Database from '../../database.js';
+import Token from '../../../models/Token.js';
 
 export const list = () => {
   return Database.tokens.chain.get('tokens').value();
 };
 
-export const insert = (token) => {
-  /**
-   * // Use this if only one device is allowed to be logged in
-   *
-   * Database.tokens.chain
-   * .get('tokens')
-   * .forEach(usr => {
-   *   if(usr.username === userName)
-   *     usr.valid = false;
-   * })
-   * .value();
-   */
-
-  return Database.tokensDB.chain.get('tokens').push({ token: token, valid: true }).value();
+export const insert = async (token) => {
+  try {
+    return await Token.create({ token, valid: true });
+  } catch (error) {
+    console.error('Error inserting token:', error);
+    throw error;
+  }
 };
 
-export const findByToken = (token) => {
-  return Database.tokensDB.chain.get('tokens').find({ token: token }).value();
+export const findByToken = async (token) => {
+  try {
+    return await Token.findOne({ where: { token: token } });
+  } catch (error) {
+    console.error('Error finding token:', error);
+    throw error;
+  }
 };
 
-export const invalidateByToken = (token) => {
-  return Database.tokensDB.chain.get('tokens').find({ token: token }).assign({ valid: false }).value();
+export const invalidateToken = async (token) => {
+  try {
+    return await Token.update(
+      { valid: false },
+      { where: { token: token } }
+    );
+  } catch (error) {
+    console.error('Error invalidating token:', error);
+    throw error;
+  }
 };
 
 export const invalidateAll = () => {
@@ -38,4 +45,16 @@ export const invalidateAll = () => {
   }
 
   return Database.tokensDB.chain.get('tokens').set(users).value();
+};
+
+export const invalidateByToken = async (token) => {
+  try {
+    return await Token.update(
+      { valid: false },
+      { where: { token: token } }
+    );
+  } catch (error) {
+    console.error('Error invalidating token:', error);
+    throw error;
+  }
 };

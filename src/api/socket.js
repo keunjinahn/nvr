@@ -15,6 +15,8 @@ import Database from './database.js';
 import CameraController from '../controller/camera/camera.controller.js';
 import MotionController from '../controller/motion/motion.controller.js';
 
+import Token from '../models/Token.js';
+
 const { log } = LoggerService;
 
 export default class Socket {
@@ -58,7 +60,7 @@ export default class Socket {
     Socket.io.on('connection', async (socket) => {
       //check if token is valid
       const token = socket.encoded_token;
-      const tokenExist = Database.tokensDB?.chain.get('tokens').find({ token: token }).value();
+      const tokenExist = await Token.findOne({ where: { token: token, valid: true } });
 
       if (!tokenExist) {
         log.debug(
@@ -75,19 +77,13 @@ export default class Socket {
         `${socket.decoded_token.username} (${socket.conn.remoteAddress}) authenticated and connected to socket`
       );
 
-      if (
-        socket.decoded_token.permissionLevel.includes('notifications:access') ||
-        socket.decoded_token.permissionLevel.includes('admin')
-      ) {
-        const notifications = await Database.interfaceDB?.chain.get('notifications').cloneDeep().value();
-        const systemNotifications = Database.notificationsDB?.chain.get('notifications').cloneDeep().value();
+      // 권한 체크 없이 항상 알림 데이터 전송
+      const notifications = await Database.interfaceDB?.chain.get('notifications').cloneDeep().value();
+      const systemNotifications = Database.notificationsDB?.chain.get('notifications').cloneDeep().value();
 
-        if (notifications && systemNotifications) {
-          const size = notifications.length + systemNotifications.length;
-          socket.emit('notification_size', size);
-        }
-      } else {
-        log.debug(`${socket.decoded_token.username} (${socket.conn.remoteAddress}) no access for notifications socket`);
+      if (notifications && systemNotifications) {
+        const size = notifications.length + systemNotifications.length;
+        socket.emit('notification_size', size);
       }
 
       socket.on('join_stream', (data) => {
