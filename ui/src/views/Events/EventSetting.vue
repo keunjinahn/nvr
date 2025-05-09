@@ -201,7 +201,7 @@
                       v-icon.text-muted {{ icons['mdiTarget'] }}
 
                 v-col(cols="12" md="6")
-                  label.form-input-label 추적 지속 시간
+                  label.form-input-label 추적 간격
                   v-text-field(
                     v-model="settings.object.trackingDuration"
                     type="number"
@@ -307,6 +307,7 @@ import {
   mdiBackupRestore,
   mdiHarddisk
 } from '@mdi/js'
+import { getEventSetting, updateEventSetting, createEventSetting } from '@/api/eventSetting.api.js'
 
 export default {
   name: 'EventSetting',
@@ -435,10 +436,105 @@ export default {
     }
   },
 
+  async mounted() {
+    try {
+      const data = await getEventSetting()
+      const temp = data.temperature_json ? JSON.parse(data.temperature_json) : {};
+      const alert = data.alert_json ? JSON.parse(data.alert_json) : {};
+      const object = data.object_json ? JSON.parse(data.object_json) : {};
+      const system = data.system_json ? JSON.parse(data.system_json) : {};
+
+      this.settings = {
+        temperature: {
+          threshold: temp.threshold ?? 20,
+          alertType: temp.alertType ?? '알림',
+          interval: temp.interval ?? 30,
+          sensitivity: temp.sensitivity ?? '중간',
+          autoAlert: temp.autoAlert ?? true
+        },
+        alert: {
+          notificationType: alert.notificationType ?? '팝업',
+          delay: alert.delay ?? 5,
+          priority: alert.priority ?? '높음',
+          repeatInterval: alert.repeatInterval ?? 15,
+          useSound: alert.useSound ?? true
+        },
+        object: {
+          detectionType: object.detectionType ?? '사람',
+          minSize: object.minSize ?? 100,
+          accuracy: object.accuracy ?? '높음',
+          trackingDuration: object.trackingDuration ?? 10,
+          enableTracking: object.enableTracking ?? true
+        },
+        system: {
+          storageType: system.storageType ?? 'local',
+          retentionPeriod: system.retentionPeriod ?? 30,
+          backupSchedule: system.backupSchedule ?? '매일',
+          maxStorage: system.maxStorage ?? 1000,
+          autoUpdate: system.autoUpdate ?? true
+        }
+      }
+    } catch (e) {
+      // 데이터가 없으면(404 등) 초기화
+      this.settings = {
+        temperature: {
+          threshold: 20,
+          alertType: '알림',
+          interval: 30,
+          sensitivity: '중간',
+          autoAlert: true
+        },
+        alert: {
+          notificationType: '팝업',
+          delay: 5,
+          priority: '높음',
+          repeatInterval: 15,
+          useSound: true
+        },
+        object: {
+          detectionType: '사람',
+          minSize: 100,
+          accuracy: '높음',
+          trackingDuration: 10,
+          enableTracking: true
+        },
+        system: {
+          storageType: 'local',
+          retentionPeriod: 30,
+          backupSchedule: '매일',
+          maxStorage: 1000,
+          autoUpdate: true
+        }
+      }
+    }
+  },
+
   methods: {
-    saveSettings() {
-      // TODO: 설정 저장 로직 구현
-      this.$toast.success('설정이 저장되었습니다.')
+    async saveSettings() {
+      try {
+        // 1. 현재 DB에 설정이 있는지 확인
+        const data = await getEventSetting();
+        const id = data && data.id;
+
+        // 2. 각 메뉴별 JSON 항목을 문자열로 변환
+        const payload = {
+          temperature_json: JSON.stringify(this.settings.temperature),
+          alert_json: JSON.stringify(this.settings.alert),
+          object_json: JSON.stringify(this.settings.object),
+          system_json: JSON.stringify(this.settings.system)
+        };
+
+        // 3. 있으면 update, 없으면 create
+        if (id) {
+          await updateEventSetting(id, payload);
+          this.$toast && this.$toast.success('설정이 수정되었습니다.');
+        } else {
+          await createEventSetting(payload);
+          this.$toast && this.$toast.success('설정이 저장되었습니다.');
+        }
+      } catch (e) {
+        this.$toast && this.$toast.error('설정 저장에 실패했습니다.');
+      }
     }
   }
 }

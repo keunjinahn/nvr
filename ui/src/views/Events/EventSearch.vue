@@ -89,7 +89,7 @@
         v-card
           v-data-table(
             :headers="headers"
-            :items="sampleData"
+            :items="events"
             :loading="loading"
             :items-per-page="10"
             class="elevation-1"
@@ -119,6 +119,24 @@
                 v-icon(left small) {{ icons.mdiVideo }}
                 recoding
             
+            template(#item.event_accur_time="{ item }")
+              span {{ formatDateTime(item.event_accur_time) }}
+            template(#item.event_type="{ item }")
+              span {{ getEventTypeText(item.event_type) }}
+            template(#item.event_data_json="{ item }")
+              span {{ getLabelsFromEventData(item.event_data_json) }}
+            template(#item.fk_detect_zone_id="{ item }")
+              span {{ getDetectZoneText(item.fk_detect_zone_id) }}
+            template(#item.detected_image_url="{ item }")
+              v-btn(
+                small
+                color="secondary"
+                @click="showImageDialog(item)"
+                v-if="item.detected_image_url"
+              ) 이미지 보기
+            
+            template(#item.create_date="{ item }")
+              span {{ formatDateTime(item.create_date) }}
             template(#no-data)
               .text-center.pa-4
                 v-icon(color="grey" size="40") {{ icons.mdiAlert }}
@@ -194,7 +212,7 @@
       v-card-actions.pa-4
         v-spacer
         v-btn.close-btn(
-          color="primary"
+          color="secondary"
           text
           @click="closeVideoDialog"
         ) 닫기
@@ -220,6 +238,19 @@
           @click="executeDelete"
           :loading="deleteLoading"
         ) 삭제
+
+  // 이미지 팝업
+  v-dialog(
+    v-model="imageDialog"
+    max-width="600"
+  )
+    v-card
+      v-card-title 감지 이미지
+      v-card-text
+        img(:src="imageDialogUrl" style="max-width:100%;max-height:500px;" v-if="imageDialogUrl")
+      v-card-actions
+        v-spacer
+        v-btn(color="primary" text @click="imageDialog=false") 닫기
 </template>
 
 <script>
@@ -273,15 +304,14 @@ export default {
       { text: '온도', value: 'TEMP' }
     ],
     headers: [
-      { text: '순번', value: 'id', width: '80px' },
-      { text: '이벤트 발생시간', value: 'eventTime', width: '180px' },
-      { text: '이벤트 발생 포인트', value: 'point', width: '150px' },
-      { text: '열화상영상이름', value: 'thermalImage', width: '150px' },
-      { text: '이벤트Type', value: 'eventType', width: '120px' },
-      { text: '이벤트종류', value: 'eventCategory', width: '120px' },
-      { text: '처리결과', value: 'status', width: '120px' },
-      { text: '라이브영상이동', value: 'liveView', width: '120px', sortable: false },
-      { text: '녹화영상이동', value: 'recordingView', width: '120px', sortable: false }
+      { text: 'ID', value: 'id' },
+      { text: '카메라명', value: 'camera_name' },
+      { text: '이벤트시각', value: 'event_accur_time', align: 'center' },
+      { text: '타입', value: 'event_type', align: 'center' },
+      { text: '감지상세', value: 'event_data_json', align: 'center' },
+      { text: '감지영역', value: 'fk_detect_zone_id', align: 'center' },
+      { text: '이미지', value: 'detected_image_url', align: 'center' },
+      { text: '등록일시', value: 'create_date', align: 'center' }
     ],
     statusOptions: [
       { text: '녹화중', value: 'recording' },
@@ -298,106 +328,17 @@ export default {
     deleteLoading: false,
     thumbnailErrors: {},
     imageData: new Map(),
-    sampleData: [
-      {
-        id: 1,
-        eventTime: '2024-03-20 10:15:30',
-        point: 'P001',
-        thermalImage: '댐영상1',
-        eventType: '온도',
-        eventCategory: '누수',
-        status: '미처리'
-      },
-      {
-        id: 2,
-        eventTime: '2024-03-20 11:20:45',
-        point: 'P002',
-        thermalImage: '댐영상2',
-        eventType: '객체',
-        eventCategory: '균열',
-        status: '대기'
-      },
-      {
-        id: 3,
-        eventTime: '2024-03-20 12:30:15',
-        point: 'P003',
-        thermalImage: '댐영상3',
-        eventType: '온도',
-        eventCategory: '누수',
-        status: '처리'
-      },
-      {
-        id: 4,
-        eventTime: '2024-03-20 13:45:20',
-        point: 'P004',
-        thermalImage: '댐영상4',
-        eventType: '객체',
-        eventCategory: '사람',
-        status: '미처리'
-      },
-      {
-        id: 5,
-        eventTime: '2024-03-20 14:50:10',
-        point: 'P005',
-        thermalImage: '댐영상1',
-        eventType: '객체',
-        eventCategory: '동물',
-        status: '대기'
-      },
-      {
-        id: 6,
-        eventTime: '2024-03-20 15:55:30',
-        point: 'P006',
-        thermalImage: '댐영상2',
-        eventType: '온도',
-        eventCategory: '균열',
-        status: '처리'
-      },
-      {
-        id: 7,
-        eventTime: '2024-03-20 16:10:45',
-        point: 'P007',
-        thermalImage: '댐영상3',
-        eventType: '객체',
-        eventCategory: '사람',
-        status: '미처리'
-      },
-      {
-        id: 8,
-        eventTime: '2024-03-20 17:20:15',
-        point: 'P008',
-        thermalImage: '댐영상4',
-        eventType: '온도',
-        eventCategory: '누수',
-        status: '대기'
-      },
-      {
-        id: 9,
-        eventTime: '2024-03-20 18:30:20',
-        point: 'P009',
-        thermalImage: '댐영상1',
-        eventType: '객체',
-        eventCategory: '동물',
-        status: '처리'
-      },
-      {
-        id: 10,
-        eventTime: '2024-03-20 19:40:10',
-        point: 'P010',
-        thermalImage: '댐영상2',
-        eventType: '온도',
-        eventCategory: '균열',
-        status: '미처리'
-      }
-    ],
+    events: [],
+    imageDialog: false,
+    imageDialogUrl: null,
   }),
 
   computed: {
     formattedEventHistory() {
       return this.eventHistory.map((record) => ({
         ...record,
-        formattedStartTime: this.formatDateTime(record.createdAt),
-        formattedEndTime: this.formatDateTime(record.createdAt)
+        formattedStartTime: this.formatDateTime(record.event_accur_time),
+        formattedEndTime: this.formatDateTime(record.event_accur_time)
       }));
     },
 
@@ -419,7 +360,7 @@ export default {
 
         let matchDate = true
         if (this.searchFilters.dateRange.length === 2) {
-          const recordDate = new Date(record.createdAt)
+          const recordDate = new Date(record.event_accur_time)
           const startDate = new Date(this.searchFilters.dateRange[0])
           const endDate = new Date(this.searchFilters.dateRange[1])
           endDate.setHours(23, 59, 59, 999)
@@ -473,8 +414,10 @@ export default {
       try {
         const response = await getEventHistory();
         this.eventHistory = response;
+        this.events = response;
       } catch (error) {
         this.eventHistory = [];
+        this.events = [];
       } finally {
         this.loading = false;
       }
@@ -497,12 +440,8 @@ export default {
     },
 
     formatDateTime(dateString) {
-      if (!dateString) {
-        return '-';
-      }
-      const d = new Date(dateString);
-      if (isNaN(d.getTime())) return '-';
-      return d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      if (!dateString) return '-';
+      return dateString.replace('T', ' ').replace(/\.\d{3}Z?$/, '');
     },
 
     getStatusColor(status) {
@@ -716,6 +655,44 @@ export default {
       // 녹화 영상으로 이동하는 로직
       console.log('Go to recording:', item)
       // TODO: 녹화 영상 페이지로 이동하는 로직 구현
+    },
+
+    getEventTypeText(type) {
+      switch (type) {
+        case 'E001': return '객체검출';
+        case 'E002': return '누수';
+        case 'E003': return '균열';
+        default: return type;
+      }
+    },
+
+    getLabelsFromEventData(jsonStr) {
+      try {
+        const arr = JSON.parse(jsonStr);
+        return arr.map(obj => obj.label).join(', ');
+      } catch {
+        return '';
+      }
+    },
+
+    getDetectZoneText(id) {
+      return id === 0 ? '전체' : id;
+    },
+
+    async showImageDialog(item) {
+      try {
+        const url = 'http://localhost:9091/api/image';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: item.detected_image_url })
+        });
+        const blob = await res.blob();
+        this.imageDialogUrl = URL.createObjectURL(blob);
+        this.imageDialog = true;
+      } catch (e) {
+        this.$toast && this.$toast.error('이미지를 불러올 수 없습니다.');
+      }
     },
   }
 };

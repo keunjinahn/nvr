@@ -1,43 +1,55 @@
-import Database from '../../database.js';
-import lodash from 'lodash';
+import EventHistoryModel from '../../../models/EventHistory.js';
+import sequelize from '../../../models/index.js';
+import EventSettingModel from '../../../models/EventSetting.js';
+
+const EventHistory = EventHistoryModel(sequelize);
+const EventSetting = EventSettingModel(sequelize);
 
 const getAllEventHistory = async () => {
-  await Database.interfaceDB.read();
-  return Database.interfaceDB.data.eventHistory || [];
+  return await EventHistory.findAll();
 };
 
 const getEventHistoryById = async (id) => {
-  await Database.interfaceDB.read();
-  return (Database.interfaceDB.data.eventHistory || []).find(e => e.id === id) || null;
+  return await EventHistory.findByPk(id);
 };
 
 const addEventHistory = async (event) => {
-  await Database.interfaceDB.read();
-  if (!Database.interfaceDB.data.eventHistory) Database.interfaceDB.data.eventHistory = [];
-  Database.interfaceDB.data.eventHistory.push(event);
-  await Database.interfaceDB.write();
-  return event;
+  return await EventHistory.create(event);
 };
 
 const updateEventHistory = async (id, update) => {
-  await Database.interfaceDB.read();
-  const idx = (Database.interfaceDB.data.eventHistory || []).findIndex(e => e.id === id);
-  if (idx === -1) return null;
-  Database.interfaceDB.data.eventHistory[idx] = {
-    ...Database.interfaceDB.data.eventHistory[idx],
-    ...update,
-    id // id는 변경 불가
-  };
-  await Database.interfaceDB.write();
-  return Database.interfaceDB.data.eventHistory[idx];
+  const event = await EventHistory.findByPk(id);
+  if (!event) return null;
+  await event.update(update);
+  return event;
 };
 
 const deleteEventHistory = async (id) => {
-  await Database.interfaceDB.read();
-  const before = Database.interfaceDB.data.eventHistory.length;
-  Database.interfaceDB.data.eventHistory = (Database.interfaceDB.data.eventHistory || []).filter(e => e.id !== id);
-  await Database.interfaceDB.write();
-  return Database.interfaceDB.data.eventHistory.length < before;
+  const event = await EventHistory.findByPk(id);
+  if (!event) return false;
+  await event.destroy();
+  return true;
+};
+
+// EventSetting CRUD
+const getEventSetting = async (id) => {
+  if (id) {
+    return await EventSetting.findByPk(id);
+  } else {
+    // 가장 최근 설정 반환 (id 내림차순)
+    return await EventSetting.findOne({ order: [['id', 'DESC']] });
+  }
+};
+
+const updateEventSetting = async (id, update) => {
+  const setting = await EventSetting.findByPk(id);
+  if (!setting) return null;
+  await setting.update(update);
+  return setting;
+};
+
+const createEventSetting = async (data) => {
+  return await EventSetting.create(data);
 };
 
 export {
@@ -45,5 +57,8 @@ export {
   getEventHistoryById,
   addEventHistory,
   updateEventHistory,
-  deleteEventHistory
+  deleteEventHistory,
+  getEventSetting,
+  updateEventSetting,
+  createEventSetting
 };
