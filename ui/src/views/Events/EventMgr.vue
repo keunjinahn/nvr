@@ -44,8 +44,8 @@
                 v-icon.tw-mr-2(size="24") {{ icons['mdiFileDocument'] }}
                 span 보고서출력
               v-btn.tab-btn(
-                :color="currentTab === 'area' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
-                @click="changeTab('area')"
+                :color="currentTab === 'zone' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
+                @click="changeTab('zone')"
                 text
                 height="75"
                 width="200"

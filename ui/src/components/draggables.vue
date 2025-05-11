@@ -174,7 +174,9 @@ export default {
 
   .handle {
     border-radius: 50%;
-    box-shadow: #fff inset 0 0 0 10px;
+    width: 10px;
+    height: 10px;
+    box-shadow: #fff inset 0 0 0 5px;
     opacity: 0.8;
     transition: opacity 0.25s;
 

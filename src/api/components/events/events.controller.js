@@ -133,3 +133,111 @@ export const createEventSetting = async (req, res) => {
   }
 };
 
+// EventDetectionZone API
+export const getAllDetectionZones = async (req, res) => {
+  try {
+    const data = await EventsModel.getAllDetectionZones();
+    const formattedData = data.map(zone => ({
+      id: zone.id,
+      cameraId: zone.fk_camera_id,
+      description: zone.zone_desc,
+      type: zone.zone_type,
+      regions: JSON.parse(zone.zone_segment_json || '[]'),
+      options: JSON.parse(zone.zone_params_json || '{}'),
+      active: zone.zone_active,
+      createDate: zone.create_date,
+      updateDate: zone.update_date
+    }));
+    res.json(formattedData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getDetectionZoneById = async (req, res) => {
+  try {
+    const data = await EventsModel.getDetectionZoneById(req.params.id);
+    if (!data) return res.status(404).json({ error: 'Not found' });
+
+    const formattedData = {
+      id: data.id,
+      cameraId: data.fk_camera_id,
+      description: data.zone_desc,
+      type: data.zone_type,
+      regions: JSON.parse(data.zone_segment_json || '[]'),
+      options: JSON.parse(data.zone_params_json || '{}'),
+      active: data.zone_active,
+      createDate: data.create_date,
+      updateDate: data.update_date
+    };
+    res.json(formattedData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const getDetectionZonesByCameraId = async (req, res) => {
+  try {
+    const data = await EventsModel.getDetectionZonesByCameraId(req.params.cameraId);
+    const formattedData = data.map(zone => ({
+      id: zone.id,
+      cameraId: zone.fk_camera_id,
+      description: zone.zone_desc,
+      type: zone.zone_type,
+      regions: JSON.parse(zone.zone_segment_json || '[]'),
+      options: JSON.parse(zone.zone_params_json || '{}'),
+      active: zone.zone_active,
+      createDate: zone.create_date,
+      updateDate: zone.update_date
+    }));
+    res.json(formattedData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const addDetectionZone = async (req, res) => {
+  try {
+    const zoneData = {
+      cameraId: req.body.cameraId,
+      description: req.body.description,
+      type: req.body.type,
+      regions: req.body.regions,
+      options: req.body.options,
+      active: req.body.active
+    };
+    const result = await EventsModel.addDetectionZone(zoneData);
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const updateDetectionZone = async (req, res) => {
+  try {
+    const zoneData = {
+      cameraId: req.body.cameraId,
+      description: req.body.description,
+      type: req.body.type,
+      regions: req.body.regions,
+      options: req.body.options,
+      active: req.body.active
+    };
+    const result = await EventsModel.updateDetectionZone(req.params.id, zoneData);
+    if (!result) return res.status(404).json({ error: 'Not found' });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const deleteDetectionZone = async (req, res) => {
+  try {
+    const result = await EventsModel.deleteDetectionZone(req.params.id);
+    if (!result) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+

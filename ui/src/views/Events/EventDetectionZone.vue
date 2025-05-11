@@ -14,8 +14,9 @@
             dense
             outlined
             class="mb-4"
+            @click="customizing = false"
           )
-          .video-container(style="position:relative;width:100%;height:480px;overflow:hidden;")
+          .video-container
             VideoCard(
               v-if="selectedCamera"
               :key="videoKey"
@@ -26,47 +27,122 @@
               status
               :stream="selectedCamera.live"
               :refreshSnapshot="!selectedCamera.live"
-              :style="{width: '100%', height: '100%'}"
+              class="video-card"
             )
             Playground(
               v-if="selectedCamera && customizing"
-              :width="playgroundWidth"
-              :height="playgroundHeight"
+              :width="videoContainerWidth"
+              :height="videoContainerHeight"
               :regions="regions"
               :customizing="customizing"
               :options="playgroundOptions"
               @addHandle="addHandle"
               @updateHandle="updateHandle"
-              style="position:absolute;top:-10px;left:-10px;width:100%;height:100%;pointer-events:all;z-index:10;"
+              class="playground-overlay"
             )
-          .options-panel(style="margin-top: 10px; padding: 10px; background-color: #1e1e20; border-radius: 8px;")
-            .option-item(v-for="(option, key) in options" :key="key" style="margin-bottom: 5px;")
-              v-row(align="center" no-gutters)
-                v-col(cols="3")
-                  span(style="color: #fff; font-size: 14px;") {{ option.label }}
-                v-col(cols="8")
-                  v-slider(
-                    v-model="option.value"
-                    :min="1"
-                    :max="100"
-                    @input="updateOptions"
-                    color="primary"
-                    hide-details
-                    class="mt-0"
-                  )
-                v-col(cols="1")
-                  span.text-right(style="color: #fff; font-size: 14px;") {{ option.value }}
-            .description-field(style="margin-top: 10px;")
-              v-text-field(
-                v-model="description"
-                label="Description"
-                outlined
-                dense
-                hide-details
-                dark
-                background-color="#2a2a2a"
-                color="primary"
-              )
+          .options-panel
+            v-row
+              v-col(cols="6")
+                .option-item
+                  v-row(align="center" no-gutters)
+                    v-col(cols="5")
+                      span.option-label Force Close Timer
+                    v-col(cols="5")
+                      v-slider(
+                        v-model="options.forceCloseTimer.value"
+                        :min="1"
+                        :max="100"
+                        @input="updateOptions"
+                        color="primary"
+                        hide-details
+                        class="mt-0"
+                      )
+                    v-col(cols="2")
+                      span.option-value {{ options.forceCloseTimer.value }}
+              v-col(cols="6")
+                .option-item
+                  v-row(align="center" no-gutters)
+                    v-col(cols="5")
+                      span.option-label Dwell Timer
+                    v-col(cols="5")
+                      v-slider(
+                        v-model="options.dwellTimer.value"
+                        :min="1"
+                        :max="100"
+                        @input="updateOptions"
+                        color="primary"
+                        hide-details
+                        class="mt-0"
+                      )
+                    v-col(cols="2")
+                      span.option-value {{ options.dwellTimer.value }}
+            v-row
+              v-col(cols="6")
+                .option-item
+                  v-row(align="center" no-gutters)
+                    v-col(cols="5")
+                      span.option-label Sensitivity
+                    v-col(cols="5")
+                      v-slider(
+                        v-model="options.sensitivity.value"
+                        :min="1"
+                        :max="100"
+                        @input="updateOptions"
+                        color="primary"
+                        hide-details
+                        class="mt-0"
+                      )
+                    v-col(cols="2")
+                      span.option-value {{ options.sensitivity.value }}
+              v-col(cols="6")
+                .option-item
+                  v-row(align="center" no-gutters)
+                    v-col(cols="5")
+                      span.option-label Difference
+                    v-col(cols="5")
+                      v-slider(
+                        v-model="options.difference.value"
+                        :min="1"
+                        :max="100"
+                        @input="updateOptions"
+                        color="primary"
+                        hide-details
+                        class="mt-0"
+                      )
+                    v-col(cols="2")
+                      span.option-value {{ options.difference.value }}
+            v-row.mt-4
+              v-col(cols="6")
+                v-text-field(
+                  v-model="description"
+                  label="Description"
+                  outlined
+                  dense
+                  hide-details
+                  dark
+                  background-color="#2a2a2a"
+                  color="primary"
+                )
+              v-col(cols="3")
+                v-select(
+                  v-model="detectionZoneType"
+                  :items="detectionZoneTypes"
+                  label="Type"
+                  outlined
+                  dense
+                  hide-details
+                  dark
+                  background-color="#2a2a2a"
+                  color="primary"
+                )
+              v-col(cols="3")
+                v-switch(
+                  v-model="detectionZoneActive"
+                  label="Active"
+                  color="primary"
+                  hide-details
+                  dark
+                )
           .tw-flex.tw-justify-center.tw-mt-4
           .button-box.button-box-dark.tw-flex.tw-flex-row.tw-gap-4
             v-btn(@click="customizing ? finishCustom() : startCustom()")
@@ -76,14 +152,14 @@
             v-btn(@click="clear")
               v-icon {{ icons.mdiRefresh }}
             v-btn(@click="add")
-              v-icon {{ icons.mdiPlus }}
+              v-icon {{ editId ? icons.mdiPencil : icons.mdiPlus }}
+              span {{ editId ? 'Modify' : 'Add' }}
         v-col(cols="6")
           v-data-table(
             :headers="tableHeaders"
-            :items="eventAreaList"
+            :items="eventDetectionZoneList"
             item-key="id"
             class="elevation-1"
-            @click:row="onRowClick"
           )
             template(#[`item.no`]="{ index }")
               span {{ index + 1 }}
@@ -91,11 +167,21 @@
               span {{ getCameraName(item.cameraId) }}
             template(#[`item.description`]="{ item }")
               span {{ item.description }}
+            template(#[`item.type`]="{ item }")
+              span {{ getTypeText(item.type) }}
+            template(#[`item.active`]="{ item }")
+              v-switch(
+                v-model="item.active"
+                color="primary"
+                hide-details
+                dense
+                disabled
+              )
             template(v-slot:item.actions="{ item }")
               .tw-flex.tw-items-center.tw-gap-2
                 v-btn.edit-btn(
                   color="white"
-                  @click.stop="editRow(item)"
+                  @click.stop="onRowClick(item)"
                   outlined
                 )
                   v-icon(left size="20" ) {{ icons['mdiPencil'] }}
@@ -123,10 +209,10 @@ import { getNotifications } from '@/api/notifications.api';
 import VideoCard from '@/components/camera-card.vue';
 import { mdiRefresh, mdiMapMarkerRadius, mdiCheckboxMarkedCircle, mdiUndo, mdiPlus, mdiPencil, mdiDelete } from '@mdi/js';
 import Playground from '@/components/playground.vue';
-import { addEventArea, getEventAreas, updateEventArea, deleteEventArea } from '@/api/eventArea.api';
+import { addEventDetectionZone, getEventDetectionZone, updateEventDetectionZone, deleteEventDetectionZone } from '@/api/eventDetectionZone.api';
 
 export default {
-  name: 'EventArea',
+  name: 'EventDetectionZone',
 
   components: {
     VideoCard,
@@ -141,6 +227,8 @@ export default {
       videoKey: '',
       refreshing: false,
       description: '',
+      videoContainerWidth: 0,
+      videoContainerHeight: 0,
       icons: {
         mdiMapMarkerRadius,
         mdiCheckboxMarkedCircle,
@@ -151,8 +239,6 @@ export default {
         mdiDelete
       },
       playgroundOptions: {},
-      playgroundWidth: 740,
-      playgroundHeight: 480,
       regions: [],
       customizing: false,
       options: {
@@ -173,20 +259,53 @@ export default {
           value: 50
         }
       },
-      eventAreaList: [],
+      eventDetectionZoneList: [],
       tableHeaders: [
         { text: 'No', value: 'no', sortable: false },
         { text: '카메라', value: 'cameraName' },
         { text: 'Description', value: 'description' },
+        { text: 'Type', value: 'type' },
+        { text: 'Active', value: 'active' },
         { text: '작업', value: 'actions', sortable: false, align: 'center' }
       ],
       deleteDialog: false,
       rowToDelete: null,
       editId: null,
+      detectionZoneType: 'Z001',
+      detectionZoneActive: true,
+      detectionZoneTypes: [
+        { text: '객체', value: 'Z001' },
+        { text: '온도', value: 'Z002' }
+      ],
     };
   },
   watch: {
-    selectedCameraName(newName) {
+    selectedCameraName(newName, oldName) {
+      if (newName !== oldName) {
+        if (!this.editId) {  // 수정 모드가 아닐 때만 초기화
+          this.customizing = false;
+          this.regions = [];
+          this.description = '';
+          this.options = {
+            forceCloseTimer: {
+              label: 'Force Close Timer',
+              value: 30
+            },
+            dwellTimer: {
+              label: 'Dwell Timer',
+              value: 50
+            },
+            sensitivity: {
+              label: 'Sensitivity',
+              value: 75
+            },
+            difference: {
+              label: 'Difference',
+              value: 50
+            }
+          };
+        }
+      }
       this.updateSelectedCamera(newName);
     }
   },
@@ -196,8 +315,20 @@ export default {
       if (camera) {
         this.selectedCamera = { ...camera };
         this.videoKey = camera.name + '_' + Date.now();
+        this.$nextTick(() => {
+          this.updateVideoContainerSize();
+        });
       }
     },
+
+    updateVideoContainerSize() {
+      const container = this.$el.querySelector('.video-container');
+      if (container) {
+        this.videoContainerWidth = container.offsetWidth;
+        this.videoContainerHeight = container.offsetHeight;
+      }
+    },
+
     async refreshVideo() {
       if (this.refreshing || !this.selectedCamera) return;
       this.refreshing = true;
@@ -250,8 +381,8 @@ export default {
       videoCard.play = false;
     },
     addHandle(e) {
-      const x = Math.round((e.offsetX / this.playgroundWidth) * 100);
-      const y = Math.round((e.offsetY / this.playgroundHeight) * 100);
+      const x = Math.round((e.offsetX / this.videoContainerWidth) * 100);
+      const y = Math.round((e.offsetY / this.videoContainerHeight) * 100);
       let regionIndex = this.regions.length - 1;
       if (
         !this.regions.length ||
@@ -264,15 +395,11 @@ export default {
         regionIndex = this.regions.length - 1;
       }
       this.regions[regionIndex].coords.push([x, y]);
-      // 마지막 region의 coords만 출력
-      if (this.regions[regionIndex]) {
-        console.log('current region coords:', JSON.parse(JSON.stringify(this.regions[regionIndex].coords)));
-      }
     },
 
     updateHandle(payload) {
-      const x = Math.round((payload.x / 600) * 100);
-      const y = Math.round((payload.y / 480) * 100);
+      const x = Math.round((payload.x / this.videoContainerWidth) * 100);
+      const y = Math.round((payload.y / this.videoContainerHeight) * 100);
       this.$set(this.regions[payload.regionIndex].coords, payload.coordIndex, [x, y]);
     },
 
@@ -291,17 +418,56 @@ export default {
 
     startCustom() {
       this.customizing = true;
+      this.editId = null;
+      this.regions = [];
+      this.description = '';
+      this.detectionZoneType = 'Z001';
+      this.detectionZoneActive = true;
+      this.options = {
+        forceCloseTimer: {
+          label: 'Force Close Timer',
+          value: 30
+        },
+        dwellTimer: {
+          label: 'Dwell Timer',
+          value: 50
+        },
+        sensitivity: {
+          label: 'Sensitivity',
+          value: 75
+        },
+        difference: {
+          label: 'Difference',
+          value: 50
+        }
+      };
     },
 
     finishCustom() {
       this.customizing = false;
-      if (!this.regions.length) return;
-      const rIndex = this.regions.length - 1;
-      if (this.regions[rIndex].coords.length < 3) {
-        this.regions.splice(rIndex, 1);
-      } else {
-        this.regions[rIndex].finished = true;
-      }
+      this.editId = null;
+      this.regions = [];
+      this.description = '';
+      this.detectionZoneType = 'Z001';
+      this.detectionZoneActive = true;
+      this.options = {
+        forceCloseTimer: {
+          label: 'Force Close Timer',
+          value: 30
+        },
+        dwellTimer: {
+          label: 'Dwell Timer',
+          value: 50
+        },
+        sensitivity: {
+          label: 'Sensitivity',
+          value: 75
+        },
+        difference: {
+          label: 'Difference',
+          value: 50
+        }
+      };
     },
 
     updateOptions() {
@@ -310,7 +476,9 @@ export default {
         dwellTimer: this.options.dwellTimer.value,
         sensitivity: this.options.sensitivity.value,
         difference: this.options.difference.value,
-        description: this.description
+        description: this.description,
+        type: this.detectionZoneType,
+        active: this.detectionZoneActive
       });
     },
 
@@ -319,9 +487,20 @@ export default {
         this.$toast.error('카메라를 선택해주세요.');
         return;
       }
+
+      if (!this.regions || this.regions.length === 0) {
+        this.$toast.error('감지 영역을 설정해주세요.');
+        return;
+      }
+
+      if (!this.description || this.description.trim() === '') {
+        this.$toast.error('설명을 입력해주세요.');
+        return;
+      }
+
       const cameraId = this.cameraList.findIndex(cam => cam.name === this.selectedCamera.name);
-      const exist = this.eventAreaList.find(e => e.cameraId === cameraId && e.description === this.description);
-      const eventAreaData = {
+      const exist = this.eventDetectionZoneList.find(e => e.id === this.editId);
+      const eventDetectionZoneData = {
         cameraId,
         options: {
           forceCloseTimer: this.options.forceCloseTimer.value,
@@ -330,30 +509,34 @@ export default {
           difference: this.options.difference.value
         },
         regions: this.regions,
-        description: this.description
+        description: this.description,
+        type: this.detectionZoneType,
+        active: this.detectionZoneActive
       };
       if (exist) {
         // 수정
-        await updateEventArea(exist.id, eventAreaData);
+        await updateEventDetectionZone(exist.id, eventDetectionZoneData);
         this.$toast.success('수정되었습니다.');
       } else {
         // 추가
-        await addEventArea(eventAreaData);
-        this.$toast.success('이벤트 영역이 저장되었습니다.');
+        await addEventDetectionZone(eventDetectionZoneData);
+        this.$toast.success('이벤트 감지 영역이 저장되었습니다.');
       }
       this.clear();
       this.description = '';
       this.editId = null;
-      await this.loadEventAreas();
+      this.detectionZoneType = '';
+      this.detectionZoneActive = true;
+      await this.loadEventDetectionZone();
     },
-
-    async loadEventAreas() {
+  
+    async loadEventDetectionZone() {
       try {
-        const res = await getEventAreas();
-        this.eventAreaList = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
+        const res = await getEventDetectionZone();
+        this.eventDetectionZoneList = Array.isArray(res.data) ? res.data : (Array.isArray(res) ? res : []);
       } catch (e) {
-        console.error('eventArea API error:', e);
-        this.eventAreaList = [];
+        console.error('eventDetectionZone API error:', e);
+        this.eventDetectionZoneList = [];
       }
     },
 
@@ -362,7 +545,6 @@ export default {
     },
 
     onRowClick(item) {
-      // row 클릭 시 왼쪽 폼/비디오/영역 값 세팅
       this.editId = item.id;
       this.selectedCameraName = this.getCameraName(item.cameraId);
       this.options.forceCloseTimer.value = item.options.forceCloseTimer;
@@ -371,13 +553,15 @@ export default {
       this.options.difference.value = item.options.difference;
       this.regions = JSON.parse(JSON.stringify(item.regions));
       this.description = item.description;
+      this.detectionZoneType = item.type || 'Z001';
+      this.detectionZoneActive = item.active;
       this.customizing = true;
     },
 
     async editRow(item) {
       // 현재 폼의 값으로 update
       const cameraId = this.cameraList.findIndex(cam => cam.name === this.selectedCameraName);
-      const eventAreaData = {
+      const eventDetectionZoneData = {
         cameraId,
         options: {
           forceCloseTimer: this.options.forceCloseTimer.value,
@@ -386,13 +570,15 @@ export default {
           difference: this.options.difference.value
         },
         regions: this.regions,
-        description: this.description
+        description: this.description,
+        type: this.detectionZoneType,
+        active: this.detectionZoneActive
       };
-      await updateEventArea(item.id, eventAreaData);
+      await updateEventDetectionZone(item.id, eventDetectionZoneData);
       this.$toast.success('수정되었습니다.');
       this.customizing = false;
       this.editId = null;
-      await this.loadEventAreas();
+      await this.loadEventDetectionZone();
     },
 
     confirmDelete(item) {
@@ -402,12 +588,17 @@ export default {
 
     async deleteRow() {
       if (this.rowToDelete) {
-        await deleteEventArea(this.rowToDelete.id);
+        await deleteEventDetectionZone(this.rowToDelete.id);
         this.$toast.success('삭제되었습니다.');
         this.deleteDialog = false;
         this.rowToDelete = null;
-        await this.loadEventAreas();
+        await this.loadEventDetectionZone();
       }
+    },
+
+    getTypeText(type) {
+      const typeItem = this.detectionZoneTypes.find(t => t.value === type);
+      return typeItem ? typeItem.text : type;
     },
   },
   async mounted() {
@@ -437,10 +628,14 @@ export default {
       this.$toast.error(err.message);
     }
     // 전역 cleanup 함수 등록
-    window.cleanupEventArea = () => {
+    window.cleanupEventDetectionZone = () => {
       this.cleanupResources();
     };
-    await this.loadEventAreas();
+    await this.loadEventDetectionZone();
+    window.addEventListener('resize', this.updateVideoContainerSize);
+  },
+  beforeDestroy() {
+    window.removeEventListener('resize', this.updateVideoContainerSize);
   }
 };
 </script>
@@ -455,6 +650,51 @@ export default {
     height: 480px;
     overflow: hidden;
     margin-bottom: 20px;
+  }
+
+  .video-card {
+    width: 100%;
+    height: 100%;
+  }
+
+  .playground-overlay {
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    width: 100%;
+    height: 100%;
+    pointer-events: all;
+    z-index: 10;
+
+    ::v-deep .handle {
+      width: 10px !important;
+      height: 10px !important;
+      background-color: #FFD700 !important;
+      border: 2px solid #FFD700 !important;
+      box-shadow: none !important;
+    }
+  }
+
+  .options-panel {
+    margin-top: 10px;
+    padding: 10px;
+    background-color: #1e1e20;
+    border-radius: 8px;
+  }
+
+  .option-item {
+    margin-bottom: 5px;
+  }
+
+  .option-label {
+    color: #fff;
+    font-size: 14px;
+  }
+
+  .option-value {
+    color: #fff;
+    font-size: 14px;
+    text-align: right;
   }
 
   .video-player {

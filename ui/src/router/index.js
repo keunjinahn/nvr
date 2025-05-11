@@ -256,8 +256,8 @@ export const routes = [
         component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventReport.vue')
       },
       {
-        path: 'area',
-        name: 'EventArea',
+        path: 'zone',
+        name: 'EventDetectionZone',
         meta: {
           auth: {
             requiresAuth: true,
@@ -270,7 +270,7 @@ export const routes = [
             showSidebar: true
           }
         },
-        component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventArea.vue')
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Events/EventDetectionZone.vue')
       }
     ]
   },

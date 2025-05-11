@@ -27,6 +27,7 @@ import threading
 import queue
 import ffmpeg
 import pymysql
+import zipfile
 
 # 로깅 설정
 log_dir = Path("logs")
@@ -101,6 +102,8 @@ class EventDetecter:
         self.object_setting = None
         self.last_setting_time = 0
         self.setting_lock = threading.Lock()
+        self.detection_zones = {}  # {camera_id: [zone, ...]}
+        threading.Thread(target=self.detection_zone_updater, daemon=True).start()
 
     def connect_to_db(self):
         global nvrdb
@@ -239,6 +242,88 @@ class EventDetecter:
                 self.last_setting_time = time.time()
             time.sleep(10)
 
+    def detection_zone_updater(self):
+        while True:
+            try:
+                for cam in self.cameras:
+                    camera_id = cam.get('id') or cam.get('cameraId') or cam.get('camera_id')
+                    if not camera_id:
+                        continue
+                    url = f'http://localhost:9091/api/detectionZone/camera/{camera_id}'
+                    res = requests.get(url, timeout=5)
+                    if res.status_code == 200:
+                        zones = res.json()
+                        # active true, type Z001만 필터링
+                        filtered = [z for z in zones if z.get('active') and z.get('type') == 'Z001']
+                        self.detection_zones[camera_id] = filtered
+            except Exception as e:
+                logger.error(f'detectionZone API error: {e}')
+            time.sleep(10)
+
+    def save_and_zip_image(self, camera_name, frame, base_dir):
+        today = datetime.now().strftime('%Y-%m-%d')
+        save_dir = os.path.join(base_dir, today)
+        os.makedirs(save_dir, exist_ok=True)
+        timestamp = datetime.now().strftime('%H%M%S_%f')
+        filename = f'{camera_name}_{timestamp}.jpg'
+        filepath = os.path.join(save_dir, filename)
+        cv2.imwrite(filepath, frame)
+        # zip 압축
+        zip_path = os.path.join(base_dir, f'{today}.zip')
+        with zipfile.ZipFile(zip_path, 'a', zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(filepath, arcname=os.path.join(today, filename))
+        os.remove(filepath)
+
+    def detect_motion_in_polygon(self, prev_frame, curr_frame, polygon):
+        # polygon: [[x1, y1], [x2, y2], ...]
+        mask = np.zeros(curr_frame.shape[:2], dtype=np.uint8)
+        pts = np.array(polygon, np.int32)
+        pts = pts.reshape((-1, 1, 2))
+        cv2.fillPoly(mask, [pts], 255)
+        gray_prev = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        gray_curr = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+        diff = cv2.absdiff(gray_prev, gray_curr)
+        masked_diff = cv2.bitwise_and(diff, diff, mask=mask)
+        thresh = cv2.threshold(masked_diff, 25, 255, cv2.THRESH_BINARY)[1]
+        motion_pixels = cv2.countNonZero(thresh)
+        return motion_pixels > 100  # 임계값은 상황에 맞게 조정
+
+    def process_detection_zones(self, cam, prev_frame, curr_frame, base_dir):
+        camera_id = cam.get('id') or cam.get('cameraId') or cam.get('camera_id')
+        zones = self.detection_zones.get(camera_id, [])
+        for zone in zones:
+            try:
+                polygon = json.loads(zone.get('regions') or zone.get('zone_segment_json'))
+                if prev_frame is not None and self.detect_motion_in_polygon(prev_frame, curr_frame, polygon):
+                    self.save_and_zip_image(cam.get('name'), curr_frame, base_dir)
+                    logger.info(f"Motion detected and saved for camera {cam.get('name')}")
+            except Exception as e:
+                logger.error(f"Error in motion detection for camera {cam.get('name')}: {e}")
+
+    def run_yolo_and_filter(self, yolo_model, frame, detection_labels, confidence_threshold):
+        results = yolo_model(frame)
+        filtered_boxes = []
+        detected_objects = []
+        annotated = frame.copy()
+        for box, conf, cls in zip(results[0].boxes.xyxy.cpu().numpy(), results[0].boxes.conf.cpu().numpy(), results[0].boxes.cls.cpu().numpy()):
+            label = results[0].names[int(cls)]
+            if detection_labels and label not in detection_labels:
+                logger.info(f"[검출제외] label={label}, conf={conf:.2f} (detectionType={detection_labels}) 대상 아님")
+                continue
+            if conf < confidence_threshold:
+                continue
+            filtered_boxes.append((box, conf, cls))
+            x1, y1, x2, y2 = map(int, box)
+            color = (0, 255, 0)
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(annotated, f"{label} {conf:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            detected_objects.append({
+                'label': label,
+                'bbox': [x1, y1, x2, y2],
+                'confidence': float(conf)
+            })
+        return results, filtered_boxes, annotated, detected_objects
+
     def run(self):
         try:
             camera_name = "댐영상4"
@@ -267,6 +352,8 @@ class EventDetecter:
             detection_labels = None
             enable_tracking = True
 
+            base_dir = r'C:\D\project\nvr\src\nvr\test\camera.ui\detect_move'
+            prev_frame = None
             while True:
                 # 최신 설정값 읽기
                 with self.setting_lock:
@@ -354,30 +441,10 @@ class EventDetecter:
                             start_time = time.time()
                         # interval마다 YOLO 추론
                         if time.time() - last_infer_time >= interval:
-                            results = yolo_model(bgr)
-                            filtered_boxes = []
-                            for box, conf, cls in zip(results[0].boxes.xyxy.cpu().numpy(), results[0].boxes.conf.cpu().numpy(), results[0].boxes.cls.cpu().numpy()):
-                                label = results[0].names[int(cls)]
-                                if detection_labels and label not in detection_labels:
-                                    logger.info(f"[검출제외] label={label}, conf={conf:.2f} (detectionType={detection_labels}) 대상 아님")
-                                    continue
-                                if conf < confidence_threshold:
-                                    continue
-                                filtered_boxes.append((box, conf, cls))
+                            results, filtered_boxes, annotated, detected_objects = self.run_yolo_and_filter(
+                                yolo_model, bgr, detection_labels, confidence_threshold
+                            )
                             if filtered_boxes:
-                                annotated = bgr.copy()
-                                detected_objects = []
-                                for box, conf, cls in filtered_boxes:
-                                    x1, y1, x2, y2 = map(int, box)
-                                    label = f"{results[0].names[int(cls)]} {conf:.2f}"
-                                    color = (0, 255, 0)
-                                    cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-                                    cv2.putText(annotated, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                                    detected_objects.append({
-                                        'label': results[0].names[int(cls)],
-                                        'bbox': [x1, y1, x2, y2],
-                                        'confidence': float(conf)
-                                    })
                                 today = datetime.now().strftime('%Y-%m-%d')
                                 output_dir = os.path.join('../test/camera.ui/detected_image', today)
                                 os.makedirs(output_dir, exist_ok=True)
@@ -390,7 +457,14 @@ class EventDetecter:
                                 event_data_json = json.dumps(detected_objects, ensure_ascii=False)
                                 event_accur_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                                 self.insert_event_history(camera_name, filename, event_data_json, event_accur_time)
+                            
+
+                            # detection zone 적용
+                            self.process_detection_zones(cam, prev_frame, bgr, base_dir)
+                            
+                            prev_frame = bgr.copy()
                             last_infer_time = time.time()
+                            
                         if self.debug_mode and cv2.waitKey(1) & 0xFF == ord('q'):
                             break
                     except Exception as e:

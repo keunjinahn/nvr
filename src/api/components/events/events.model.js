@@ -1,9 +1,11 @@
 import EventHistoryModel from '../../../models/EventHistory.js';
 import sequelize from '../../../models/index.js';
 import EventSettingModel from '../../../models/EventSetting.js';
+import EventDetectionZoneModel from '../../../models/EventDetectionZone.js';
 
 const EventHistory = EventHistoryModel(sequelize);
 const EventSetting = EventSettingModel(sequelize);
+const EventDetectionZone = EventDetectionZoneModel(sequelize);
 
 const getAllEventHistory = async () => {
   return await EventHistory.findAll();
@@ -52,6 +54,60 @@ const createEventSetting = async (data) => {
   return await EventSetting.create(data);
 };
 
+// EventDetectionZone CRUD
+const getAllDetectionZones = async () => {
+  return await EventDetectionZone.findAll();
+};
+
+const getDetectionZoneById = async (id) => {
+  return await EventDetectionZone.findByPk(id);
+};
+
+const getDetectionZonesByCameraId = async (cameraId) => {
+  return await EventDetectionZone.findAll({
+    where: { fk_camera_id: cameraId }
+  });
+};
+
+const addDetectionZone = async (zoneData) => {
+  const zone = {
+    fk_camera_id: zoneData.cameraId,
+    zone_desc: zoneData.description,
+    zone_type: zoneData.type,
+    zone_segment_json: JSON.stringify(zoneData.regions),
+    zone_params_json: JSON.stringify(zoneData.options),
+    zone_active: zoneData.active || 0,
+    create_date: new Date(),
+    update_date: new Date()
+  };
+  return await EventDetectionZone.create(zone);
+};
+
+const updateDetectionZone = async (id, zoneData) => {
+  const zone = await EventDetectionZone.findByPk(id);
+  if (!zone) return null;
+
+  const updateData = {
+    fk_camera_id: zoneData.cameraId,
+    zone_desc: zoneData.description,
+    zone_type: zoneData.type,
+    zone_segment_json: JSON.stringify(zoneData.regions),
+    zone_params_json: JSON.stringify(zoneData.options),
+    zone_active: zoneData.active || 0,
+    update_date: new Date()
+  };
+
+  await zone.update(updateData);
+  return zone;
+};
+
+const deleteDetectionZone = async (id) => {
+  const zone = await EventDetectionZone.findByPk(id);
+  if (!zone) return false;
+  await zone.destroy();
+  return true;
+};
+
 export {
   getAllEventHistory,
   getEventHistoryById,
@@ -60,5 +116,11 @@ export {
   deleteEventHistory,
   getEventSetting,
   updateEventSetting,
-  createEventSetting
+  createEventSetting,
+  getAllDetectionZones,
+  getDetectionZoneById,
+  getDetectionZonesByCameraId,
+  addDetectionZone,
+  updateDetectionZone,
+  deleteDetectionZone
 };
