@@ -103,7 +103,17 @@ class EventDetecter:
         self.last_setting_time = 0
         self.setting_lock = threading.Lock()
         self.detection_zones = {}  # {camera_id: [zone, ...]}
-        threading.Thread(target=self.detection_zone_updater, daemon=True).start()
+        
+        # 프레임 처리 간격 설정 (초 단위)
+        self.frame_interval = 1.0  # 기본값 1초
+        self.last_object_detect_time = 0
+        self.last_motion_detect_time = 0
+        
+        # 스레드 제어를 위한 이벤트
+        self.stop_event = threading.Event()
+        
+        # 프레임 버퍼를 위한 큐
+        self.frame_queue = queue.Queue(maxsize=30)  # 최대 30프레임 저장
 
     def connect_to_db(self):
         global nvrdb
@@ -221,61 +231,95 @@ class EventDetecter:
             logger.error(f"DB Insert Error: {str(e)}")
             return False
 
-    def get_latest_event_setting(self):
+    def insert_motion_event_history(self, camera_name, detected_image_url, zone_id, event_accur_time=None):
+        """움직임 감지 이벤트를 DB에 저장"""
+        if event_accur_time is None:
+            event_accur_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        create_date = event_accur_time
+        
+        # 이벤트 데이터 JSON 생성
+        event_data = {
+            "label": "온도이상",
+            "zone_id": zone_id,
+            "detection_time": event_accur_time
+        }
+        event_data_json = json.dumps(event_data, ensure_ascii=False)
+        
         try:
+            cursor = self.get_db_cursor()
+            if cursor:
+                sql = ("""
+                    INSERT INTO tb_event_history 
+                    (fk_camera_id, camera_name, event_accur_time, event_type, event_data_json, fk_detect_zone_id, detected_image_url, create_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """)
+                cursor.execute(sql, (
+                    4, camera_name, event_accur_time, 'E002', event_data_json, zone_id, detected_image_url, create_date
+                ))
+                cursor.close()
+                logger.info(f"Motion Event DB Insert: {camera_name}, Zone: {zone_id}, {detected_image_url}")
+                return True
+            else:
+                logger.error("DB cursor is None. Motion event insert failed.")
+                return False
+        except Exception as e:
+            logger.error(f"Motion Event DB Insert Error: {str(e)}")
+            return False
+
+    def get_Event_Config(self):
+        try:
+            eventSettingData = None
+            eventDetectionZoneData = None
             # 서버 API로 조회 (로컬 서버 기준)
-            res = requests.get('http://localhost:9091/api/eventSetting', timeout=3)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get('object_json'):
-                    return json.loads(data['object_json'])
-            return None
+            resEventSetting = requests.get('http://localhost:9091/api/eventSetting', timeout=3)
+            if resEventSetting.status_code == 200:
+                eventSettingData = resEventSetting.json()
+            url = f'http://localhost:9091/api/detectionZone/camera/0'
+            resEventDetectionZone = requests.get(url, timeout=3)
+            if resEventDetectionZone.status_code == 200:
+                eventDetectionZoneData =   resEventDetectionZone.json() 
+            return json.loads(eventSettingData['object_json']) if eventSettingData.get('object_json') else None , eventDetectionZoneData
+
         except Exception as e:
             logger.error(f'eventSetting 조회 실패: {e}')
-            return None
+            return None, None
 
     def setting_updater(self):
         while True:
-            new_setting = self.get_latest_event_setting()
+            new_setting,new_detection_zone = self.get_Event_Config()
             with self.setting_lock:
                 self.object_setting = new_setting
+                self.detection_zones = new_detection_zone
                 self.last_setting_time = time.time()
             time.sleep(10)
 
-    def detection_zone_updater(self):
-        while True:
-            try:
-                for cam in self.cameras:
-                    camera_id = cam.get('id') or cam.get('cameraId') or cam.get('camera_id')
-                    if not camera_id:
-                        continue
-                    url = f'http://localhost:9091/api/detectionZone/camera/{camera_id}'
-                    res = requests.get(url, timeout=5)
-                    if res.status_code == 200:
-                        zones = res.json()
-                        # active true, type Z001만 필터링
-                        filtered = [z for z in zones if z.get('active') and z.get('type') == 'Z001']
-                        self.detection_zones[camera_id] = filtered
-            except Exception as e:
-                logger.error(f'detectionZone API error: {e}')
-            time.sleep(10)
-
-    def save_and_zip_image(self, camera_name, frame, base_dir):
-        today = datetime.now().strftime('%Y-%m-%d')
-        save_dir = os.path.join(base_dir, today)
-        os.makedirs(save_dir, exist_ok=True)
-        timestamp = datetime.now().strftime('%H%M%S_%f')
-        filename = f'{camera_name}_{timestamp}.jpg'
-        filepath = os.path.join(save_dir, filename)
-        cv2.imwrite(filepath, frame)
-        # zip 압축
-        zip_path = os.path.join(base_dir, f'{today}.zip')
-        with zipfile.ZipFile(zip_path, 'a', zipfile.ZIP_DEFLATED) as zipf:
-            zipf.write(filepath, arcname=os.path.join(today, filename))
-        os.remove(filepath)
+    def save_detected_image(self, camera_name, frame, base_dir):
+        try:
+            # 날짜 폴더 생성
+            today = datetime.now().strftime('%Y-%m-%d')
+            save_dir = os.path.join(base_dir, today)
+            os.makedirs(save_dir, exist_ok=True)
+            
+            # 타임스탬프 생성
+            timestamp = datetime.now().strftime('%H%M%S_%f')
+            
+            # 이미지 파일명과 경로
+            image_filename = f'{camera_name}_{timestamp}.jpg'
+            image_path = os.path.join(save_dir, image_filename)
+            
+            # 이미지 저장
+            cv2.imwrite(image_path, frame)
+            logger.info(f"Detected image saved: {image_path}")
+            
+            return image_path
+            
+        except Exception as e:
+            logger.error(f"Error in save_detected_image: {str(e)}")
+            return None
 
     def detect_motion_in_polygon(self, prev_frame, curr_frame, polygon):
         # polygon: [[x1, y1], [x2, y2], ...]
+        Threshold = 50
         mask = np.zeros(curr_frame.shape[:2], dtype=np.uint8)
         pts = np.array(polygon, np.int32)
         pts = pts.reshape((-1, 1, 2))
@@ -286,19 +330,51 @@ class EventDetecter:
         masked_diff = cv2.bitwise_and(diff, diff, mask=mask)
         thresh = cv2.threshold(masked_diff, 25, 255, cv2.THRESH_BINARY)[1]
         motion_pixels = cv2.countNonZero(thresh)
-        return motion_pixels > 100  # 임계값은 상황에 맞게 조정
+        is_motion = motion_pixels > Threshold  # 임계값은 상황에 맞게 조정
+        logger.info(f"Motion detection - Pixels changed: {motion_pixels}, Threshold: {Threshold}, Detected: {is_motion}")
+        return is_motion
 
-    def process_detection_zones(self, cam, prev_frame, curr_frame, base_dir):
-        camera_id = cam.get('id') or cam.get('cameraId') or cam.get('camera_id')
-        zones = self.detection_zones.get(camera_id, [])
+    def process_detection_zones(self, prev_frame, curr_frame, base_dir):
+        zones = self.detection_zones
+        camera_name = self.cameras[0].get('name')
+        
         for zone in zones:
             try:
-                polygon = json.loads(zone.get('regions') or zone.get('zone_segment_json'))
-                if prev_frame is not None and self.detect_motion_in_polygon(prev_frame, curr_frame, polygon):
-                    self.save_and_zip_image(cam.get('name'), curr_frame, base_dir)
-                    logger.info(f"Motion detected and saved for camera {cam.get('name')}")
+                if zone.get('type') == 'Z001' and zone.get('active') == True:
+                    regions_data = zone.get('regions') or zone.get('zone_segment_json')
+                    # regions_data가 문자열이면 JSON 파싱, 리스트면 그대로 사용
+                    polygon_data = regions_data[0]['coords']
+                    # polygon 데이터 구조 확인 및 변환
+                    polygon = None
+                    if isinstance(polygon_data, dict):
+                        # 딕셔너리 형태인 경우 points 키에서 좌표 추출
+                        points = polygon_data.get('points', [])
+                        if not points:
+                            logger.warning(f"No points found in polygon data: {polygon_data}")
+                            continue
+                        polygon = points
+                    elif isinstance(polygon_data, list):
+                        polygon = polygon_data
+                    else:
+                        logger.warning(f"Unexpected polygon data type: {type(polygon_data)}")
+                        continue
+                    
+                    logger.info(f"Processing zone - ID: {zone.get('id')}, Description: {zone.get('description')}")
+                    logger.info(f"Zone coordinates: {polygon}")
+                    
+                    if prev_frame is not None and self.detect_motion_in_polygon(prev_frame, curr_frame, polygon):
+                        image_path = self.save_detected_image(camera_name, curr_frame, base_dir)
+                        if image_path:
+                            # 움직임 감지 이벤트 DB 저장
+                            self.insert_motion_event_history(camera_name, image_path, zone.get('id'))
+                            logger.info(f"Motion detected and saved for camera {camera_name} in zone {zone.get('id')}")
+                    else:
+                        logger.debug(f"No motion detected in zone {zone.get('id')}")
+
             except Exception as e:
-                logger.error(f"Error in motion detection for camera {cam.get('name')}: {e}")
+                logger.error(f"Error in motion detection for camera {camera_name}: {e}")
+                logger.error(f"Zone data: {zone}")
+                logger.error(f"Regions data: {regions_data}")
 
     def run_yolo_and_filter(self, yolo_model, frame, detection_labels, confidence_threshold):
         results = yolo_model(frame)
@@ -324,6 +400,177 @@ class EventDetecter:
             })
         return results, filtered_boxes, annotated, detected_objects
 
+    def process_settings(self, object_setting):
+        """
+        설정값을 처리하여 필요한 파라미터들을 반환합니다.
+        
+        Args:
+            object_setting (dict): 설정 데이터
+            
+        Returns:
+            tuple: (enable_tracking, detection_labels, confidence_threshold, interval)
+        """
+        if not object_setting:
+            return True, None, 0.5, 1.0
+            
+        enable_tracking = object_setting.get('enableTracking', True)
+        detection_type = object_setting.get('detectionType', '사람')
+        accuracy = object_setting.get('accuracy', '보통')
+        tracking_duration = object_setting.get('trackingDuration', 1)
+        
+        # 라벨 필터
+        if detection_type == '전체':
+            detection_labels = None
+        elif detection_type == '사람':
+            detection_labels = ['person']
+        elif detection_type == '차량':
+            detection_labels = ['car', 'truck']
+        elif detection_type == '동물':
+            detection_labels = ['animal']
+        else:
+            detection_labels = [detection_type]
+            
+        # 정확도 임계값
+        if accuracy == '높음':
+            confidence_threshold = 0.7
+        elif accuracy == '보통':
+            confidence_threshold = 0.5
+        else:
+            confidence_threshold = 0.3
+            
+        # interval
+        try:
+            interval = float(tracking_duration)
+        except:
+            interval = 1.0
+            
+        logger.info(f"[설정] enableTracking={enable_tracking}, detectionType={detection_type}, accuracy={accuracy}, interval={interval}")
+        return enable_tracking, detection_labels, confidence_threshold, interval
+
+    def object_detection_thread(self, yolo_model, camera_name):
+        """객체 감지 스레드"""
+        while not self.stop_event.is_set():
+            try:
+                current_time = time.time()
+                time_since_last = current_time - self.last_object_detect_time
+                
+                if time_since_last >= self.frame_interval:
+                    # 설정값 읽기
+                    with self.setting_lock:
+                        object_setting = self.object_setting
+                    
+                    enable_tracking, detection_labels, confidence_threshold, _ = self.process_settings(object_setting)
+                    
+                    if enable_tracking and not self.frame_queue.empty():
+                        frame = self.frame_queue.get()
+                        results, filtered_boxes, annotated, detected_objects = self.run_yolo_and_filter(
+                            yolo_model, frame, detection_labels, confidence_threshold
+                        )
+                        
+                        if filtered_boxes:
+                            today = datetime.now().strftime('%Y-%m-%d')
+                            output_dir = os.path.join('../test/camera.ui/detected_image', today)
+                            os.makedirs(output_dir, exist_ok=True)
+                            filename = os.path.join(output_dir, f'{camera_name}_detection_{int(time.time())}.jpg')
+                            cv2.imwrite(filename, annotated)
+                            
+                            # DB 기록
+                            event_data_json = json.dumps(detected_objects, ensure_ascii=False)
+                            event_accur_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            self.insert_event_history(camera_name, filename, event_data_json, event_accur_time)
+                            
+                            if self.debug_mode:
+                                cv2.imshow('Object Detection', annotated)
+                                if cv2.waitKey(1) & 0xFF == ord('q'):
+                                    self.stop_event.set()
+                                    break
+                        
+                        self.last_object_detect_time = current_time
+                        logger.debug(f"Object detection processed at {current_time:.2f}, interval: {time_since_last:.2f}s")
+                
+                # 남은 시간만큼 대기
+                sleep_time = max(0, self.frame_interval - (time.time() - current_time))
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                
+            except Exception as e:
+                logger.error(f"Object detection error: {str(e)}")
+                time.sleep(1)
+
+    def motion_detection_thread(self, camera_name, base_dir):
+        """움직임 감지 스레드"""
+        prev_frame = None
+        while not self.stop_event.is_set():
+            try:
+                current_time = time.time()
+                time_since_last = current_time - self.last_motion_detect_time
+                
+                if time_since_last >= self.frame_interval:
+                    if not self.frame_queue.empty():
+                        curr_frame = self.frame_queue.get()
+                        self.process_detection_zones(prev_frame, curr_frame, base_dir)
+                        prev_frame = curr_frame.copy()
+                        self.last_motion_detect_time = current_time
+                        logger.debug(f"Motion detection processed at {current_time:.2f}, interval: {time_since_last:.2f}s")
+                
+                # 남은 시간만큼 대기
+                sleep_time = max(0, self.frame_interval - (time.time() - current_time))
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                
+            except Exception as e:
+                logger.error(f"Motion detection error: {str(e)}")
+                time.sleep(1)
+
+    def frame_capture_thread(self, rtsp_url):
+        """프레임 캡처 스레드"""
+        while not self.stop_event.is_set():
+            try:
+                probe = ffmpeg.probe(rtsp_url, rtsp_transport='tcp')
+                video_stream = next(s for s in probe['streams'] if s['codec_type'] == 'video')
+                w = int(video_stream['width'])
+                h = int(video_stream['height'])
+                pix_fmt = video_stream['pix_fmt']
+                fps = float(eval(video_stream['r_frame_rate']))
+                
+                process = (
+                    ffmpeg
+                    .input(rtsp_url, rtsp_transport='tcp')
+                    .output('pipe:', format='rawvideo', pix_fmt=pix_fmt, s=f'{w}x{h}', r=fps)
+                    .run_async(pipe_stdout=True, pipe_stderr=True)
+                )
+                
+                threading.Thread(target=self.drain_stderr, args=(process.stderr,), daemon=True).start()
+                frame_size = w * h * 3 // 2  # YUV420p
+                
+                while not self.stop_event.is_set():
+                    try:
+                        in_bytes = process.stdout.read(frame_size)
+                        if not in_bytes or len(in_bytes) < frame_size:
+                            break
+                            
+                        yuv = np.frombuffer(in_bytes, np.uint8).reshape((h * 3 // 2, w))
+                        bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
+                        
+                        # 프레임 큐가 가득 차면 가장 오래된 프레임 제거
+                        if self.frame_queue.full():
+                            try:
+                                self.frame_queue.get_nowait()
+                            except queue.Empty:
+                                pass
+                        self.frame_queue.put(bgr)
+                        
+                    except Exception as e:
+                        logger.error(f"Frame capture error: {str(e)}")
+                        break
+                        
+                process.stdout.close()
+                process.wait()
+                
+            except Exception as e:
+                logger.error(f"Stream connection error: {str(e)}")
+                time.sleep(5)  # 재연결 전 대기
+
     def run(self):
         try:
             camera_name = "댐영상4"
@@ -338,145 +585,48 @@ class EventDetecter:
                     if 'rtsp_url' in cam:
                         rtsp_url = cam['rtsp_url']
                         break
+                        
             if not rtsp_url:
                 logger.error(f"Camera with name '{camera_name}' not found in self.cameras.")
                 return
 
             # 설정 갱신 스레드 시작
             threading.Thread(target=self.setting_updater, daemon=True).start()
-
+            
+            # YOLO 모델 초기화
             yolo_model = YOLO('yolov8n.pt')
-            detection_id = 0
-            interval = 1.0
-            confidence_threshold = 0.5
-            detection_labels = None
-            enable_tracking = True
-
+            
+            # 기본 디렉토리 설정
             base_dir = r'C:\D\project\nvr\src\nvr\test\camera.ui\detect_move'
-            prev_frame = None
-            while True:
-                # 최신 설정값 읽기
-                with self.setting_lock:
-                    object_setting = self.object_setting
-                if object_setting:
-                    enable_tracking = object_setting.get('enableTracking', True)
-                    detection_type = object_setting.get('detectionType', '사람')
-                    accuracy = object_setting.get('accuracy', '보통')
-                    tracking_duration = object_setting.get('trackingDuration', 1)
-                    # 라벨 필터
-                    if detection_type == '전체':
-                        detection_labels = None
-                    elif detection_type == '사람':
-                        detection_labels = ['person']
-                    elif detection_type == '차량':
-                        detection_labels = ['car', 'truck']
-                    elif detection_type == '동물':
-                        detection_labels = ['animal']
-                    else:
-                        detection_labels = [detection_type]
-                    # 정확도 임계값
-                    if accuracy == '높음':
-                        confidence_threshold = 0.7
-                    elif accuracy == '보통':
-                        confidence_threshold = 0.5
-                    else:
-                        confidence_threshold = 0.3
-                    # interval
-                    try:
-                        interval = float(tracking_duration)
-                    except:
-                        interval = 1.0
-                    logger.info(f"[설정] enableTracking={enable_tracking}, detectionType={detection_type}, accuracy={accuracy}, interval={interval}")
-                else:
-                    enable_tracking = True
-                    detection_labels = None
-                    confidence_threshold = 0.5
-                    interval = 1.0
-
-                if not enable_tracking:
-                    logger.info('[설정] enableTracking이 False이므로 검출 중지')
-                    time.sleep(1)
-                    continue
-
-                # ffmpeg probe 및 스트림 연결
-                # logger.info(f"Connecting to RTSP stream: {rtsp_url}")
-                try:
-                    probe = ffmpeg.probe(rtsp_url, rtsp_transport='tcp')
-                    video_stream = next(s for s in probe['streams'] if s['codec_type'] == 'video')
-                    w = int(video_stream['width'])
-                    h = int(video_stream['height'])
-                    pix_fmt = video_stream['pix_fmt']
-                    fps = float(eval(video_stream['r_frame_rate']))
-                    # logger.info(f"Stream info: {w}x{h}, {fps}fps, pix_fmt={pix_fmt}")
-                except Exception as e:
-                    logger.error(f"ffmpeg probe 실패: {e}")
-                    time.sleep(5)
-                    continue
-
-                process = (
-                    ffmpeg
-                    .input(rtsp_url, rtsp_transport='tcp')
-                    .output('pipe:', format='rawvideo', pix_fmt=pix_fmt, s=f'{w}x{h}', r=fps)
-                    .run_async(pipe_stdout=True, pipe_stderr=True)
-                )
-                threading.Thread(target=self.drain_stderr, args=(process.stderr,), daemon=True).start()
-                frame_size = w * h * 3 // 2  # YUV420p
-                frame_count = 0
-                start_time = time.time()
-                last_infer_time = 0
-                
-                while True:
-                    try:
-                        in_bytes = process.stdout.read(frame_size)
-                        if not in_bytes or len(in_bytes) < frame_size:
-                            logger.error("스트림이 종료되었거나 데이터가 부족합니다.")
-                            break
-                        yuv = np.frombuffer(in_bytes, np.uint8).reshape((h * 3 // 2, w))
-                        bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
-                        frame_count += 1
-                        elapsed = time.time() - start_time
-                        if elapsed >= 1.0:
-                            # logger.info(f"Current FPS: {frame_count / elapsed:.2f}, Frame shape: {bgr.shape}")
-                            frame_count = 0
-                            start_time = time.time()
-                        # interval마다 YOLO 추론
-                        if time.time() - last_infer_time >= interval:
-                            results, filtered_boxes, annotated, detected_objects = self.run_yolo_and_filter(
-                                yolo_model, bgr, detection_labels, confidence_threshold
-                            )
-                            if filtered_boxes:
-                                today = datetime.now().strftime('%Y-%m-%d')
-                                output_dir = os.path.join('../test/camera.ui/detected_image', today)
-                                os.makedirs(output_dir, exist_ok=True)
-                                filename = os.path.join(output_dir, f'{camera_name}_detection_{detection_id}.jpg')
-                                cv2.imwrite(filename, annotated)
-                                detection_id += 1
-                                if self.debug_mode:
-                                    cv2.imshow('YOLO Detection', annotated)
-                                # DB 기록 추가
-                                event_data_json = json.dumps(detected_objects, ensure_ascii=False)
-                                event_accur_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                self.insert_event_history(camera_name, filename, event_data_json, event_accur_time)
-                            
-
-                            # detection zone 적용
-                            self.process_detection_zones(cam, prev_frame, bgr, base_dir)
-                            
-                            prev_frame = bgr.copy()
-                            last_infer_time = time.time()
-                            
-                        if self.debug_mode and cv2.waitKey(1) & 0xFF == ord('q'):
-                            break
-                    except Exception as e:
-                        logger.error(f"프레임 처리 중 오류 발생: {str(e)}")
-                        break
-                process.stdout.close()
-                process.wait()
+            
+            # 스레드 시작
+            threads = [
+                threading.Thread(target=self.frame_capture_thread, args=(rtsp_url,), daemon=True),
+                threading.Thread(target=self.object_detection_thread, args=(yolo_model, camera_name), daemon=True),
+                threading.Thread(target=self.motion_detection_thread, args=(camera_name, base_dir), daemon=True)
+            ]
+            
+            for thread in threads:
+                thread.start()
+            
+            # 메인 스레드에서 키보드 입력 대기
+            while not self.stop_event.is_set():
+                if self.debug_mode and cv2.waitKey(1) & 0xFF == ord('q'):
+                    self.stop_event.set()
+                    break
+                time.sleep(0.1)
+            
+            # 스레드 종료 대기
+            for thread in threads:
+                thread.join(timeout=1.0)
+            
+            cv2.destroyAllWindows()
+            
         except Exception as e:
-            logger.error(f"Error: {str(e)}")
-            import traceback
+            logger.error(f"Error in main: {str(e)}")
             logger.error(traceback.format_exc())
         finally:
+            self.stop_event.set()
             cv2.destroyAllWindows()
 
 if __name__ == "__main__":
