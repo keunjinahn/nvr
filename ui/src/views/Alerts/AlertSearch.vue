@@ -1,0 +1,434 @@
+<!-- eslint-disable vue/multi-word-component-names -->
+<template lang="pug">
+.alert-search
+  v-card
+    .search-bar.tw-p-4
+      .tw-flex.tw-items-center.tw-gap-4
+        .search-field-container.tw-flex-1
+          v-text-field(
+            v-model="search"
+            prepend-inner-icon="mdi-magnify"
+            placeholder="검색어를 입력하세요"
+            hide-details
+            dense
+            class="search-field"
+            @input="handleSearch"
+            filled
+            background-color="var(--cui-bg-card)"
+          )
+        .tw-flex.tw-items-center.tw-gap-2
+          v-select(
+            v-model="statusFilter"
+            :items="statusOptions"
+            label="상태"
+            dense
+            filled
+            hide-details
+            class="filter-select"
+            @change="handleFilter"
+            background-color="var(--cui-bg-card)"
+          )
+          v-select(
+            v-model="levelFilter"
+            :items="levelOptions"
+            label="위험도"
+            dense
+            filled
+            hide-details
+            class="filter-select"
+            @change="handleFilter"
+            background-color="var(--cui-bg-card)"
+          )
+          v-menu(
+            ref="dateMenu"
+            v-model="dateMenu"
+            :close-on-content-click="false"
+            transition="scale-transition"
+            offset-y
+            min-width="auto"
+          )
+            template(v-slot:activator="{ on, attrs }")
+              v-text-field(
+                v-model="dateRangeText"
+                label="기간"
+                prepend-inner-icon="mdi-calendar"
+                readonly
+                v-bind="attrs"
+                v-on="on"
+                dense
+                filled
+                hide-details
+                class="filter-select"
+                background-color="var(--cui-bg-card)"
+              )
+            v-date-picker(
+              v-model="dates"
+              range
+              no-title
+              scrollable
+              @input="handleDateChange"
+            )
+    
+    v-data-table(
+      :headers="headers"
+      :items="filteredAlerts"
+      :items-per-page="10"
+      :page.sync="page"
+      :loading="loading"
+      loading-text="데이터를 불러오는 중..."
+      no-data-text="데이터가 없습니다"
+      class="elevation-1"
+    )
+      template(v-slot:item.alert_type="{ item }")
+        span {{ getTypeText(item.alert_type) }}
+      
+      template(v-slot:item.alert_level="{ item }")
+        v-chip(
+          :color="getLevelColor(item.alert_level)"
+          small
+          label
+        ) {{ getLevelText(item.alert_level) }}
+      
+      template(v-slot:item.alert_status="{ item }")
+        v-chip(
+          :color="getStatusColor(item.alert_status)"
+          small
+          label
+        ) {{ getStatusText(item.alert_status) }}
+        
+      template(v-slot:item.actions="{ item }")
+        .tw-flex.tw-gap-2
+          v-btn(
+            v-if="item.alert_status !== 'P002'"
+            color="secondary"
+            small
+            @click="handleProcess(item)"
+          ) 처리
+          v-btn(
+            color="error"
+            small
+            @click="handleDelete(item)"
+          ) 삭제
+</template>
+
+<script>
+import { getAlerts, updateAlertStatus, removeAlert } from '@/api/alerts.api'
+
+export default {
+  name: 'AlertSearch',
+
+  data: () => ({
+    search: '',
+    statusFilter: null,
+    levelFilter: null,
+    dateMenu: false,
+    dates: [],
+    page: 1,
+    loading: false,
+    alerts: [],
+    headers: [
+      { text: 'ID', value: 'id', align: 'center', width: '80px' },
+      { text: '카메라 ID', value: 'fk_camera_id', align: 'center' },
+      { text: '발생 시간', value: 'alert_accur_time', align: 'center' },
+      { text: '알림 유형', value: 'alert_type', align: 'center' },
+      { text: '위험도', value: 'alert_level', align: 'center' },
+      { text: '상태', value: 'alert_status', align: 'center' },
+      { text: '감지 구역', value: 'fk_detect_zone_id', align: 'center' },
+      { text: '처리자', value: 'fk_process_user_id', align: 'center' },
+      { text: '처리 시간', value: 'alert_process_time', align: 'center' },
+      { text: '설명', value: 'alert_description', align: 'center' },
+      { text: '작업', value: 'actions', align: 'center', sortable: false, width: '150px' }
+    ],
+    statusOptions: [
+      { text: '전체', value: null },
+      { text: '신규', value: 'P001' },
+      { text: '처리중', value: 'P002' },
+      { text: '완료', value: 'P003' },
+      { text: '무시', value: 'P004' }
+    ],
+    levelOptions: [
+      { text: '전체', value: null },
+      { text: '낮음', value: 'L001' },
+      { text: '보통', value: 'L002' },
+      { text: '높음', value: 'L003' },
+      { text: '위험', value: 'L004' }
+    ]
+  }),
+
+  computed: {
+    dateRangeText() {
+      return this.dates.length === 2
+        ? `${this.dates[0]} ~ ${this.dates[1]}`
+        : '기간 선택'
+    },
+    filteredAlerts() {
+      return this.alerts.filter(alert => {
+        const matchesSearch = !this.search || 
+          alert.alert_description?.toLowerCase().includes(this.search.toLowerCase()) ||
+          String(alert.fk_camera_id).includes(this.search)
+        
+        const matchesStatus = !this.statusFilter || alert.alert_status === this.statusFilter
+        const matchesLevel = !this.levelFilter || alert.alert_level === this.levelFilter
+        
+        const matchesDate = this.dates.length !== 2 || (
+          new Date(alert.alert_accur_time) >= new Date(this.dates[0]) &&
+          new Date(alert.alert_accur_time) <= new Date(this.dates[1])
+        )
+        
+        return matchesSearch && matchesStatus && matchesLevel && matchesDate
+      })
+    }
+  },
+
+  async mounted() {
+    await this.loadAlerts()
+  },
+
+  methods: {
+    async loadAlerts() {
+      this.loading = true
+      try {
+        const response = await getAlerts('')
+        console.log('API Response:', response)
+        
+        // result 배열에서 데이터 추출
+        this.alerts = response.data.result.map(alert => ({
+          ...alert,
+          alert_accur_time: this.formatDate(alert.alert_accur_time),
+          alert_process_time: alert.alert_process_time ? this.formatDate(alert.alert_process_time) : '-'
+        }))
+      } catch (error) {
+        console.error('알림 조회 실패:', error)
+        this.$toast?.error('알림을 불러오는 중 오류가 발생했습니다.')
+      } finally {
+        this.loading = false
+      }
+    },
+
+    formatDate(dateString) {
+      if (!dateString) return '-'
+      const date = new Date(dateString)
+      return date.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
+    },
+
+    getLevelText(level) {
+      const levels = {
+        'L001': '낮음',
+        'L002': '보통',
+        'L003': '높음',
+        'L004': '위험'
+      }
+      return levels[level] || level
+    },
+
+    getLevelColor(level) {
+      const colors = {
+        'L001': 'success',
+        'L002': 'warning',
+        'L003': 'orange',
+        'L004': 'error'
+      }
+      return colors[level] || 'grey'
+    },
+
+    getStatusText(status) {
+      const statuses = {
+        'P001': '신규',
+        'P002': '처리중',
+        'P003': '완료',
+        'P004': '무시'
+      }
+      return statuses[status] || status
+    },
+
+    getStatusColor(status) {
+      const colors = {
+        'P001': 'info',
+        'P002': 'warning',
+        'P003': 'success',
+        'P004': 'grey'
+      }
+      return colors[status] || 'grey'
+    },
+
+    getTypeText(type) {
+      const types = {
+        'A001': '침입 감지',
+        'A002': '움직임 감지',
+        'A003': '얼굴 인식',
+        'A004': '차량 감지'
+      }
+      return types[type] || type
+    },
+
+    async handleProcess(alert) {
+      try {
+        // 처리 확인 다이얼로그
+        const confirmed = await this.$confirm('이 알림을 처리하시겠습니까?')
+        if (!confirmed) return
+
+        // 현재 로그인한 사용자 ID 가져오기 (auth store에서)
+        const userId = this.$store.getters['auth/user']?.id || 1
+        
+        await updateAlertStatus(alert.id, 'P002', userId)
+        
+        this.$toast.success('알림이 처리되었습니다.')
+        await this.loadAlerts()
+      } catch (error) {
+        console.error('알림 처리 실패:', error)
+        this.$toast.error('알림 처리 중 오류가 발생했습니다.')
+      }
+    },
+
+    async handleDelete(alert) {
+      try {
+        const confirmed = await this.$confirm('이 알림을 삭제하시겠습니까?')
+        if (!confirmed) return
+
+        await removeAlert(alert.id)
+        
+        this.$toast.success('알림이 삭제되었습니다.')
+        await this.loadAlerts()
+      } catch (error) {
+        console.error('알림 삭제 실패:', error)
+        this.$toast.error('알림 삭제 중 오류가 발생했습니다.')
+      }
+    },
+
+    handleSearch() {
+      // 필터링은 computed의 filteredAlerts에서 자동 처리
+    },
+
+    handleFilter() {
+      // 필터링은 computed의 filteredAlerts에서 자동 처리
+    },
+
+    handleDateChange() {
+      this.dateMenu = false
+    }
+  }
+}
+</script>
+
+<style lang="scss" scoped>
+.alert-search {
+  .v-card {
+    background-color: var(--cui-bg-dark);
+    border-radius: 8px;
+  }
+
+  .search-bar {
+    background-color: var(--cui-bg-darker);
+    border-bottom: 1px solid var(--cui-border-color);
+    border-radius: 8px 8px 0 0;
+  }
+
+  .search-field-container {
+    max-width: 400px;
+  }
+
+  .search-field {
+    ::v-deep {
+      .v-input__slot {
+        background-color: var(--cui-bg-card) !important;
+        border-radius: 4px !important;
+        min-height: 40px !important;
+
+        &:before,
+        &:after {
+          display: none;
+        }
+
+        .v-input__prepend-inner {
+          margin-top: 8px;
+          margin-right: 8px;
+          
+          .v-icon {
+            color: var(--cui-text-muted);
+            font-size: 20px;
+          }
+        }
+
+        input {
+          color: var(--cui-text);
+          font-size: 14px;
+
+          &::placeholder {
+            color: var(--cui-text-muted);
+          }
+        }
+      }
+    }
+  }
+
+  .filter-select {
+    min-width: 120px;
+    
+    ::v-deep {
+      .v-input__slot {
+        background-color: var(--cui-bg-card) !important;
+        border-radius: 4px !important;
+        min-height: 40px !important;
+
+        &:before,
+        &:after {
+          display: none;
+        }
+      }
+      
+      .v-select__slot,
+      .v-text-field__slot {
+        font-size: 14px;
+        
+        .v-label {
+          top: 10px;
+          color: var(--cui-text-muted);
+          font-size: 14px;
+        }
+        
+        input {
+          color: var(--cui-text);
+        }
+      }
+      
+      .v-icon {
+        color: var(--cui-text-muted);
+        font-size: 20px;
+      }
+    }
+  }
+
+  .v-data-table {
+    background: transparent;
+    
+    ::v-deep {
+      .v-data-table__wrapper {
+        border-radius: 0 0 8px 8px;
+      }
+      
+      th {
+        font-weight: bold;
+        background-color: var(--cui-bg-darker);
+        color: var(--cui-text);
+      }
+      
+      td {
+        padding: 8px 16px;
+        color: var(--cui-text);
+      }
+
+      .v-chip {
+        font-weight: 500;
+      }
+    }
+  }
+}
+</style> 

@@ -42,12 +42,12 @@ const getBearerToken = async (userId, password) => {
 };
 
 export const validJWTNeeded = async (req, res, next) => {
-  console.log('[AUTH] validJWTNeeded req.query:', req.query);
+  //console.log('[AUTH] validJWTNeeded req.query:', req.query);
   if (req.query.userId && req.query.password) {
     const authorization = await getBearerToken(req.query.userId, req.query.password);
     if (authorization) {
       req.headers['authorization'] = `Bearer ${authorization}`;
-      console.log('[AUTH] Generated Bearer token from query params');
+      //console.log('[AUTH] Generated Bearer token from query params');
     }
   }
 
@@ -57,7 +57,7 @@ export const validJWTNeeded = async (req, res, next) => {
       let authorization = authHeader.split(/\s+/);
 
       if (authorization[0] !== 'Bearer') {
-        console.log('[AUTH] Authorization header is not Bearer:', authHeader);
+        //console.log('[AUTH] Authorization header is not Bearer:', authHeader);
         return res.status(401).send({
           statusCode: 401,
           message: 'Unauthorized',
@@ -65,7 +65,7 @@ export const validJWTNeeded = async (req, res, next) => {
       } else {
         //check if user/token exists in database and is still valid
         const user = await AuthModel.findByToken(authorization[1]);
-        console.log('[AUTH] Token DB lookup result:', user);
+        //console.log('[AUTH] Token DB lookup result:', user);
 
         if (!user || (user && !user.valid)) {
           console.log('[AUTH] Token not found or not valid');
@@ -76,7 +76,7 @@ export const validJWTNeeded = async (req, res, next) => {
         }
 
         req.jwt = jwt.verify(authorization[1], jwtSecret);
-        console.log('[AUTH] JWT verified:', req.jwt);
+        //console.log('[AUTH] JWT verified:', req.jwt);
 
         return next();
       }

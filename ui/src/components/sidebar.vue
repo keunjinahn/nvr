@@ -67,7 +67,7 @@ export default {
         { name: '영상관리', icon: 'mdi-video', route: '/cameras' },
         { name: '녹화관리', icon: 'mdi-record', route: '/recordings' },
         { name: '계측관리', icon: 'mdi-ruler', route: '/events' },
-        { name: '경보관리', icon: 'mdi-alert', route: '/notifications' },
+        { name: '경보관리', icon: 'mdi-alert', route: '/alerts' },
         { name: '사용자관리', icon: 'mdi-account', route: '/user-management' },
       ],
       navigation: routes

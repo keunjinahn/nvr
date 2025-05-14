@@ -275,8 +275,8 @@ export const routes = [
     ]
   },
   {
-    path: '/notifications',
-    name: 'Notifications',
+    path: '/alerts',
+    name: 'Alerts',
     meta: {
       auth: {
         requiresAuth: true,
@@ -294,7 +294,7 @@ export const routes = [
         title: '경보관리'
       },
     },
-    component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationMgr.vue'),
+    component: () => import(/* webpackChunkName: "events" */ '@/views/Alerts/AlertMgr.vue'),
     children: [
       {
         path: '',
@@ -302,7 +302,7 @@ export const routes = [
       },
       {
         path: 'search',
-        name: 'NotificationSearch',
+        name: 'AlertSearch',
         meta: {
           auth: {
             requiresAuth: true,
@@ -315,28 +315,11 @@ export const routes = [
             showSidebar: true
           }
         },
-        component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationSearch.vue')
-      },
-      {
-        path: 'status',
-        name: 'NotificationStatus',
-        meta: {
-          auth: {
-            requiresAuth: true,
-            requiredLevel: []
-          },
-          config: {
-            fixedNavbar: true,
-            showFooter: true,
-            showNavbar: true,
-            showSidebar: true
-          }
-        },
-        component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationStatus.vue')
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Alerts/AlertSearch.vue')
       },
       {
         path: 'setting',
-        name: 'NotificationSetting',
+        name: 'AlertSetting',
         meta: {
           auth: {
             requiresAuth: true,
@@ -349,7 +332,7 @@ export const routes = [
             showSidebar: true
           }
         },
-        component: () => import(/* webpackChunkName: "events" */ '@/views/Notifications/NotificationSetting.vue')
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Alerts/AlertSetting.vue')
       },
     ]
   },
