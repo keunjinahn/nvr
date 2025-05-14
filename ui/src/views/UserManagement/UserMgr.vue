@@ -24,15 +24,7 @@
               )
                 v-icon.tw-mr-2(size="24") {{ icons['mdiHistory'] }}
                 span 사용자 이력관리
-          .tw-flex.tw-items-center.tw-mr-8
-            v-btn(
-              v-if="activeView === 'list'"
-              color="secondary"
-              @click="openAddUserDialog"
-              class="add-user-btn"
-            )
-              v-icon(left) {{ icons['mdiPlus'] }}
-              | 사용자 추가
+
     
     v-row
       v-col(cols="12")

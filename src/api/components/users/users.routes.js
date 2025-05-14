@@ -68,12 +68,16 @@ export const routesConfig = (app) => {
    *          schema:
    *            type: object
    *            properties:
-   *              username:
+   *              userId:
+   *                type: string
+   *              userName:
+   *                type: string
+   *              userDept:
    *                type: string
    *              password:
    *                type: string
    *              permissionLevel:
-   *                type: object
+   *                type: integer
    *     responses:
    *       201:
    *         description: Successfull
@@ -95,19 +99,19 @@ export const routesConfig = (app) => {
 
   /**
    * @swagger
-   * /api/users/{name}:
+   * /api/users/{userId}:
    *   get:
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
-   *     summary: Get specific user by name
+   *     summary: Get specific user by userId
    *     parameters:
    *       - in: path
-   *         name: name
+   *         name: userId
    *         schema:
    *           type: string
    *         required: true
-   *         description: Name of the user
+   *         description: ID of the user
    *     responses:
    *       200:
    *         description: Successfull
@@ -118,69 +122,27 @@ export const routesConfig = (app) => {
    *       500:
    *         description: Internal server error
    */
-  app.get('/api/users/:name', [
+  app.patch('/api/users/:userId', [
     ValidationMiddleware.validJWTNeeded,
     PermissionMiddleware.onlySameUserOrAdminCanDoThisAction,
-    UsersController.getByName,
+    UsersController.patchByName,
   ]);
 
   /**
    * @swagger
-   * /api/users/{name}:
-   *   patch:
-   *     tags: [Users]
-   *     security:
-   *       - bearerAuth: []
-   *     summary: Change user credentials by name
-   *     parameters:
-   *       - in: path
-   *         name: name
-   *         schema:
-   *           type: string
-   *         required: true
-   *         description: Name of the user
-   *     requestBody:
-   *       required: true
-   *       content:
-   *         application/json:
-   *          schema:
-   *            type: object
-   *     responses:
-   *       200:
-   *         description: Successfull
-   *       400:
-   *         description: Bad request
-   *       401:
-   *         description: Unauthorized
-   *       404:
-   *         description: Not found
-   *       500:
-   *         description: Internal server error
-   */
-  app.patch(
-    '/api/users/:name',
-    /*upload.single('photo'), */ [
-      ValidationMiddleware.validJWTNeeded,
-      PermissionMiddleware.onlySameUserOrAdminCanDoThisAction,
-      UsersController.patchByName,
-    ]
-  );
-
-  /**
-   * @swagger
-   * /api/users/{name}:
+   * /api/users/{userId}:
    *   delete:
    *     tags: [Users]
    *     security:
    *       - bearerAuth: []
-   *     summary: Delete user by name
+   *     summary: Delete user by userId
    *     parameters:
    *       - in: path
-   *         name: name
+   *         name: userId
    *         schema:
    *           type: string
    *         required: true
-   *         description: Name of the user
+   *         description: ID of the user
    *     responses:
    *       200:
    *         description: Successfull
@@ -191,9 +153,39 @@ export const routesConfig = (app) => {
    *       500:
    *         description: Internal server error
    */
-  app.delete('/api/users/:name', [
+  app.delete('/api/users/:userId', [
     ValidationMiddleware.validJWTNeeded,
     PermissionMiddleware.minimumPermissionLevelRequired('admin'),
     UsersController.removeByName,
   ]);
+
+  /**
+   * @swagger
+   * /api/users/access-history:
+   *   get:
+   *     tags: [Users]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Get all users access history
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/users/access-history', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('users:access'),
+    UsersController.getAccessHistory,
+  ]);
+
+  const routes = app._router.stack
+    .filter(r => r.route)
+    .map(r => ({
+      path: r.route.path,
+      method: Object.keys(r.route.methods)[0].toUpperCase()
+    }));
+  console.log('Registered user routes:', routes);
 };

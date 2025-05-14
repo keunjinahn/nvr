@@ -319,7 +319,7 @@ class EventDetecter:
 
     def detect_motion_in_polygon(self, prev_frame, curr_frame, polygon):
         # polygon: [[x1, y1], [x2, y2], ...]
-        Threshold = 50
+        Threshold = 30
         mask = np.zeros(curr_frame.shape[:2], dtype=np.uint8)
         pts = np.array(polygon, np.int32)
         pts = pts.reshape((-1, 1, 2))
@@ -337,11 +337,13 @@ class EventDetecter:
     def process_detection_zones(self, prev_frame, curr_frame, base_dir):
         zones = self.detection_zones
         camera_name = self.cameras[0].get('name')
-        
+        logger.info(f"Processing detection zones for camera {camera_name}")
         for zone in zones:
             try:
                 if zone.get('type') == 'Z001' and zone.get('active') == True:
                     regions_data = zone.get('regions') or zone.get('zone_segment_json')
+                    logger.info(f"Processing zone - ID: {zone.get('id')}, Description: {zone.get('description')}")
+                    logger.info(f"Zone coordinates: {regions_data}")
                     # regions_data가 문자열이면 JSON 파싱, 리스트면 그대로 사용
                     polygon_data = regions_data[0]['coords']
                     # polygon 데이터 구조 확인 및 변환
@@ -359,8 +361,8 @@ class EventDetecter:
                         logger.warning(f"Unexpected polygon data type: {type(polygon_data)}")
                         continue
                     
-                    logger.info(f"Processing zone - ID: {zone.get('id')}, Description: {zone.get('description')}")
-                    logger.info(f"Zone coordinates: {polygon}")
+                    # logger.info(f"Processing zone - ID: {zone.get('id')}, Description: {zone.get('description')}")
+                    # logger.info(f"Zone coordinates: {polygon}")
                     
                     if prev_frame is not None and self.detect_motion_in_polygon(prev_frame, curr_frame, polygon):
                         image_path = self.save_detected_image(camera_name, curr_frame, base_dir)
@@ -478,12 +480,7 @@ class EventDetecter:
                             event_data_json = json.dumps(detected_objects, ensure_ascii=False)
                             event_accur_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                             self.insert_event_history(camera_name, filename, event_data_json, event_accur_time)
-                            
-                            if self.debug_mode:
-                                cv2.imshow('Object Detection', annotated)
-                                if cv2.waitKey(1) & 0xFF == ord('q'):
-                                    self.stop_event.set()
-                                    break
+
                         
                         self.last_object_detect_time = current_time
                         logger.debug(f"Object detection processed at {current_time:.2f}, interval: {time_since_last:.2f}s")
@@ -506,8 +503,10 @@ class EventDetecter:
                 time_since_last = current_time - self.last_motion_detect_time
                 
                 if time_since_last >= self.frame_interval:
+                    logger.info(f"self.frame_queue count: {self.frame_queue.qsize()}")
                     if not self.frame_queue.empty():
                         curr_frame = self.frame_queue.get()
+                        logger.info("Got frame from queue")
                         self.process_detection_zones(prev_frame, curr_frame, base_dir)
                         prev_frame = curr_frame.copy()
                         self.last_motion_detect_time = current_time
@@ -524,6 +523,8 @@ class EventDetecter:
 
     def frame_capture_thread(self, rtsp_url):
         """프레임 캡처 스레드"""
+        logger.info(f"Frame capture thread started : rtsp_url={rtsp_url}")
+        
         while not self.stop_event.is_set():
             try:
                 probe = ffmpeg.probe(rtsp_url, rtsp_transport='tcp')
@@ -543,23 +544,29 @@ class EventDetecter:
                 threading.Thread(target=self.drain_stderr, args=(process.stderr,), daemon=True).start()
                 frame_size = w * h * 3 // 2  # YUV420p
                 
+                last_capture_time = 0
                 while not self.stop_event.is_set():
                     try:
+                        now = time.time()
+                        if now - last_capture_time < 1.0:
+                            time.sleep(0.01)
+                            continue
+                        last_capture_time = now
+
                         in_bytes = process.stdout.read(frame_size)
                         if not in_bytes or len(in_bytes) < frame_size:
                             break
-                            
+
                         yuv = np.frombuffer(in_bytes, np.uint8).reshape((h * 3 // 2, w))
                         bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
-                        
-                        # 프레임 큐가 가득 차면 가장 오래된 프레임 제거
+
                         if self.frame_queue.full():
                             try:
                                 self.frame_queue.get_nowait()
                             except queue.Empty:
                                 pass
                         self.frame_queue.put(bgr)
-                        
+
                     except Exception as e:
                         logger.error(f"Frame capture error: {str(e)}")
                         break
@@ -571,9 +578,13 @@ class EventDetecter:
                 logger.error(f"Stream connection error: {str(e)}")
                 time.sleep(5)  # 재연결 전 대기
 
+            # 스레드 종료 시 창 닫기
+            if self.debug_mode:
+                cv2.destroyWindow('Frame Capture (Debug)')
+
     def run(self):
         try:
-            camera_name = "댐영상4"
+            camera_name = "댐영상1"
             rtsp_url = None
             for cam in self.cameras:
                 if cam.get('name') == camera_name:
@@ -602,7 +613,7 @@ class EventDetecter:
             # 스레드 시작
             threads = [
                 threading.Thread(target=self.frame_capture_thread, args=(rtsp_url,), daemon=True),
-                threading.Thread(target=self.object_detection_thread, args=(yolo_model, camera_name), daemon=True),
+                # threading.Thread(target=self.object_detection_thread, args=(yolo_model, camera_name), daemon=True),
                 threading.Thread(target=self.motion_detection_thread, args=(camera_name, base_dir), daemon=True)
             ]
             

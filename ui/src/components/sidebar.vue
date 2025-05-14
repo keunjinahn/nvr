@@ -1,15 +1,10 @@
 <template lang="pug">
 .tw-flex.tw-flex-col.tw-overflow-y-auto.main-navi.main-navi-show
   .tw-flex.tw-flex-row.tw-justify-center.tw-items-center
-    .logo.tw-cursor-pointer.tw-flex.tw-items-center.tw-justify-center(@click="$router.push('/cameras')")
+    .logo.tw-cursor-pointer.tw-flex.tw-items-center.tw-justify-center(@click="$router.push('/dashboard')")
       img.tw-w-full.tw-h-full.tw-object-contain(:src="require('@/assets/img/logo.png')" title="NVR" alt="camera.ui")
   
   .tw-flex.tw-flex-col.tw-h-full.tw-items-center.tw-pt-6(key="nav")
-    .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items
-      v-btn.tw-justify-center.sidebar-nav-item(@click="$router.push('/cameras')" active-class="sidebar-nav-item-active" :class="$route.path === '/cameras' || $route.path.startsWith('/cameras/') ? 'sidebar-nav-item-active v-btn--active' : ''" plain block tile)
-        v-icon(height="28px" width="28px") {{ icons['mdi-video'] }}
-        span.sidebar-nav-item-text 영상관리
-    
     .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items(v-for="menu in additionalMenus" :key="menu.name")
       v-btn.tw-justify-center.sidebar-nav-item(
         @click="handleMenuClick(menu)"
@@ -68,6 +63,8 @@ export default {
       },
       dialog: false,
       additionalMenus: [
+        { name: '대시보드', icon: 'mdi-view-dashboard', route: '/dashboard' },
+        { name: '영상관리', icon: 'mdi-video', route: '/cameras' },
         { name: '녹화관리', icon: 'mdi-record', route: '/recordings' },
         { name: '계측관리', icon: 'mdi-ruler', route: '/events' },
         { name: '경보관리', icon: 'mdi-alert', route: '/notifications' },

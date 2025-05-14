@@ -29,8 +29,8 @@ export const hasAuthValidFields = (req, res, next) => {
   let errors = [];
 
   if (req.body) {
-    if (!req.body.username) {
-      errors.push('Missing username field');
+    if (!req.body.userId) {
+      errors.push('Missing userId field');
     }
     if (!req.body.password) {
       errors.push('Missing password field');
@@ -42,7 +42,7 @@ export const hasAuthValidFields = (req, res, next) => {
       return next();
     }
   } else {
-    return res.status(400).send({ errors: 'Missing username and password fields' });
+    return res.status(400).send({ errors: 'Missing userId and password fields' });
   }
 };
 
@@ -50,8 +50,8 @@ export const hasValidFields = (req, res, next) => {
   let errors = [];
 
   if (req.body) {
-    if (!req.body.username) {
-      errors.push('Missing username field');
+    if (!req.body.userId) {
+      errors.push('Missing userId field');
     }
 
     if (!req.body.password) {
@@ -78,7 +78,7 @@ export const hasValidFields = (req, res, next) => {
 
 export const isPasswordAndUserMatch = async (req, res, next) => {
   try {
-    const user = await User.findOne({ where: { username: req.body.username } });
+    const user = await User.findOne({ where: { userId: req.body.userId } });
 
     if (!user) {
       loginAttempt();
@@ -100,7 +100,7 @@ export const isPasswordAndUserMatch = async (req, res, next) => {
       if (hash === passwordFields[1]) {
         req.body = {
           id: user.id,
-          username: user.username,
+          userId: user.userId,
           sessionTimer: user.sessionTimer,
           permissionLevel: user.permissionLevel,
           photo: user.photo,
@@ -111,7 +111,7 @@ export const isPasswordAndUserMatch = async (req, res, next) => {
         loginAttempt();
         return res.status(401).send({
           statusCode: 401,
-          message: 'Invalid username or password',
+          message: 'Invalid userId or password',
         });
       }
     }

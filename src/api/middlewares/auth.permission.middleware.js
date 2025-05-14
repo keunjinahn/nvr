@@ -5,12 +5,20 @@ export const minimumPermissionLevelRequired = (required_permission_level) => (re
 
 export const onlySameUserOrAdminCanDoThisAction = (req, res, next) => {
   let user_permission_level = req.jwt.permissionLevel || [];
-  let userName = req.jwt.username;
+  let userId = req.jwt.userId;
 
-  if (req.params && req.params.name && userName === req.params.name) {
+  console.log('[PermissionMiddleware] PATCH /api/users/:userId');
+  console.log('  req.jwt.userId:', userId);
+  console.log('  req.params:', req.params);
+  console.log('  user_permission_level:', user_permission_level);
+
+  if (req.params && req.params.name && userId === req.params.name) {
+    console.log('  권한: 본인');
     return next();
   } else {
-    return user_permission_level.includes('users:edit') || user_permission_level.includes('admin')
+    const isAdmin = user_permission_level.includes('users:edit') || user_permission_level.includes('admin');
+    console.log('  권한: 관리자 여부', isAdmin);
+    return isAdmin
       ? next()
       : res.status(403).send({
         statusCode: 403,
@@ -35,9 +43,11 @@ export const masterCantDoThisAction = (req, res, next) => {
 };
 
 export const sameUserCantDoThisAction = (req, res, next) => {
-  let userName = req.jwt.username;
-
-  return req.params.name !== userName
+  let userId = req.jwt.userId;
+  console.log('[PermissionMiddleware] sameUserCantDoThisAction');
+  console.log('  req.jwt.userId:', userId);
+  console.log('  req.params:', req.params);
+  return req.params.name !== userId
     ? next()
     : res.status(403).send({
       statusCode: 403,

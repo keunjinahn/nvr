@@ -15,8 +15,8 @@
         span.login-input-label {{ $t('아이디') }}
         v-text-field.tw-mb-0.login-input.tw-text-white(
           required 
-          v-model="user.username" 
-          :rules="rules.username" 
+          v-model="user.userId" 
+          :rules="rules.userId" 
           solo 
           background-color="rgba(var(--cui-menu-default-rgb), 1)" 
           color="var(--cui-primary)" 
@@ -69,12 +69,12 @@ export default {
       showPassword: false,
 
       rules: {
-        username: [(v) => !!v || this.$t('username_is_required')],
+        userId: [(v) => !!v || this.$t('userId_is_required')],
         password: [(v) => !!v || this.$t('password_is_required')],
       },
 
       user: {
-        username: 'akj',
+        userId: 'akj',
         password: 'test123',
       },
 

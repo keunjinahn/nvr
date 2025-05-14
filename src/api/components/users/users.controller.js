@@ -10,7 +10,7 @@ import * as UserModel from './users.model.js';
 
 export const insert = async (req, res) => {
   try {
-    const userExist = await UserModel.findByName(req.body.username);
+    const userExist = await UserModel.findByName(req.body.userId);
 
     if (userExist) {
       return res.status(409).send({
@@ -21,7 +21,7 @@ export const insert = async (req, res) => {
 
     const users = await UserModel.list();
 
-    if (users.some((usr) => usr.permissionLevel.includes('admin')) && req.body.permissionLevel.includes('admin')) {
+    if (users.some((usr) => usr.permissionLevel === 2) && req.body.permissionLevel === 2) {
       return res.status(409).send({
         statusCode: 409,
         message: 'User with ADMIN permission level already exists',
@@ -36,7 +36,9 @@ export const insert = async (req, res) => {
     await UserModel.createUser(req.body);
 
     res.status(201).send({
-      username: req.body.username,
+      userId: req.body.userId,
+      userName: req.body.userName,
+      userDept: req.body.userDept,
       permissionLevel: req.body.permissionLevel,
     });
   } catch (error) {
@@ -53,7 +55,6 @@ export const list = async (req, res, next) => {
 
     for (const user of result) {
       delete user.password;
-      //delete user.permissionLevel;
     }
 
     res.locals.items = result;
@@ -91,6 +92,7 @@ export const getByName = async (req, res) => {
 
 export const patchByName = async (req, res) => {
   try {
+    console.log('patchByName req.params:', req.params);
     let user = await UserModel.findByName(req.params.name);
 
     if (!user) {
@@ -131,8 +133,8 @@ export const patchByName = async (req, res) => {
         });
       }
 
-      if (req.body.username && req.params.name !== req.body.username) {
-        user = await UserModel.findByName(req.body.username);
+      if (req.body.userId && req.params.name !== req.body.userId) {
+        user = await UserModel.findByName(req.body.userId);
 
         if (user) {
           return res.status(422).send({
@@ -162,7 +164,7 @@ export const patchByName = async (req, res) => {
 
 export const removeByName = async (req, res) => {
   try {
-    const user = await UserModel.findByName(req.params.name);
+    const user = await UserModel.findByName(req.params.userId);
 
     if (!user) {
       return res.status(404).send({
@@ -171,16 +173,29 @@ export const removeByName = async (req, res) => {
       });
     }
 
-    if (user.permissionLevel.includes('admin')) {
+    if (user.permissionLevel === 2) {
       return res.status(409).send({
         statusCode: 409,
         message: 'User with ADMIN permission level can not be removed',
       });
     }
 
-    await UserModel.removeByName(req.params.name);
+    await UserModel.removeByName(req.params.userId);
 
     res.status(204).send({});
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+export const getAccessHistory = async (req, res) => {
+  try {
+    const accessHistory = await UserModel.getAccessHistory();
+
+    res.status(200).send(accessHistory);
   } catch (error) {
     res.status(500).send({
       statusCode: 500,

@@ -68,15 +68,17 @@
       no-data-text="데이터가 없습니다"
       class="elevation-1"
     )
-      template(v-slot:item.status="{ item }")
+      template(v-slot:item.access_type="{ item }")
         v-chip(
-          :color="getStatusColor(item.status)"
+          :color="getStatusColor(item.access_type)"
           small
           label
-        ) {{ item.status }}
+        ) {{ getAccessTypeText(item.access_type) }}
 </template>
 
 <script>
+import { getUserAccessHistory } from '@/api/users.api'
+
 export default {
   name: 'UserHistory',
 
@@ -86,204 +88,23 @@ export default {
     dateMenu: false,
     dates: [],
     page: 1,
-    totalItems: 20,
+    totalItems: 0,
     loading: false,
     headers: [
       { text: 'No', value: 'id', align: 'center', width: '80px' },
-      { text: '아이디', value: 'username', align: 'center' },
-      { text: '이름', value: 'name', align: 'center' },
-      { text: '접속 시간', value: 'accessTime', align: 'center' },
-      { text: 'IP주소', value: 'ipAddress', align: 'center' },
-      { text: '웹브라우저 종류', value: 'browser', align: 'center' },
-      { text: '상태', value: 'status', align: 'center' }
+      { text: '아이디', value: 'userId', align: 'center' },
+      { text: '이름', value: 'userName', align: 'center' },
+      { text: '접속 시간', value: 'login_time', align: 'center' },
+      { text: 'IP주소', value: 'ip_address', align: 'center' },
+      { text: '접속 유형', value: 'access_type', align: 'center' },
+      { text: '로그아웃 시간', value: 'logout_time', align: 'center' }
     ],
     statusOptions: [
       { text: '전체', value: null },
-      { text: '로그인', value: '로그인' },
-      { text: '로그아웃', value: '로그아웃' }
+      { text: '로그인', value: 1 },
+      { text: '로그아웃', value: 2 }
     ],
-    history: [
-      {
-        id: 1,
-        username: 'admin',
-        name: '관리자',
-        accessTime: '2024-01-20 09:00:00',
-        ipAddress: '192.168.1.100',
-        browser: 'Chrome',
-        status: '로그인'
-      },
-      {
-        id: 2,
-        username: 'user1',
-        name: '홍길동',
-        accessTime: '2024-01-20 09:15:30',
-        ipAddress: '192.168.1.101',
-        browser: 'Firefox',
-        status: '로그인'
-      },
-      {
-        id: 3,
-        username: 'user2',
-        name: '김철수',
-        accessTime: '2024-01-20 09:30:15',
-        ipAddress: '192.168.1.102',
-        browser: 'Edge',
-        status: '로그인'
-      },
-      {
-        id: 4,
-        username: 'user1',
-        name: '홍길동',
-        accessTime: '2024-01-20 10:45:00',
-        ipAddress: '192.168.1.101',
-        browser: 'Firefox',
-        status: '로그아웃'
-      },
-      {
-        id: 5,
-        username: 'user3',
-        name: '이영희',
-        accessTime: '2024-01-20 11:00:00',
-        ipAddress: '192.168.1.103',
-        browser: 'Chrome',
-        status: '로그인'
-      },
-      {
-        id: 6,
-        username: 'user2',
-        name: '김철수',
-        accessTime: '2024-01-20 11:30:45',
-        ipAddress: '192.168.1.102',
-        browser: 'Edge',
-        status: '로그아웃'
-      },
-      {
-        id: 7,
-        username: 'user4',
-        name: '박민수',
-        accessTime: '2024-01-20 13:15:20',
-        ipAddress: '192.168.1.104',
-        browser: 'Safari',
-        status: '로그인'
-      },
-      {
-        id: 8,
-        username: 'user3',
-        name: '이영희',
-        accessTime: '2024-01-20 14:20:10',
-        ipAddress: '192.168.1.103',
-        browser: 'Chrome',
-        status: '로그아웃'
-      },
-      {
-        id: 9,
-        username: 'user5',
-        name: '정수진',
-        accessTime: '2024-01-20 15:00:00',
-        ipAddress: '192.168.1.105',
-        browser: 'Chrome',
-        status: '로그인'
-      },
-      {
-        id: 10,
-        username: 'user4',
-        name: '박민수',
-        accessTime: '2024-01-20 15:45:30',
-        ipAddress: '192.168.1.104',
-        browser: 'Safari',
-        status: '로그아웃'
-      },
-      {
-        id: 11,
-        username: 'user6',
-        name: '최영식',
-        accessTime: '2024-01-20 16:00:00',
-        ipAddress: '192.168.1.106',
-        browser: 'Firefox',
-        status: '로그인'
-      },
-      {
-        id: 12,
-        username: 'user5',
-        name: '정수진',
-        accessTime: '2024-01-20 16:30:15',
-        ipAddress: '192.168.1.105',
-        browser: 'Chrome',
-        status: '로그아웃'
-      },
-      {
-        id: 13,
-        username: 'user7',
-        name: '강민지',
-        accessTime: '2024-01-20 17:00:00',
-        ipAddress: '192.168.1.107',
-        browser: 'Edge',
-        status: '로그인'
-      },
-      {
-        id: 14,
-        username: 'user6',
-        name: '최영식',
-        accessTime: '2024-01-20 17:45:20',
-        ipAddress: '192.168.1.106',
-        browser: 'Firefox',
-        status: '로그아웃'
-      },
-      {
-        id: 15,
-        username: 'user8',
-        name: '윤서연',
-        accessTime: '2024-01-20 18:00:00',
-        ipAddress: '192.168.1.108',
-        browser: 'Chrome',
-        status: '로그인'
-      },
-      {
-        id: 16,
-        username: 'user7',
-        name: '강민지',
-        accessTime: '2024-01-20 18:30:45',
-        ipAddress: '192.168.1.107',
-        browser: 'Edge',
-        status: '로그아웃'
-      },
-      {
-        id: 17,
-        username: 'user9',
-        name: '임재현',
-        accessTime: '2024-01-20 19:00:00',
-        ipAddress: '192.168.1.109',
-        browser: 'Safari',
-        status: '로그인'
-      },
-      {
-        id: 18,
-        username: 'user8',
-        name: '윤서연',
-        accessTime: '2024-01-20 19:45:10',
-        ipAddress: '192.168.1.108',
-        browser: 'Chrome',
-        status: '로그아웃'
-      },
-      {
-        id: 19,
-        username: 'admin',
-        name: '관리자',
-        accessTime: '2024-01-20 20:00:00',
-        ipAddress: '192.168.1.100',
-        browser: 'Chrome',
-        status: '로그아웃'
-      },
-      {
-        id: 20,
-        username: 'user9',
-        name: '임재현',
-        accessTime: '2024-01-20 20:15:30',
-        ipAddress: '192.168.1.109',
-        browser: 'Safari',
-        status: '로그아웃'
-      }
-    ]
+    history: []
   }),
 
   computed: {
@@ -295,15 +116,15 @@ export default {
     filteredHistory() {
       return this.history.filter(record => {
         const matchesSearch = !this.search || 
-          record.username.toLowerCase().includes(this.search.toLowerCase()) ||
-          record.name.toLowerCase().includes(this.search.toLowerCase()) ||
-          record.ipAddress.toLowerCase().includes(this.search.toLowerCase())
+          record.userId.toLowerCase().includes(this.search.toLowerCase()) ||
+          record.userName.toLowerCase().includes(this.search.toLowerCase()) ||
+          record.ip_address.toLowerCase().includes(this.search.toLowerCase())
         
-        const matchesStatus = !this.statusFilter || record.status === this.statusFilter
+        const matchesStatus = !this.statusFilter || record.access_type === this.statusFilter
         
         const matchesDate = this.dates.length !== 2 || (
-          record.accessTime >= this.dates[0] &&
-          record.accessTime <= this.dates[1]
+          new Date(record.login_time) >= new Date(this.dates[0]) &&
+          new Date(record.login_time) <= new Date(this.dates[1])
         )
         
         return matchesSearch && matchesStatus && matchesDate
@@ -311,20 +132,76 @@ export default {
     }
   },
 
+  async mounted() {
+    await this.loadAccessHistory()
+  },
+
   methods: {
+    async loadAccessHistory() {
+      this.loading = true
+      try {
+        console.log('Loading access history...')
+        const response = await getUserAccessHistory('', '')
+        console.log('API Response:', response)
+        
+        // 원본 데이터를 그대로 사용하되, 날짜만 포맷팅
+        this.history = response.data.map(item => ({
+          ...item,
+          login_time: this.formatDate(item.login_time),
+          logout_time: item.logout_time ? this.formatDate(item.logout_time) : '-',
+          access_type_text: this.getAccessTypeText(item.access_type),
+          // 원본 access_type 값도 유지 (필터링용)
+          access_type: item.access_type
+        }))
+        
+        console.log('Processed history:', this.history)
+        this.totalItems = this.history.length
+      } catch (error) {
+        console.error('접속 이력 조회 실패:', error)
+        this.$toast?.error('접속 이력을 불러오는 중 오류가 발생했습니다.')
+      } finally {
+        this.loading = false
+      }
+    },
+
+    formatDate(dateString) {
+      if (!dateString) return '-'
+      const date = new Date(dateString)
+      return date.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
+    },
+
+    getAccessTypeText(accessType) {
+      const types = {
+        1: '로그인',
+        2: '로그아웃'
+      }
+      return types[accessType] || '알 수 없음'
+    },
+
     handleSearch() {
-      // 검색 로직
+      // 필터링은 computed의 filteredHistory에서 자동 처리
     },
+
     handleFilter() {
-      // 필터 로직
+      // 필터링은 computed의 filteredHistory에서 자동 처리
     },
+
     handleDateChange() {
       this.dateMenu = false
     },
+
     getStatusColor(status) {
       const colors = {
-        '로그인': 'success',
-        '로그아웃': 'error'
+        1: 'success',
+        2: 'error'
       }
       return colors[status] || 'grey'
     }

@@ -11,18 +11,19 @@ import * as UserModel from '../components/users/users.model.js';
 
 const jwtSecret = ConfigService.interface.jwt_secret;
 
-const getBearerToken = async (username, password) => {
-  if (username && username !== '' && password && password !== '') {
-    const user = await UserModel.findByName(username);
+const getBearerToken = async (userId, password) => {
+  if (userId && userId !== '' && password && password !== '') {
+    const user = await UserModel.findByName(userId);
     if (user) {
       let passwordFields = user.password.split('$');
       let salt = passwordFields[0];
+      console.log(`===============>[getBearerToken] password: ${user.password}`);
       let hash = crypto.createHmac('sha512', salt).update(password).digest('base64');
 
       if (hash === passwordFields[1]) {
         const payload = {
           id: user.id,
-          username: user.username,
+          userId: user.userId,
           sessionTimer: user.sessionTimer,
           permissionLevel: user.permissionLevel,
           photo: user.photo,
@@ -41,8 +42,9 @@ const getBearerToken = async (username, password) => {
 };
 
 export const validJWTNeeded = async (req, res, next) => {
-  if (req.query.username && req.query.password) {
-    const authorization = await getBearerToken(req.query.username, req.query.password);
+  console.log('[AUTH] validJWTNeeded req.query:', req.query);
+  if (req.query.userId && req.query.password) {
+    const authorization = await getBearerToken(req.query.userId, req.query.password);
     if (authorization) {
       req.headers['authorization'] = `Bearer ${authorization}`;
       console.log('[AUTH] Generated Bearer token from query params');
@@ -95,8 +97,8 @@ export const validJWTNeeded = async (req, res, next) => {
 };
 
 export const validJWTOptional = async (req, res, next) => {
-  if (req.query.username && req.query.password) {
-    const authorization = await getBearerToken(req.query.username, req.query.password);
+  if (req.query.userId && req.query.password) {
+    const authorization = await getBearerToken(req.query.userId, req.query.password);
     if (authorization) {
       req.headers['authorization'] = `Bearer ${authorization}`;
     }

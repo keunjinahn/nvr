@@ -413,8 +413,10 @@ export default {
       this.loading = true;
       try {
         const response = await getEventHistory();
-        this.eventHistory = response;
-        this.events = response;
+        // event_accur_time 기준 내림차순 정렬
+        const sorted = [...response].sort((a, b) => new Date(b.event_accur_time) - new Date(a.event_accur_time));
+        this.eventHistory = sorted;
+        this.events = sorted;
       } catch (error) {
         this.eventHistory = [];
         this.events = [];

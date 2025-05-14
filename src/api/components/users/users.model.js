@@ -1,59 +1,46 @@
 'use-strict';
 
-import { customAlphabet } from 'nanoid/async';
-
-import Database from '../../database.js';
-
-const nanoid = customAlphabet('1234567890abcdef', 10);
+import User from '../../../models/User.js';
+import AccessHistory from '../../../models/AccessHistory.js';
 
 export const list = async () => {
-  return await Database.interfaceDB.chain.get('users').cloneDeep().value();
+  return await User.findAll();
 };
 
-export const findByName = async (username) => {
-  return await Database.interfaceDB.chain.get('users').find({ username: username }).cloneDeep().value();
+export const findByName = async (userId) => {
+  return await User.findOne({ where: { userId } });
 };
 
 export const createUser = async (userData) => {
-  // permissionLevel이 없거나 배열이 아니면 배열로 변환
-  let permissionLevel = userData.permissionLevel;
-  if (!permissionLevel) {
-    permissionLevel = [];
-  } else if (!Array.isArray(permissionLevel)) {
-    permissionLevel = [permissionLevel];
-  }
-  // 'cameras:access'가 항상 포함되도록 보장
-  if (!permissionLevel.includes('cameras:access')) {
-    permissionLevel.push('cameras:access');
-  }
-  userData.permissionLevel = permissionLevel;
-
   const user = {
-    id: await nanoid(),
-    username: userData.username,
+    userId: userData.userId,
+    userName: userData.userName,
+    userDept: userData.userDept,
     password: userData.password,
-    photo: userData.photo || false,
-    sessionTimer: userData.sessionTimer || 14400, //4h
+    permissionLevel: userData.permissionLevel || 1,
+    sessionTimer: userData.sessionTimer || 14400 // 4h
   };
 
-  return await Database.interfaceDB.chain.get('users').push(user).value();
+  return await User.create(user);
 };
 
-export const patchUser = async (username, userData) => {
-  const user = await Database.interfaceDB.chain.get('users').find({ username: username }).cloneDeep().value();
+export const patchUser = async (userId, userData) => {
+  const user = await User.findOne({ where: { userId } });
+  if (!user) return null;
 
-  for (const [key, value] of Object.entries(userData)) {
-    if (user[key] !== undefined) {
-      user[key] = value;
-    }
-  }
-
-  return await Database.interfaceDB.chain.get('users').find({ username: username }).assign(user).value();
+  return await user.update(userData);
 };
 
-export const removeByName = async (username) => {
-  return await Database.interfaceDB.chain
-    .get('users')
-    .remove((usr) => usr.username === username)
-    .value();
+export const removeByName = async (userId) => {
+  return await User.destroy({ where: { userId } });
+};
+
+export const getAccessHistory = async (options = {}) => {
+  const whereClause = {};
+
+  return await AccessHistory.findAll({
+    where: whereClause,
+    order: [['login_time', 'DESC']],
+    ...options
+  });
 };

@@ -1,9 +1,10 @@
 <template lang="pug">
 .user-list
+
   v-card
     .search-bar.tw-p-4
-      .tw-flex.tw-items-center.tw-gap-4
-        .search-field-container.tw-flex-1
+      .tw-flex.tw-items-center.tw-justify-between
+        .search-field-container.tw-flex-1.tw-mr-4
           v-text-field(
             v-model="search"
             prepend-inner-icon="mdi-magnify"
@@ -15,29 +16,13 @@
             filled
             background-color="var(--cui-bg-card)"
           )
-        .tw-flex.tw-items-center.tw-gap-2
-          v-select(
-            v-model="roleFilter"
-            :items="roleOptions"
-            label="권한"
-            dense
-            filled
-            hide-details
-            class="filter-select"
-            @change="handleFilter"
-            background-color="var(--cui-bg-card)"
-          )
-          v-select(
-            v-model="positionFilter"
-            :items="positionOptions"
-            label="직급"
-            dense
-            filled
-            hide-details
-            class="filter-select"
-            @change="handleFilter"
-            background-color="var(--cui-bg-card)"
-          )
+        v-btn(
+          color="white"
+          @click="showAddUserDialog"
+          outlined
+        )
+          v-icon(left size="20") {{ icons['mdiPlus'] }}
+          span 사용자 추가
     
     v-data-table(
       :headers="headers"
@@ -57,24 +42,116 @@
         ) {{ item.role }}
       
       template(v-slot:item.actions="{ item }")
-        .tw-flex.tw-gap-2.tw-justify-center
-          v-btn(
-            icon
-            x-small
-            @click="editUser(item)"
-            class="action-btn"
+        .tw-flex.tw-items-center.tw-gap-2.tw-justify-center
+          v-btn.edit-btn(
+            color="white"
+            @click.stop="editUser(item)"
+            outlined
           )
-            v-icon(size="18") {{ icons['mdiPencil'] }}
-          v-btn(
-            icon
-            x-small
-            @click="deleteUser(item)"
-            class="action-btn"
+            v-icon(left size="20") {{ icons['mdiPencil'] }}
+            span 수정
+          v-btn.delete-btn(
+            color="primary"
+            @click.stop="deleteUser(item)"
+            outlined
           )
-            v-icon(size="18") {{ icons['mdiDelete'] }}
+            v-icon(left size="20") {{ icons['mdiDelete'] }}
+            span 삭제
+
+    // 사용자 추가/수정 다이얼로그
+    v-dialog(
+      v-model="dialog"
+      max-width="500px"
+    )
+      v-card
+        v-card-title
+          span.headline {{ dialogTitle }}
+        v-card-text
+          v-form(
+            ref="form"
+            v-model="valid"
+          )
+            v-text-field(
+              v-model="editedItem.userId"
+              label="아이디"
+              :rules="[v => !!v || '아이디는 필수입니다']"
+              required
+            )
+            v-text-field(
+              v-model="editedItem.userName"
+              label="이름"
+              :rules="[v => !!v || '이름은 필수입니다']"
+              required
+            )
+            v-text-field(
+              v-model="editedItem.userDept"
+              label="직급"
+              :rules="[v => !!v || '직급은 필수입니다']"
+              required
+            )
+            v-text-field(
+              v-model="editedItem.password"
+              label="비밀번호"
+              type="password"
+              :rules="[v => (!editedItem.id && !v) ? '비밀번호는 필수입니다' : true]"
+              :required="!editedItem.id"
+            )
+            v-text-field(
+              v-model="editedItem.passwordConfirm"
+              label="비밀번호 확인"
+              type="password"
+              :rules="passwordConfirmRules"
+              :required="!editedItem.id"
+            )
+        v-card-actions.dialog-actions
+          v-spacer
+          v-btn.cancel-btn(
+            outlined
+            color="white"
+            @click="closeDialog"
+            :disabled="isProcessing"
+          ) 취소
+          v-btn.confirm-btn(
+            color="var(--cui-primary)"
+            :disabled="!valid || isProcessing"
+            @click="saveUser"
+          )
+            v-progress-circular.tw-mr-2(
+              v-if="isProcessing"
+              indeterminate
+              size="20"
+              width="2"
+              color="white"
+            )
+            v-icon.tw-mr-2(v-else size="20") {{ editedIndex === -1 ? icons['mdiPlus'] : icons['mdiContentSave'] }}
+            span {{ editedIndex === -1 ? '추가하기' : '수정하기' }}
+
+    // 삭제 확인 다이얼로그
+    v-dialog(
+      v-model="deleteDialog"
+      max-width="400px"
+    )
+      v-card
+        v-card-title.headline 삭제 확인
+        v-card-text
+          p.text-white 정말로 이 사용자를 삭제하시겠습니까?
+        v-card-actions
+          v-spacer
+          v-btn(
+            color="white"
+            text
+            @click="deleteDialog = false"
+          ) 취소
+          v-btn(
+            color="primary"
+            text
+            @click="confirmDelete"
+          ) 삭제
 </template>
+
 <script>
-import {mdiDelete, mdiPencil} from '@mdi/js';
+import { mdiDelete, mdiPencil, mdiPlus } from '@mdi/js';
+import { getUsers, addUser, changeUser, removeUser } from '@/api/users.api';
 
 export default {
   name: 'UserList',
@@ -82,160 +159,172 @@ export default {
   data: () => ({
     icons: {
       mdiDelete,
-      mdiPencil
+      mdiPencil,
+      mdiPlus
     },
     search: '',
-    roleFilter: null,
-    positionFilter: null,
     loading: false,
+    dialog: false,
+    deleteDialog: false,
+    valid: false,
     headers: [
       { text: 'No', value: 'id', align: 'center', width: '80px' },
-      { text: '아이디', value: 'username', align: 'center' },
-      { text: '이름', value: 'name', align: 'center' },
-      { text: '직급', value: 'position', align: 'center' },
-      { text: '권한', value: 'role', align: 'center' },
-      { text: '이메일', value: 'email', align: 'center' },
-      { text: '전화번호', value: 'phone', align: 'center' },
-      { text: '관리', value: 'actions', sortable: false, align: 'center', width: '120px' }
+      { text: '아이디', value: 'userId', align: 'center' },
+      { text: '이름', value: 'userName', align: 'center' },
+      { text: '직급', value: 'userDept', align: 'center' },
+      { text: '관리', value: 'actions', sortable: false, align: 'center', width: '400px' }
     ],
-    roleOptions: [
-      { text: '전체', value: null },
-      { text: '관리자', value: '관리자' },
-      { text: '매니저', value: '매니저' },
-      { text: '일반사용자', value: '일반사용자' }
-    ],
-    positionOptions: [
-      { text: '전체', value: null },
-      { text: '팀장', value: '팀장' },
-      { text: '과장', value: '과장' },
-      { text: '대리', value: '대리' },
-      { text: '사원', value: '사원' }
-    ],
-    users: [
-      {
-        id: 1,
-        username: 'admin',
-        name: '관리자',
-        position: '팀장',
-        role: '관리자',
-        email: 'admin@example.com',
-        phone: '010-1234-5678'
-      },
-      {
-        id: 2,
-        username: 'user1',
-        name: '홍길동',
-        position: '대리',
-        role: '일반사용자',
-        email: 'hong@example.com',
-        phone: '010-2345-6789'
-      },
-      {
-        id: 3,
-        username: 'user2',
-        name: '김철수',
-        position: '과장',
-        role: '매니저',
-        email: 'kim@example.com',
-        phone: '010-3456-7890'
-      },
-      {
-        id: 4,
-        username: 'user3',
-        name: '이영희',
-        position: '사원',
-        role: '일반사용자',
-        email: 'lee@example.com',
-        phone: '010-4567-8901'
-      },
-      {
-        id: 5,
-        username: 'user4',
-        name: '박민수',
-        position: '대리',
-        role: '일반사용자',
-        email: 'park@example.com',
-        phone: '010-5678-9012'
-      },
-      {
-        id: 6,
-        username: 'user5',
-        name: '정수진',
-        position: '과장',
-        role: '매니저',
-        email: 'jung@example.com',
-        phone: '010-6789-0123'
-      },
-      {
-        id: 7,
-        username: 'user6',
-        name: '최영식',
-        position: '사원',
-        role: '일반사용자',
-        email: 'choi@example.com',
-        phone: '010-7890-1234'
-      },
-      {
-        id: 8,
-        username: 'user7',
-        name: '강민지',
-        position: '대리',
-        role: '일반사용자',
-        email: 'kang@example.com',
-        phone: '010-8901-2345'
-      },
-      {
-        id: 9,
-        username: 'user8',
-        name: '윤서연',
-        position: '과장',
-        role: '매니저',
-        email: 'yoon@example.com',
-        phone: '010-9012-3456'
-      },
-      {
-        id: 10,
-        username: 'user9',
-        name: '임재현',
-        position: '사원',
-        role: '일반사용자',
-        email: 'lim@example.com',
-        phone: '010-0123-4567'
-      }
-    ]
+    users: [],
+    editedIndex: -1,
+    editedItem: {
+      userId: '',
+      userName: '',
+      userDept: '',
+      password: '',
+      passwordConfirm: ''
+    },
+    defaultItem: {
+      userId: 'akj2995',
+      userName: '안근진2',
+      userDept: '경영기획실실',
+      password: 'test1234',
+      passwordConfirm: 'test1234'
+    },
+    isProcessing: false
   }),
 
   computed: {
+    dialogTitle() {
+      return this.editedIndex === -1 ? '사용자 추가' : '사용자 수정'
+    },
     filteredUsers() {
       return this.users.filter(user => {
         const matchesSearch = !this.search || 
-          user.username.toLowerCase().includes(this.search.toLowerCase()) ||
-          user.name.toLowerCase().includes(this.search.toLowerCase()) ||
-          user.email.toLowerCase().includes(this.search.toLowerCase())
+          user.userId.toLowerCase().includes(this.search.toLowerCase()) ||
+          user.userName.toLowerCase().includes(this.search.toLowerCase()) ||
+          user.userDept.toLowerCase().includes(this.search.toLowerCase());
         
-        const matchesRole = !this.roleFilter || user.role === this.roleFilter
-        const matchesPosition = !this.positionFilter || user.position === this.positionFilter
-        
-        return matchesSearch && matchesRole && matchesPosition
-      })
+        return matchesSearch;
+      });
+    },
+    passwordConfirmRules() {
+      return [
+        v => !!v || '비밀번호 확인은 필수입니다',
+        v => v === this.editedItem.password || '비밀번호가 일치하지 않습니다'
+      ]
     }
   },
 
+  created() {
+    this.fetchUsers()
+  },
+
   methods: {
+    async fetchUsers() {
+      try {
+        this.loading = true
+        const response = await getUsers()
+        this.users = response.data.result.map(user => ({
+          id: user.id,
+          userId: user.userId,
+          userName: user.userName || '-',
+          userDept: user.userDept || '-',
+          permissionLevel: user.permissionLevel,
+          sessionTimer: user.sessionTimer
+        }))
+      } catch (error) {
+        console.error('Error fetching users:', error)
+        this.$toast.error('사용자 목록을 불러오는데 실패했습니다.')
+      } finally {
+        this.loading = false
+      }
+    },
+
     handleSearch() {
-      // 검색 로직
+      // 검색 로직은 computed의 filteredUsers에서 처리
     },
-    handleFilter() {
-      // 필터 로직
+
+    showAddUserDialog() {
+      this.editedIndex = -1
+      this.editedItem = Object.assign({}, this.defaultItem)
+      this.dialog = true
     },
+
     editUser(item) {
-      // 사용자 수정 로직
-      console.log('Edit user:', item)
+      this.editedIndex = this.users.indexOf(item)
+      this.editedItem = {
+        ...item,
+        password: '****',
+        passwordConfirm: '****'
+      }
+      this.dialog = true
     },
+
+    closeDialog() {
+      this.dialog = false
+      this.$nextTick(() => {
+        this.editedItem = Object.assign({}, this.defaultItem)
+        this.editedIndex = -1
+        if (this.$refs.form) {
+          this.$refs.form.reset()
+        }
+      })
+    },
+
+    async saveUser() {
+      if (!this.$refs.form.validate()) return
+
+      this.isProcessing = true
+      try {
+        if (this.editedIndex > -1) {
+          // 수정
+          const payload = {
+            userName: this.editedItem.userName,
+            userDept: this.editedItem.userDept
+          }
+          if (this.editedItem.password && this.editedItem.password !== '****') {
+            payload.password = this.editedItem.password
+          }
+          await changeUser(this.editedItem.userId, payload)
+          this.$toast.success('사용자가 수정되었습니다.')
+        } else {
+          // 추가
+          await addUser({
+            userId: this.editedItem.userId,
+            userName: this.editedItem.userName,
+            userDept: this.editedItem.userDept,
+            password: this.editedItem.password
+          })
+          this.$toast.success('사용자가 추가되었습니다.')
+        }
+        this.closeDialog()
+        await this.fetchUsers()
+      } catch (error) {
+        this.$toast.error('사용자 저장에 실패했습니다.')
+        console.error(error)
+      } finally {
+        this.isProcessing = false
+      }
+    },
+
     deleteUser(item) {
-      // 사용자 삭제 로직
-      console.log('Delete user:', item)
+      this.editedIndex = this.users.indexOf(item)
+      this.editedItem = Object.assign({}, item)
+      this.deleteDialog = true
     },
+
+    async confirmDelete() {
+      try {
+        await removeUser(this.editedItem.userId)
+        this.deleteDialog = false
+        this.$toast.success('사용자가 삭제되었습니다.')
+        await this.fetchUsers()
+      } catch (error) {
+        this.$toast.error('사용자 삭제에 실패했습니다.')
+        console.error(error)
+      }
+    },
+
     getRoleColor(role) {
       const colors = {
         '관리자': 'error',
@@ -295,41 +384,6 @@ export default {
             color: var(--cui-text-muted);
           }
         }
-      }
-    }
-  }
-
-  .filter-select {
-    min-width: 120px;
-    
-    ::v-deep {
-      .v-input__slot {
-        background-color: var(--cui-bg-card) !important;
-        border-radius: 4px !important;
-        min-height: 40px !important;
-
-        &:before,
-        &:after {
-          display: none;
-        }
-      }
-      
-      .v-select__slot {
-        font-size: 14px;
-        
-        .v-label {
-          top: 10px;
-          color: var(--cui-text-muted);
-          font-size: 14px;
-        }
-        
-        input {
-          color: var(--cui-text);
-        }
-      }
-      
-      .v-icon {
-        color: var(--cui-text-muted);
       }
     }
   }
@@ -408,5 +462,9 @@ export default {
       }
     }
   }
+}
+
+.text-white {
+  color: #fff !important;
 }
 </style> 

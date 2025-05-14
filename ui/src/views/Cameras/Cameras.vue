@@ -1,10 +1,9 @@
 <template lang="pug">
 .tw-flex.tw-justify-center.tw-items-center.page-loading(v-if="loading")
   v-progress-circular(indeterminate color="var(--cui-primary)")
-.tw-py-6.tw-px-4(v-else)
+.tw-py-2.tw-px-2(v-else)
   .pl-safe.pr-safe
-    
-    .tw-flex.tw-justify-between.tw-items-center
+    .tw-flex.tw-justify-between.tw-items-center.tw-mb-2
       .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-800.tw-p-1(v-if="showListOptions")
         .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
           :class="listMode ? 'tw-bg-gray-700 tw-shadow-sm tw-text-primary' : 'tw-text-gray-400'"
@@ -28,7 +27,7 @@
         v-icon.tw-mr-2(size="22" color="white") {{ icons['mdiPlus'] }}
         span.tw-font-semibold.tw-text-slate-800 영상추가
 
-    .tw-mt-5
+    .tw-mt-2
       v-data-table.tw-w-full(
         v-if="listMode && cameras.length"
         @click:row="clickRow"
@@ -78,28 +77,28 @@
               span 삭제
 
       div(v-for="room in rooms" :key="room" v-if="!listMode && ((room === 'Standard' && cameras.find((cam) => cam.settings.room === room)) || room !== 'Standard')")
-        .tw-mt-7(v-if="room !== 'Standard'")
+        .tw-mt-2(v-if="room !== 'Standard'")
         
-        v-divider.tw-mt-3
+        v-divider.tw-mt-2
 
-        v-layout.tw-mt-5(
+        v-layout.tw-mt-2(
           row 
           wrap
-          :style="cameras.length === 4 ? 'margin-left: 10%; margin-right: 10%; width: 80%;' : ''"
+          :style="cameras.length === 4 || cameras.length === 2 ? 'margin: 0; width: 100%;' : ''"
         )
-          v-flex.tw-mb-3.tw-px-2(
+          v-flex.tw-mb-2.tw-px-1(
             v-if="!listMode && camera.settings.room === room" 
             v-for="camera in cameras" 
             :key="camera.name"
-            :class="cameras.length === 4 ? 'xs12 sm6 md6 lg6' : 'xs12 sm6 md4 lg3'"
-            :style="cameras.length === 4 ? 'max-width: 50%; flex-basis: 50%;' : ''"
+            :class="cameras.length === 4 ? 'xs12 sm6 md6 lg6' : cameras.length === 2 ? 'xs12 sm6 md6 lg6' : 'xs12 sm6 md4 lg3'"
+            :style="cameras.length === 4 ? 'max-width: 50%; flex-basis: 50%;' : cameras.length === 2 ? 'max-width: 50%; flex-basis: 50%;' : ''"
           )
             .video-container(
-              :style="cameras.length === 4 ? 'padding: 10px;' : ''"
+              :style="cameras.length === 4 ? 'padding: 5px;' : cameras.length === 2 ? 'padding: 8px;' : ''"
             )
               vue-aspect-ratio(
-                ar="16:9"
-                :style="cameras.length === 4 ? 'max-width: 100%;' : ''"
+                ar="4:3"
+                :style="cameras.length === 4 ? 'max-width: 100%;' : cameras.length === 2 ? 'max-width: 100%; height: calc(100vh - 120px);' : ''"
               )
                 VideoCard(
                   :camera="camera" 
@@ -128,7 +127,6 @@
   v-dialog(
     v-model="addVideoDialog"
     max-width="800"
-    persistent
   )
     v-card.add-video-dialog
       v-card-title.dialog-title
@@ -190,7 +188,6 @@
   v-dialog(
     v-model="deleteVideoDialog"
     max-width="800"
-    persistent
   )
     v-card.add-video-dialog
       v-card-title.dialog-title
@@ -577,13 +574,12 @@ export default {
           this.cameras = [];
           this.page = 1;
           this.infiniteId = Date.now();
-          
-          this.closeAddVideoDialog();
         } catch (err) {
           console.log(err);
           this.$toast.error(err.message || (this.isEditMode ? '카메라 수정 중 오류가 발생했습니다.' : '카메라 추가 중 오류가 발생했습니다.'));
         } finally {
           this.isProcessing = false;  // 로딩 종료
+          this.closeAddVideoDialog();  // 로딩이 끝난 후 다이얼로그 닫기
         }
       }
     },
@@ -605,7 +601,7 @@ export default {
     },
     async deleteVideo() {
       try {
-        this.isProcessing = true;  // 로딩 시작
+        this.isProcessing = true;
         await removeCamera(this.selectedCamera.name);
         this.$toast.success('카메라가 성공적으로 삭제되었습니다.');
         
@@ -613,13 +609,12 @@ export default {
         this.cameras = [];
         this.page = 1;
         this.infiniteId = Date.now();
-        
-        this.closeDeleteVideoDialog();
       } catch (err) {
         console.log(err);
         this.$toast.error(err.message || '카메라 삭제 중 오류가 발생했습니다.');
       } finally {
-        this.isProcessing = false;  // 로딩 종료
+        this.isProcessing = false;  // 먼저 로딩 상태 해제
+        this.closeDeleteVideoDialog(); // 그 다음 다이얼로그 닫기
       }
     },
   },
@@ -635,18 +630,18 @@ export default {
 }
 
 .add-video-btn {
-  height: 48px !important;
+  height: 40px !important;
   font-weight: 600 !important;
   text-transform: none !important;
   letter-spacing: normal !important;
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   background: var(--cui-bg-card) !important;
   border: 2px solid var(--cui-border-color) !important;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
   transition: all 0.2s ease !important;
-  padding: 0 32px !important;
-  min-width: 280px !important;
-  margin-right: 20px !important;
+  padding: 0 24px !important;
+  min-width: 200px !important;
+  margin-right: 16px !important;
 }
 
 .add-video-btn:hover {
@@ -674,7 +669,7 @@ export default {
 }
 
 .add-video-btn span {
-  font-size: 0.95rem !important;
+  font-size: 0.9rem !important;
   color: var(--cui-text-default) !important;
 }
 
@@ -683,7 +678,7 @@ export default {
 }
 
 .add-video-dialog {
-  border-radius: 16px !important;
+  border-radius: 12px !important;
   overflow: hidden !important;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2) !important;
   background: var(--cui-bg-card) !important;
@@ -692,12 +687,12 @@ export default {
 
 .dialog-title {
   background-color: var(--cui-bg-card) !important;
-  padding: 32px !important;
+  padding: 24px !important;
   border-bottom: 1px solid var(--cui-border-color) !important;
 }
 
 .title-text {
-  font-size: 1.5rem !important;
+  font-size: 1.3rem !important;
   font-weight: 700 !important;
   color: var(--cui-text-default) !important;
   line-height: 1.2;
@@ -705,30 +700,30 @@ export default {
 }
 
 .subtitle-text {
-  font-size: 1rem !important;
+  font-size: 0.9rem !important;
   color: var(--cui-text-default) !important;
   opacity: 0.9;
 }
 
 .dialog-content {
-  padding: 32px !important;
+  padding: 24px !important;
   background-color: var(--cui-bg-card) !important;
 }
 
 .form-group {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 .input-label {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
   color: var(--cui-text-default) !important;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   filter: brightness(1.1);
 }
 
 .input-helper {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: var(--cui-text-default) !important;
   opacity: 0.8;
 }
@@ -738,7 +733,7 @@ export default {
 }
 
 .url-input >>> .v-input__slot {
-  min-height: 52px !important;
+  min-height: 48px !important;
   border-color: var(--cui-border-color) !important;
   background-color: var(--cui-bg-card) !important;
 }
@@ -763,14 +758,14 @@ export default {
 }
 
 .dialog-actions {
-  padding: 24px 32px !important;
+  padding: 20px 24px !important;
   border-top: 1px solid var(--cui-border-color) !important;
   background-color: var(--cui-bg-card) !important;
 }
 
 .cancel-btn {
-  height: 44px !important;
-  min-width: 120px !important;
+  height: 40px !important;
+  min-width: 100px !important;
   margin-right: 12px !important;
   border: 2px solid var(--cui-border-color) !important;
   color: var(--cui-text-default) !important;
@@ -783,8 +778,8 @@ export default {
 }
 
 .confirm-btn {
-  height: 44px !important;
-  min-width: 140px !important;
+  height: 40px !important;
+  min-width: 120px !important;
   font-weight: 600 !important;
 }
 
@@ -809,12 +804,12 @@ div >>> .v-data-table-header__icon {
 
 .tab-bar-container {
   border: 1px solid rgba(var(--cui-bg-nav-border-rgb));
-  width: 600px;
+  width: 500px;
 }
 
 .tab-item {
   border-radius: 6px;
-  width: 300px;
+  width: 250px;
   justify-content: center;
 }
 
@@ -827,14 +822,14 @@ div >>> .v-data-table-header__icon {
 }
 
 .edit-btn {
-  height: 36px !important;
-  min-width: 90px !important;
+  height: 32px !important;
+  min-width: 80px !important;
   border: 2px solid var(--cui-border-color) !important;
   text-transform: none !important;
   font-weight: 600 !important;
-  font-size: 0.9rem !important;
+  font-size: 0.85rem !important;
   letter-spacing: normal !important;
-  border-radius: 8px !important;
+  border-radius: 6px !important;
   color: var(--cui-text-default) !important;
   background: var(--cui-bg-card) !important;
   transition: all 0.2s ease !important;
@@ -864,14 +859,14 @@ div >>> .v-data-table-header__icon {
 }
 
 .delete-btn {
-  height: 36px !important;
-  min-width: 90px !important;
+  height: 32px !important;
+  min-width: 80px !important;
   border: 2px solid var(--cui-danger) !important;
   text-transform: none !important;
   font-weight: 600 !important;
-  font-size: 0.9rem !important;
+  font-size: 0.85rem !important;
   letter-spacing: normal !important;
-  border-radius: 8px !important;
+  border-radius: 6px !important;
   color: var(--cui-danger) !important;
   background: var(--cui-bg-card) !important;
   transition: all 0.2s ease !important;
@@ -915,19 +910,19 @@ div >>> .v-data-table-header__icon {
 
 @media (min-width: 1200px) {
   .video-container {
-    padding: 15px;
+    padding: 10px;
   }
 }
 
 @media (max-width: 1199px) {
   .video-container {
-    padding: 10px;
+    padding: 8px;
   }
 }
 
 @media (max-width: 960px) {
   .video-container {
-    padding: 8px;
+    padding: 6px;
   }
 }
 </style>

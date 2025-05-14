@@ -7,10 +7,18 @@ const User = sequelize.define('User', {
     primaryKey: true,
     autoIncrement: true
   },
-  username: {
+  userId: {
     type: DataTypes.STRING,
     allowNull: false,
     unique: true
+  },
+  userName: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  userDept: {
+    type: DataTypes.STRING,
+    allowNull: false
   },
   password: {
     type: DataTypes.STRING,
@@ -24,13 +32,9 @@ const User = sequelize.define('User', {
   sessionTimer: {
     type: DataTypes.INTEGER,
     allowNull: true
-  },
-  photo: {
-    type: DataTypes.STRING,
-    allowNull: true
   }
 }, {
-  tableName: 'User',
+  tableName: 'tb_users',
   timestamps: true
 });
 
