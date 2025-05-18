@@ -95,7 +95,14 @@
           small
           label
         ) {{ getStatusText(item.alert_status) }}
-        
+
+      template(v-slot:item.fk_detect_zone_id="{ item }")
+        v-chip(
+          :color="getStatusColor(item.fk_detect_zone_id)"
+          small
+          label
+        ) {{ item.fk_detect_zone_id + '구역' }}   
+
       template(v-slot:item.actions="{ item }")
         .tw-flex.tw-gap-2
           v-btn(
@@ -134,8 +141,6 @@ export default {
       { text: '위험도', value: 'alert_level', align: 'center' },
       { text: '상태', value: 'alert_status', align: 'center' },
       { text: '감지 구역', value: 'fk_detect_zone_id', align: 'center' },
-      { text: '처리자', value: 'fk_process_user_id', align: 'center' },
-      { text: '처리 시간', value: 'alert_process_time', align: 'center' },
       { text: '설명', value: 'alert_description', align: 'center' },
       { text: '작업', value: 'actions', align: 'center', sortable: false, width: '150px' }
     ],
@@ -221,10 +226,11 @@ export default {
 
     getLevelText(level) {
       const levels = {
-        'L001': '낮음',
-        'L002': '보통',
-        'L003': '높음',
-        'L004': '위험'
+        '1': '주의',
+        '2': '경고',
+        '3': '위험',
+        '4': '심각',
+        '5': '비상'
       }
       return levels[level] || level
     },
@@ -261,7 +267,7 @@ export default {
 
     getTypeText(type) {
       const types = {
-        'A001': '침입 감지',
+        'A001': '누수 감지',
         'A002': '움직임 감지',
         'A003': '얼굴 인식',
         'A004': '차량 감지'

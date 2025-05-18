@@ -261,11 +261,11 @@ class VideoAlertChecker:
                 1,  # fk_camera_id
                 now,  # alert_accur_time
                 'A001',  # alert_type
-                idx,  # alert_level
+                alert_level + 1,  # alert_level
                 'P001',  # alert_status
                 json.dumps(alert_info),  # alert_info_json
-                roi_num,  # fk_detect_zone_id
-                1,  # fk_process_user_id
+                idx + 1,  # fk_detect_zone_id
+                0,  # fk_process_user_id
                 now,  # create_date
                 now,   # update_date
                 fk_video_receive_data_id   # fk_video_receive_data_id

@@ -40,10 +40,10 @@
                         .item-value {{ alert.time }}
                       .table-item
                         .item-label 경보종류
-                        .item-value {{ alert.type }}
+                        .item-value {{ getTypeText(alert.type) }}
                       .table-item
                         .item-label 경보단계
-                        .item-value {{ alert.level }}
+                        .item-value {{ getLevelText(alert.level) }}
                       .table-item
                         .item-label 최고온도
                         .item-value {{ alert.maxTemp }}°C
@@ -82,7 +82,7 @@
                         .header-cell 발생일자
                       .table-body
                         .table-row(v-for="alert in alertHistory" :key="alert.id")
-                          .table-cell {{ alert.level }}
+                          .table-cell {{ getLevelText(alert.level) }}
                           .table-cell {{ alert.time }}
 </template>
   
@@ -91,6 +91,7 @@ import {
   mdiRefresh
 } from '@mdi/js';
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
+import { getAlerts, getWeeklyAlertStats } from '@/api/alerts.api';
 import VideoCard from '@/components/camera-card.vue';
 import socket from '@/mixins/socket';
 import * as echarts from 'echarts';
@@ -116,49 +117,7 @@ export default {
     alertChart: null,
     gaugeChart: null,
     alertCount: 4,
-    alertHistory: [
-      {
-        id: 1,
-        time: '2024-03-19 14:30:00',
-        type: '온도',
-        level: '3단계',
-        maxTemp: 85,
-        minTemp: 25
-      },
-      {
-        id: 2,
-        time: '2024-03-19 14:25:00',
-        type: '누수',
-        level: '2단계',
-        maxTemp: 75,
-        minTemp: 22
-      },
-      {
-        id: 3,
-        time: '2024-03-19 14:20:00',
-        type: '온도',
-        level: '1단계',
-        maxTemp: 65,
-        minTemp: 20
-      },
-      // 더미 데이터 추가
-      {
-        id: 4,
-        time: '2024-03-19 14:15:00',
-        type: '온도',
-        level: '4단계',
-        maxTemp: 90,
-        minTemp: 28
-      },
-      {
-        id: 5,
-        time: '2024-03-19 14:10:00',
-        type: '누수',
-        level: '3단계',
-        maxTemp: 82,
-        minTemp: 24
-      }
-    ],
+    alertHistory: [],
     env: process.env.NODE_ENV
   }),
 
@@ -185,6 +144,7 @@ export default {
   async created() {
     console.log('Component created');
     await this.initializeData();
+    await this.loadAlertHistory();
   },
 
   mounted() {
@@ -193,6 +153,7 @@ export default {
     this.$nextTick(() => {
       this.initAlertChart();
       this.initGaugeChart();
+      this.loadAlertChart();
     });
   },
 
@@ -284,7 +245,9 @@ export default {
     },
 
     selectCamera(index) {
-      if (this.selectedCameraIndex === index) return;
+      if (this.selectedCameraIndex === index) {
+        return;
+      }
       
       // 이전 선택된 카메라의 VideoCard 인스턴스 정리
       if (this.selectedCamera) {
@@ -459,11 +422,11 @@ export default {
             fontSize: 12,
             distance: -60,
             formatter: (value) => {
-              if (value === 0) return '';
-              if (value === 1) return '관심';
-              if (value === 2) return '주의';
-              if (value === 3) return '경계';
+              if (value === 1) return '주의';
+              if (value === 2) return '경고';
+              if (value === 3) return '위험';
               if (value === 4) return '심각';
+              if (value === 5) return '비상';
               return '';
             }
           },
@@ -473,8 +436,8 @@ export default {
             color: '#fff'
           },
           detail: {
-            fontSize: 30,
-            offsetCenter: [0, '60%'],
+            fontSize: 24,
+            offsetCenter: [0, '40%'],
             valueAnimation: true,
             formatter: (value) => {
               return Math.round(value) + '단계';
@@ -498,6 +461,105 @@ export default {
       }
       if (this.gaugeChart) {
         this.gaugeChart.resize();
+      }
+    },
+
+    async loadAlertHistory() {
+      try {
+        const response = await getAlerts('');
+        this.alertHistory = response.data.result.map(alert => {
+          let minTemp = '-';
+          let maxTemp = '-';
+          try {
+            const info = alert.alert_info_json ? JSON.parse(alert.alert_info_json) : {};
+            minTemp = (typeof info.min_roi_value === 'number') ? info.min_roi_value.toFixed(1) : '-';
+            maxTemp = (typeof info.max_roi_value === 'number') ? info.max_roi_value.toFixed(1) : '-';
+          } catch (e) {
+            // no-op
+          }
+          return {
+            id: alert.id,
+            time: this.formatDate(alert.alert_accur_time),
+            type: alert.alert_type,
+            level: alert.alert_level,
+            maxTemp,
+            minTemp
+          }
+        });
+
+        // 최신 경보단계로 gaugeChart 값 반영 (한글 문구로)
+        if (this.alertHistory.length > 0) {
+          this.alertCount = Number(this.alertHistory[0].level) || 0;
+          const levelLabel = this.getLevelText(this.alertHistory[0].level);
+          if (this.gaugeChart) {
+            this.gaugeChart.setOption({
+              series: [{
+                data: [{
+                  value: this.alertCount,
+                  name: levelLabel
+                }],
+                detail: {
+                  formatter: () => levelLabel,
+                  color: '#fff',
+                  fontSize: 24,
+                  offsetCenter: [0, '40%']
+                }
+              }]
+            });
+          }
+        }
+      } catch (error) {
+        console.error('알림 이력 조회 실패:', error);
+        this.$toast?.error('알림 이력을 불러오는 중 오류가 발생했습니다.');
+      }
+    },
+
+    formatDate(dateStr) {
+      const date = new Date(dateStr);
+      return date.toLocaleString();
+    },
+
+    getTypeText(type) {
+      const types = {
+        'A001': '누수 감지',
+        'A002': '움직임 감지',
+        'A003': '얼굴 인식',
+        'A004': '차량 감지'
+      };
+      return types[type] || type;
+    },
+
+    getLevelText(level) {
+      const levels = {
+        '1': '주의',
+        '2': '경고',
+        '3': '위험',
+        '4': '심각',
+        '5': '비상'
+      };
+      return levels[level] || level;
+    },
+
+    async loadAlertChart() {
+      try {
+        const response = await getWeeklyAlertStats();
+        const data = response.data.result;
+        const categories = data.map(d => d.date);
+        const levelSeries = [1,2,3,4,5].map(level => ({
+          name: this.getLevelText(String(level)),
+          type: 'bar',
+          stack: 'total',
+          data: data.map(d => d[level] || 0)
+        }));
+        this.alertChart.setOption({
+          xAxis: { type: 'category', data: categories },
+          yAxis: { type: 'value' },
+          legend: { data: levelSeries.map(s => s.name) },
+          tooltip: { trigger: 'axis' },
+          series: levelSeries
+        });
+      } catch (e) {
+        console.error('주간 경보 차트 데이터 조회 실패:', e);
       }
     }
   }
@@ -778,7 +840,7 @@ export default {
 
               .gauge-meter {
                 width: 100%;
-                height: 200px;
+                height: 240px;
               }
             }
 

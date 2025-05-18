@@ -130,4 +130,6 @@ export const getDefaultAlertSettings = async () => {
       smsAlarmLevel: 4
     }
   };
-}; 
+};
+
+export const getWeeklyAlertStats = async () => await api.get('/alerts/weekly-stats'); 

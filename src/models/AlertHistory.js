@@ -58,6 +58,10 @@ const AlertHistory = sequelize.define('AlertHistory', {
   update_date: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  alert_info_json: {
+    type: DataTypes.TEXT,
+    allowNull: true
   }
 }, {
   tableName: 'tb_alert_history',

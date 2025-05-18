@@ -2,6 +2,7 @@
 
 import * as AlertModel from './alerts.model.js';
 import AlertSetting from '../../../models/AlertSetting.js';
+import db from '../../../models/index.js'; // Sequelize instance
 
 export const insert = async (req, res) => {
   try {
@@ -157,6 +158,27 @@ export const saveAlertSettings = async (req, res) => {
     res.json({ result: setting });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+export const getWeeklyStats = async (req, res) => {
+  try {
+    const [results] = await db.sequelize.query(`
+      SELECT
+        DATE(alert_accur_time) as date,
+        SUM(alert_level = 1) as '1',
+        SUM(alert_level = 2) as '2',
+        SUM(alert_level = 3) as '3',
+        SUM(alert_level = 4) as '4',
+        SUM(alert_level = 5) as '5'
+      FROM tb_alert_history
+      WHERE alert_accur_time >= CURDATE() - INTERVAL 6 DAY
+      GROUP BY DATE(alert_accur_time)
+      ORDER BY date ASC
+    `);
+    res.json({ result: results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
 

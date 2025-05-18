@@ -409,6 +409,24 @@ export const routesConfig = (app) => {
     AlertsController.removeById,
   ]);
 
+  /**
+   * @swagger
+   * /api/alerts/weekly-stats:
+   *   get:
+   *     tags: [Alerts]
+   *     summary: Get weekly alert stats (recent 7 days, grouped by date and alert_level)
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/alerts/weekly-stats', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('alerts:access'),
+    AlertsController.getWeeklyStats,
+  ]);
+
   const routes = app._router.stack
     .filter(r => r.route)
     .map(r => ({
