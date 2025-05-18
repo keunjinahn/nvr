@@ -92,71 +92,6 @@
                       color="var(--cui-primary)"
                     )
 
-            // 경보 설정
-            div(v-if="currentMenu === 'alert'")
-              v-row
-                v-col(cols="12" md="6")
-                  label.form-input-label 알림 방식
-                  v-select(
-                    v-model="settings.alert.notificationType"
-                    :items="notificationTypes"
-                    prepend-inner-icon="mdi-bell-ring"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiBellRing'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 알림 지연 시간
-                  v-text-field(
-                    v-model="settings.alert.delay"
-                    type="number"
-                    suffix="초"
-                    prepend-inner-icon="mdi-timer-sand"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTimerSand'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 알림 우선순위
-                  v-select(
-                    v-model="settings.alert.priority"
-                    :items="priorityLevels"
-                    prepend-inner-icon="mdi-priority-high"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiPriorityHigh'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 반복 알림 간격
-                  v-text-field(
-                    v-model="settings.alert.repeatInterval"
-                    type="number"
-                    suffix="분"
-                    prepend-inner-icon="mdi-repeat"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiRepeat'] }}
-
-                v-col(cols="12" md="6")
-                  .tw-flex.tw-justify-between.tw-items-center
-                    label.form-input-label 소리 알림 사용
-                    v-switch(
-                      v-model="settings.alert.useSound"
-                      color="var(--cui-primary)"
-                    )
-
             // 객체 설정
             div(v-if="currentMenu === 'object'")
               v-row
@@ -338,12 +273,6 @@ export default {
         title: '온도 설정',
         subtitle: '온도 감지 및 알림 설정',
         icon: mdiThermometer
-      },
-      {
-        id: 'alert',
-        title: '경보 설정',
-        subtitle: '알림 및 경보 설정',
-        icon: mdiBell
       },
       {
         id: 'object',

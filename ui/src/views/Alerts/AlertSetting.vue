@@ -2,7 +2,11 @@
 <template lang="pug">
 .event-setting
   v-container.setting-container(fluid)
-    v-row(no-gutters)
+    // 로딩 표시
+    v-overlay(:value="isLoading")
+      v-progress-circular(indeterminate size="64" color="primary")
+    
+    v-row(no-gutters v-if="settings")
       // 왼쪽 메뉴
       v-col(cols="3")
         v-navigation-drawer.setting-menu(permanent dark)
@@ -25,76 +29,20 @@
           v-card-title.content-title
             span {{ getCurrentMenuTitle }}
             v-spacer
-            v-btn(color="secondary" @click="saveSettings") 저장
+            v-btn(color="secondary" @click="saveSettings" :loading="isLoading" :disabled="isLoading") 저장
           v-card-text.content-body
-            // 온도 설정
-            div(v-if="currentMenu === 'temperature'")
-              v-row
-                v-col(cols="12" md="6")
-                  label.form-input-label 기준 온도 설정
-                  v-text-field(
-                    v-model="settings.temperature.threshold"
-                    type="number"
-                    suffix="°C"
-                    prepend-inner-icon="mdi-thermometer"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiThermometer'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 알림 유형
-                  v-select(
-                    v-model="settings.temperature.alertType"
-                    :items="alertTypes"
-                    prepend-inner-icon="mdi-bell"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiBell'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 측정 간격
-                  v-text-field(
-                    v-model="settings.temperature.interval"
-                    type="number"
-                    suffix="초"
-                    prepend-inner-icon="mdi-timer"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTimer'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 감지 민감도
-                  v-select(
-                    v-model="settings.temperature.sensitivity"
-                    :items="sensitivityLevels"
-                    prepend-inner-icon="mdi-tune"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTune'] }}
-
-                v-col(cols="12" md="6")
-                  .tw-flex.tw-justify-between.tw-items-center
-                    label.form-input-label 자동 알림
-                    v-switch(
-                      v-model="settings.temperature.autoAlert"
-                      color="var(--cui-primary)"
-                    )
-
-            // 경보 설정
+            
+            // 기본 경보 설정
             div(v-if="currentMenu === 'alert'")
               v-row
+                v-col(cols="12")
+                  .tw-flex.tw-justify-between.tw-items-center
+                    label.form-input-label 경보 사용 유무
+                    v-switch(
+                      v-model="settings.alert.enabled"
+                      color="var(--cui-primary)"
+                    )
+                
                 v-col(cols="12" md="6")
                   label.form-input-label 알림 방식
                   v-select(
@@ -121,171 +69,123 @@
                   )
                     template(v-slot:prepend-inner)
                       v-icon.text-muted {{ icons['mdiTimerSand'] }}
-
+                
                 v-col(cols="12" md="6")
-                  label.form-input-label 알림 우선순위
-                  v-select(
-                    v-model="settings.alert.priority"
-                    :items="priorityLevels"
-                    prepend-inner-icon="mdi-priority-high"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiPriorityHigh'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 반복 알림 간격
+                  label.form-input-label 누수판단 기준 온도값
                   v-text-field(
-                    v-model="settings.alert.repeatInterval"
+                    v-model="settings.alert.leakThreshold"
                     type="number"
-                    suffix="분"
-                    prepend-inner-icon="mdi-repeat"
+                    suffix="℃"
+                    prepend-inner-icon="mdi-thermometer"
                     background-color="var(--cui-bg-card)"
                     color="var(--cui-text-default)"
+                    hint="설정 온도 이하로 내려가면 누수로 판단합니다"
+                    persistent-hint
                     solo
                   )
                     template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiRepeat'] }}
+                      v-icon.text-muted {{ icons['mdiThermometer'] }}
 
-                v-col(cols="12" md="6")
-                  .tw-flex.tw-justify-between.tw-items-center
-                    label.form-input-label 소리 알림 사용
-                    v-switch(
-                      v-model="settings.alert.useSound"
-                      color="var(--cui-primary)"
-                    )
+            // 경보 단계 설정
+            div(v-if="currentMenu === 'alarm-levels'")
+              v-row
+                v-col(cols="12" md="4" v-for="level in settings.alarmLevels" :key="level.id")
+                  v-card(:color="level.color" dark outlined class="mb-4")
+                    v-card-title {{ level.name }}
+                    v-card-text
+                      v-text-field(
+                        v-model="level.threshold"
+                        label="기준 온도값"
+                        type="number"
+                        suffix="℃"
+                        dark
+                        filled
+                      )
+                      v-textarea(
+                        v-model="level.description"
+                        label="설명"
+                        rows="2"
+                        auto-grow
+                        dark
+                        filled
+                      )
 
-            // 객체 설정
-            div(v-if="currentMenu === 'object'")
+            // 알림 발송 설정
+            div(v-if="currentMenu === 'notification'")
               v-row
                 v-col(cols="12" md="6")
-                  label.form-input-label 감지 대상
-                  v-select(
-                    v-model="settings.object.detectionType"
-                    :items="detectionTypes"
-                    prepend-inner-icon="mdi-account-group"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiAccountGroup'] }}
+                  v-card(outlined)
+                    v-card-title 이메일 알림 설정
+                    v-card-text
+                      .tw-flex.tw-justify-between.tw-items-center
+                        label.form-input-label 이메일 알림 사용
+                        v-switch(
+                          v-model="settings.notification.emailEnabled"
+                          color="var(--cui-primary)"
+                        )
+                      
+                      v-text-field(
+                        v-model="settings.notification.emailAddress"
+                        label="알림 수신 이메일"
+                        :disabled="!settings.notification.emailEnabled"
+                        prepend-inner-icon="mdi-email"
+                        background-color="var(--cui-bg-card)"
+                        color="var(--cui-text-default)"
+                        placeholder="example@domain.com"
+                        solo
+                      )
+                        template(v-slot:prepend-inner)
+                          v-icon.text-muted {{ icons['mdiEmail'] }}
+                      
+                      v-select(
+                        v-model="settings.notification.emailAlarmLevel"
+                        :items="alarmLevelOptions"
+                        label="이메일 알림 발송 단계"
+                        :disabled="!settings.notification.emailEnabled"
+                        prepend-inner-icon="mdi-alert"
+                        background-color="var(--cui-bg-card)"
+                        color="var(--cui-text-default)"
+                        solo
+                      )
+                        template(v-slot:prepend-inner)
+                          v-icon.text-muted {{ icons['mdiAlert'] }}
 
                 v-col(cols="12" md="6")
-                  label.form-input-label 최소 감지 크기
-                  v-text-field(
-                    v-model="settings.object.minSize"
-                    type="number"
-                    suffix="px"
-                    prepend-inner-icon="mdi-resize"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiResize'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 감지 정확도
-                  v-select(
-                    v-model="settings.object.accuracy"
-                    :items="accuracyLevels"
-                    prepend-inner-icon="mdi-target"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTarget'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 추적 지속 시간
-                  v-text-field(
-                    v-model="settings.object.trackingDuration"
-                    type="number"
-                    suffix="초"
-                    prepend-inner-icon="mdi-timer"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTimer'] }}
-
-                v-col(cols="12" md="6")
-                  .tw-flex.tw-justify-between.tw-items-center
-                    label.form-input-label 객체 추적 사용
-                    v-switch(
-                      v-model="settings.object.enableTracking"
-                      color="var(--cui-primary)"
-                    )
-
-            // 시스템 설정
-            div(v-if="currentMenu === 'system'")
-              v-row
-                v-col(cols="12" md="6")
-                  label.form-input-label 저장 방식
-                  v-select(
-                    v-model="settings.system.storageType"
-                    :items="storageTypes"
-                    prepend-inner-icon="mdi-database"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiDatabase'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 데이터 보관 기간
-                  v-text-field(
-                    v-model="settings.system.retentionPeriod"
-                    type="number"
-                    suffix="일"
-                    prepend-inner-icon="mdi-calendar"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiCalendar'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 백업 주기
-                  v-select(
-                    v-model="settings.system.backupSchedule"
-                    :items="backupSchedules"
-                    prepend-inner-icon="mdi-backup-restore"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiBackupRestore'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 최대 저장 용량
-                  v-text-field(
-                    v-model="settings.system.maxStorage"
-                    type="number"
-                    suffix="GB"
-                    prepend-inner-icon="mdi-harddisk"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiHarddisk'] }}
-
-                v-col(cols="12" md="6")
-                  .tw-flex.tw-justify-between.tw-items-center
-                    label.form-input-label 자동 업데이트
-                    v-switch(
-                      v-model="settings.system.autoUpdate"
-                      color="var(--cui-primary)"
-                    )
+                  v-card(outlined)
+                    v-card-title 문자 알림 설정
+                    v-card-text
+                      .tw-flex.tw-justify-between.tw-items-center
+                        label.form-input-label 문자 알림 사용
+                        v-switch(
+                          v-model="settings.notification.smsEnabled"
+                          color="var(--cui-primary)"
+                        )
+                      
+                      v-text-field(
+                        v-model="settings.notification.phoneNumber"
+                        label="알림 수신 전화번호"
+                        :disabled="!settings.notification.smsEnabled"
+                        prepend-inner-icon="mdi-phone"
+                        background-color="var(--cui-bg-card)"
+                        color="var(--cui-text-default)"
+                        placeholder="010-1234-5678"
+                        solo
+                      )
+                        template(v-slot:prepend-inner)
+                          v-icon.text-muted {{ icons['mdiPhone'] }}
+                      
+                      v-select(
+                        v-model="settings.notification.smsAlarmLevel"
+                        :items="alarmLevelOptions"
+                        label="문자 알림 발송 단계"
+                        :disabled="!settings.notification.smsEnabled"
+                        prepend-inner-icon="mdi-alert"
+                        background-color="var(--cui-bg-card)"
+                        color="var(--cui-text-default)"
+                        solo
+                      )
+                        template(v-slot:prepend-inner)
+                          v-icon.text-muted {{ icons['mdiAlert'] }}
 </template>
 
 <script>
@@ -305,11 +205,15 @@ import {
   mdiDatabase,
   mdiCalendar,
   mdiBackupRestore,
-  mdiHarddisk
+  mdiHarddisk,
+  mdiEmail,
+  mdiPhone,
+  mdiAlert
 } from '@mdi/js'
+import { getAlertSettings, getDefaultAlertSettings, saveAlertSettings } from '@/api/alerts.api'
 
 export default {
-  name: 'EventSetting',
+  name: 'AlertSetting',
 
   data: () => ({
     icons: {
@@ -328,45 +232,30 @@ export default {
       mdiDatabase,
       mdiCalendar,
       mdiBackupRestore,
-      mdiHarddisk
+      mdiHarddisk,
+      mdiEmail,
+      mdiPhone,
+      mdiAlert
     },
-    currentMenu: 'temperature',
+    currentMenu: 'alert',
     menus: [
       {
-        id: 'temperature',
-        title: '온도 설정',
-        subtitle: '온도 감지 및 알림 설정',
-        icon: mdiThermometer
-      },
-      {
         id: 'alert',
-        title: '경보 설정',
-        subtitle: '알림 및 경보 설정',
+        title: '기본 경보 설정',
+        subtitle: '경보 기본 설정',
         icon: mdiBell
       },
       {
-        id: 'object',
-        title: '객체 설정',
-        subtitle: '객체 감지 설정',
-        icon: mdiAccountGroup
+        id: 'alarm-levels',
+        title: '경보 단계 설정',
+        subtitle: '단계별 온도 기준 설정',
+        icon: mdiThermometer
       },
       {
-        id: 'system',
-        title: '시스템 설정',
-        subtitle: '시스템 환경 설정',
-        icon: mdiCog
-      },
-      {
-        id: 'empty1',
-        title: '',
-        subtitle: '',
-        icon: ''
-      },
-      {
-        id: 'empty2',
-        title: '',
-        subtitle: '',
-        icon: ''
+        id: 'notification',
+        title: '알림 발송 설정',
+        subtitle: '이메일/문자 알림 설정',
+        icon: mdiBellRing
       },
       {
         id: 'empty3',
@@ -387,45 +276,20 @@ export default {
         icon: ''
       }
     ],
-    settings: {
-      temperature: {
-        threshold: 20,
-        alertType: '알림',
-        interval: 30,
-        sensitivity: '중간',
-        autoAlert: true
-      },
-      alert: {
-        notificationType: '팝업',
-        delay: 5,
-        priority: '높음',
-        repeatInterval: 15,
-        useSound: true
-      },
-      object: {
-        detectionType: '사람',
-        minSize: 100,
-        accuracy: '높음',
-        trackingDuration: 10,
-        enableTracking: true
-      },
-      system: {
-        storageType: 'local',
-        retentionPeriod: 30,
-        backupSchedule: '매일',
-        maxStorage: 1000,
-        autoUpdate: true
-      }
-    },
+    settings: null,
+    isLoading: false,
     // 드롭다운 옵션들
     alertTypes: ['알림', '경고', '긴급'],
     sensitivityLevels: ['낮음', '중간', '높음'],
     notificationTypes: ['팝업', '이메일', 'SMS', '전체'],
     priorityLevels: ['낮음', '중간', '높음', '긴급'],
-    detectionTypes: ['사람', '차량', '동물', '전체'],
-    accuracyLevels: ['낮음', '중간', '높음'],
-    storageTypes: ['local', 'cloud', 'hybrid'],
-    backupSchedules: ['사용안함', '매일', '매주', '매월']
+    alarmLevelOptions: [
+      { text: '모든 단계', value: 1 },
+      { text: '2단계 이상', value: 2 },
+      { text: '3단계 이상', value: 3 },
+      { text: '4단계 이상', value: 4 },
+      { text: '5단계만', value: 5 }
+    ]
   }),
 
   computed: {
@@ -435,10 +299,169 @@ export default {
     }
   },
 
+  created() {
+    this.loadSettings()
+  },
+
   methods: {
-    saveSettings() {
-      // TODO: 설정 저장 로직 구현
-      this.$toast.success('설정이 저장되었습니다.')
+    async loadSettings() {
+      try {
+        this.isLoading = true
+        console.log('---------- loadSettings 시작 ----------')
+
+        // 서버에서 설정 불러오기
+        console.log('API 호출: getAlertSettings')
+        const response = await getAlertSettings()
+        console.log('API 응답:', response)
+        
+        if (response && response.result) {
+         
+          const data = response.result
+          
+          // DB에 저장된 alert_setting_json 파싱
+          if (data.alert_setting_json) {
+            console.log('alert_setting_json 값 확인:', data.alert_setting_json)
+            
+            try {
+              const parsedSettings = JSON.parse(data.alert_setting_json)
+              console.log('JSON 파싱 결과:', parsedSettings)
+              
+              this.settings = await this.mergeSettings(parsedSettings)
+              console.log('최종 병합된 설정:', this.settings)
+            } catch (e) {
+              console.error('JSON 파싱 오류:', e)
+              await this.setDefaultSettings()
+            }
+          } else {
+            console.log('alert_setting_json 필드가 없거나 빈 값입니다. 기본 설정을 사용합니다.')
+            await this.setDefaultSettings()
+          }
+        } else {
+          console.log('API 응답이 유효하지 않습니다. 기본 설정을 사용합니다.')
+          await this.setDefaultSettings()
+        }
+        
+        console.log('최종 설정 값:', this.settings)
+        console.log('---------- loadSettings 종료 ----------')
+      } catch (error) {
+        console.error('설정 불러오기 오류:', error)
+        await this.setDefaultSettings()
+      } finally {
+        this.isLoading = false
+      }
+    },
+
+    // 기본 설정값 사용
+    async setDefaultSettings() {
+      try {
+        this.settings = await getDefaultAlertSettings()
+      } catch (error) {
+        console.error('기본 설정 불러오기 오류:', error)
+        // API 호출에 실패한 경우 하드코딩된 기본값 사용
+        this.settings = {
+          alert: {
+            enabled: true,
+            notificationType: '팝업',
+            delay: 5,
+            priority: '높음',
+            repeatInterval: 15,
+            useSound: true,
+            leakThreshold: 5
+          },
+          alarmLevels: [
+            { 
+              id: 1, 
+              name: '1단계 (주의)', 
+              threshold: 60, 
+              description: '최저온도의 차가 이하일경우 주의 단계 알림을 발송합니다.',
+              color: 'light-blue' 
+            },
+            { 
+              id: 2, 
+              name: '2단계 (경고)', 
+              threshold: 70, 
+              description: '최저온도의 차가 이하일경우 경고 단계 알림을 발송합니다.', 
+              color: 'blue' 
+            },
+            { 
+              id: 3, 
+              name: '3단계 (위험)', 
+              threshold: 80, 
+              description: '최저온도의 차가 이하일경우 위험 단계 알림을 발송합니다.', 
+              color: 'amber darken-2' 
+            },
+            { 
+              id: 4, 
+              name: '4단계 (심각)', 
+              threshold: 90, 
+              description: '최저온도의 차가 이하일경우 심각 단계 알림을 발송합니다.', 
+              color: 'orange darken-3' 
+            },
+            { 
+              id: 5, 
+              name: '5단계 (비상)', 
+              threshold: 100, 
+              description: '최저온도의 차가 이하일경우 비상 단계 알림을 발송합니다.', 
+              color: 'red darken-3' 
+            }
+          ],
+          notification: {
+            emailEnabled: false,
+            emailAddress: '',
+            emailAlarmLevel: 3,
+            smsEnabled: false,
+            phoneNumber: '',
+            smsAlarmLevel: 4
+          }
+        }
+      }
+    },
+
+    // DB에서 로드한 설정과 기본 설정을 병합
+    async mergeSettings(loadedSettings) {
+      const defaultSettings = await getDefaultAlertSettings()
+      
+      // 각 주요 섹션 확인 (alert, alarmLevels, notification)
+      const merged = { ...defaultSettings }
+      
+      if (loadedSettings.alert) {
+        merged.alert = { ...defaultSettings.alert, ...loadedSettings.alert }
+      }
+      
+      if (loadedSettings.alarmLevels && Array.isArray(loadedSettings.alarmLevels)) {
+        // 각 단계별 설정 병합
+        merged.alarmLevels = defaultSettings.alarmLevels.map((defaultLevel) => {
+          const loadedLevel = loadedSettings.alarmLevels.find(l => l.id === defaultLevel.id)
+          return loadedLevel ? { ...defaultLevel, ...loadedLevel } : defaultLevel
+        })
+      }
+      
+      if (loadedSettings.notification) {
+        merged.notification = { ...defaultSettings.notification, ...loadedSettings.notification }
+      }
+      
+      return merged
+    },
+
+    async saveSettings() {
+      try {
+        this.isLoading = true
+        
+        // 현재 설정을 JSON으로 변환
+        const settingsJSON = JSON.stringify(this.settings)
+        
+        // 서버에 저장 요청
+        await saveAlertSettings({
+          alert_setting_json: settingsJSON,
+          fk_user_id: this.$store.state.auth.user?.id || 1 // 현재 로그인한 사용자 ID 또는 기본값
+        })
+        this.$toast.success('설정이 성공적으로 저장되었습니다.')
+      } catch (error) {
+        console.error('설정 저장 오류:', error)
+        this.$toast.error('설정 저장 중 오류가 발생했습니다.')
+      } finally {
+        this.isLoading = false
+      }
     }
   }
 }

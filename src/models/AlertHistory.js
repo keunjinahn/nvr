@@ -38,6 +38,11 @@ const AlertHistory = sequelize.define('AlertHistory', {
     allowNull: true,
     defaultValue: 0
   },
+  fk_video_receive_data_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    defaultValue: 0
+  },
   alert_process_time: {
     type: DataTypes.DATE,
     allowNull: true

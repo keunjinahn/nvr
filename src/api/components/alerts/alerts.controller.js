@@ -1,6 +1,7 @@
 'use-strict';
 
 import * as AlertModel from './alerts.model.js';
+import AlertSetting from '../../../models/AlertSetting.js';
 
 export const insert = async (req, res) => {
   try {
@@ -121,4 +122,42 @@ export const getByStatus = async (req, res) => {
       message: error.message,
     });
   }
-}; 
+};
+
+export const getAlertSettings = async (req, res) => {
+  try {
+    // (예시) userId는 인증정보에서 가져오거나 쿼리/파라미터에서 받음
+    const setting = await AlertSetting.findOne();
+    res.json({ result: setting });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export const saveAlertSettings = async (req, res) => {
+  try {
+    const { alert_setting_json, fk_user_id } = req.body.settings;
+    // console.log('----------> saveAlertSettings', req.body);
+    let setting = await AlertSetting.findOne({ where: { fk_user_id } });
+    if (setting) {
+      // update
+      await setting.update({
+        alert_setting_json,
+        update_date: new Date()
+      });
+    } else {
+      // insert
+      setting = await AlertSetting.create({
+        alert_setting_json,
+        fk_user_id,
+        create_date: new Date(),
+        update_date: new Date()
+      });
+    }
+    res.json({ result: setting });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+export { AlertSetting }; 

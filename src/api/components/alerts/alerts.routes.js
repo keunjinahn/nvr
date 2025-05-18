@@ -13,6 +13,154 @@ import * as ValidationMiddleware from '../../middlewares/auth.validation.middlew
  */
 
 export const routesConfig = (app) => {
+  // 디버깅 로그 추가
+  console.log('Configuring alert routes...');
+
+  // 먼저 settings 관련 라우트를 등록 (더 명확한 경로명 사용)
+  console.log('Registering alert settings routes');
+
+  /**
+   * @swagger
+   * /api/alerts/settings:
+   *   get:
+   *     tags: [Alerts]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Get alert settings
+   *     parameters:
+   *       - in: query
+   *         name: userId
+   *         schema:
+   *           type: integer
+   *         description: Optional user ID for retrieving settings
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/alerts/settings', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('alerts:access'),
+    AlertsController.getAlertSettings,
+  ]);
+
+  /**
+   * @swagger
+   * /api/alerts/settings:
+   *   post:
+   *     tags: [Alerts]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Save or update alert settings
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *          schema:
+   *            type: object
+   *            properties:
+   *              alert_setting_json:
+   *                type: string
+   *                description: JSON string containing alert settings
+   *              fk_user_id:
+   *                type: integer
+   *                description: User ID to associate with these settings
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       400:
+   *         description: Bad request
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.post('/api/alerts/settings', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('alerts:update'),
+    AlertsController.saveAlertSettings,
+  ]);
+
+  /**
+   * @swagger
+   * /api/alerts/settings/{userId}:
+   *   get:
+   *     tags: [Alerts]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Get alert settings for a specific user
+   *     parameters:
+   *       - in: path
+   *         name: userId
+   *         schema:
+   *           type: integer
+   *         required: true
+   *         description: ID of the user
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/alerts/settings/:userId', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('alerts:access'),
+    AlertsController.getAlertSettings,
+  ]);
+
+  /**
+   * @swagger
+   * /api/alerts/settings/{userId}:
+   *   post:
+   *     tags: [Alerts]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Save or update alert settings for a specific user
+   *     parameters:
+   *       - in: path
+   *         name: userId
+   *         schema:
+   *           type: integer
+   *         required: true
+   *         description: ID of the user
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *          schema:
+   *            type: object
+   *            properties:
+   *              alert_setting_json:
+   *                type: string
+   *                description: JSON string containing alert settings
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       400:
+   *         description: Bad request
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.post('/api/alerts/settings/:userId', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('alerts:update'),
+    AlertsController.saveAlertSettings,
+  ]);
+
+  // 테스트용 라우트 추가 (인증 없이 접근 가능)
+  app.get('/api/alerts/settings-test', (req, res) => {
+    res.json({ message: 'Settings test route works!' });
+  });
+
+  console.log('Registering other alert routes');
+
   /**
    * @swagger
    * /api/alerts:
@@ -91,6 +239,64 @@ export const routesConfig = (app) => {
     ValidationMiddleware.validJWTNeeded,
     PermissionMiddleware.minimumPermissionLevelRequired('alerts:create'),
     AlertsController.insert,
+  ]);
+
+  /**
+   * @swagger
+   * /api/alerts/camera/{cameraId}:
+   *   get:
+   *     tags: [Alerts]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Get alerts by camera ID
+   *     parameters:
+   *       - in: path
+   *         name: cameraId
+   *         schema:
+   *           type: integer
+   *         required: true
+   *         description: ID of the camera
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/alerts/camera/:cameraId', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('alerts:access'),
+    AlertsController.getByCamera,
+  ]);
+
+  /**
+   * @swagger
+   * /api/alerts/status/{status}:
+   *   get:
+   *     tags: [Alerts]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Get alerts by status
+   *     parameters:
+   *       - in: path
+   *         name: status
+   *         schema:
+   *           type: string
+   *         required: true
+   *         description: Status of the alert
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/alerts/status/:status', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('alerts:access'),
+    AlertsController.getByStatus,
   ]);
 
   /**
@@ -201,64 +407,6 @@ export const routesConfig = (app) => {
     ValidationMiddleware.validJWTNeeded,
     PermissionMiddleware.minimumPermissionLevelRequired('alerts:delete'),
     AlertsController.removeById,
-  ]);
-
-  /**
-   * @swagger
-   * /api/alerts/camera/{cameraId}:
-   *   get:
-   *     tags: [Alerts]
-   *     security:
-   *       - bearerAuth: []
-   *     summary: Get alerts by camera ID
-   *     parameters:
-   *       - in: path
-   *         name: cameraId
-   *         schema:
-   *           type: integer
-   *         required: true
-   *         description: ID of the camera
-   *     responses:
-   *       200:
-   *         description: Successful
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Internal server error
-   */
-  app.get('/api/alerts/camera/:cameraId', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('alerts:access'),
-    AlertsController.getByCamera,
-  ]);
-
-  /**
-   * @swagger
-   * /api/alerts/status/{status}:
-   *   get:
-   *     tags: [Alerts]
-   *     security:
-   *       - bearerAuth: []
-   *     summary: Get alerts by status
-   *     parameters:
-   *       - in: path
-   *         name: status
-   *         schema:
-   *           type: string
-   *         required: true
-   *         description: Status of the alert
-   *     responses:
-   *       200:
-   *         description: Successful
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Internal server error
-   */
-  app.get('/api/alerts/status/:status', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('alerts:access'),
-    AlertsController.getByStatus,
   ]);
 
   const routes = app._router.stack

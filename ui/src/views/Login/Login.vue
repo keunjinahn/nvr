@@ -123,7 +123,7 @@ export default {
 
           await getConfig();
 
-          this.$router.push('/cameras');
+          this.$router.push('/dashboard');
         } catch (err) {
           this.loading = false;
           console.log(err);

@@ -1,6 +1,7 @@
 'use-strict';
 
 import AlertHistory from '../../../models/AlertHistory.js';
+import AlertSetting from '../../../models/AlertSetting.js';
 
 export const list = async (options = {}) => {
   return await AlertHistory.findAll({
@@ -55,4 +56,110 @@ export const getAlertsByStatus = async (status) => {
     where: { alert_status: status },
     order: [['alert_accur_time', 'DESC']]
   });
+};
+
+export const getAlertSettings = async (userId) => {
+  const setting = await AlertSetting.findOne({
+    where: { fk_user_id: userId },
+    order: [['id', 'DESC']]
+  });
+
+  return setting;
+};
+
+export const createAlertSettings = async (settingsData, userId) => {
+  // JSON 설정을 문자열로 변환
+  const alertSettingsJson = typeof settingsData === 'string'
+    ? settingsData
+    : JSON.stringify(settingsData);
+
+  const setting = {
+    alert_setting_json: alertSettingsJson,
+    fk_user_id: userId,
+    create_date: new Date(),
+    update_date: new Date()
+  };
+
+  return await AlertSetting.create(setting);
+};
+
+export const updateAlertSettings = async (settingsData, userId) => {
+  // 해당 사용자의 설정 찾기
+  const existingSetting = await AlertSetting.findOne({
+    where: { fk_user_id: userId }
+  });
+
+  // JSON 설정을 문자열로 변환
+  const alertSettingsJson = typeof settingsData === 'string'
+    ? settingsData
+    : JSON.stringify(settingsData);
+
+  // 설정이 존재하면 업데이트, 없으면 새로 생성
+  if (existingSetting) {
+    return await existingSetting.update({
+      alert_setting_json: alertSettingsJson,
+      update_date: new Date()
+    });
+  } else {
+    return await createAlertSettings(settingsData, userId);
+  }
+};
+
+export const getDefaultAlertSettings = () => {
+  return {
+    alert: {
+      enabled: true,
+      notificationType: '팝업',
+      delay: 5,
+      priority: '높음',
+      repeatInterval: 15,
+      useSound: true,
+      leakThreshold: 5
+    },
+    alarmLevels: [
+      {
+        id: 1,
+        name: '1단계 (주의)',
+        threshold: 60,
+        description: '온도가 60℃ 이상일 경우 주의 단계 알림을 발송합니다.',
+        color: 'light-blue'
+      },
+      {
+        id: 2,
+        name: '2단계 (경고)',
+        threshold: 70,
+        description: '온도가 70℃ 이상일 경우 경고 단계 알림을 발송합니다.',
+        color: 'blue'
+      },
+      {
+        id: 3,
+        name: '3단계 (위험)',
+        threshold: 80,
+        description: '온도가 80℃ 이상일 경우 위험 단계 알림을 발송합니다.',
+        color: 'amber darken-2'
+      },
+      {
+        id: 4,
+        name: '4단계 (심각)',
+        threshold: 90,
+        description: '온도가 90℃ 이상일 경우 심각 단계 알림을 발송합니다.',
+        color: 'orange darken-3'
+      },
+      {
+        id: 5,
+        name: '5단계 (비상)',
+        threshold: 100,
+        description: '온도가 100℃ 이상일 경우 비상 단계 알림을 발송합니다.',
+        color: 'red darken-3'
+      }
+    ],
+    notification: {
+      emailEnabled: false,
+      emailAddress: '',
+      emailAlarmLevel: 3,
+      smsEnabled: false,
+      phoneNumber: '',
+      smsAlarmLevel: 4
+    }
+  };
 }; 
