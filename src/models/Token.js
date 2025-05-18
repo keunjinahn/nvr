@@ -11,7 +11,7 @@ Token.init(
       autoIncrement: true
     },
     token: {
-      type: DataTypes.STRING(300),
+      type: DataTypes.STRING(2048),
       allowNull: false,
       unique: true
     },
