@@ -34,7 +34,11 @@
                 .alert-history
                   .alert-history-title 경보 이력
                   .alert-history-table
-                    .table-row(v-for="alert in alertHistory" :key="alert.id")
+                    .table-row(
+                      v-for="alert in alertHistory" 
+                      :key="alert.id"
+                      :class="{'alert-level-3': Number(alert.level) >= 3, 'alert-level-4': Number(alert.level) >= 4, 'alert-level-5': Number(alert.level) >= 5}"
+                    )
                       .table-item
                         .item-label 경보시간
                         .item-value {{ alert.time }}
@@ -118,7 +122,8 @@ export default {
     gaugeChart: null,
     alertCount: 4,
     alertHistory: [],
-    env: process.env.NODE_ENV
+    env: process.env.NODE_ENV,
+    alertRefreshTimer: null
   }),
 
   computed: {
@@ -155,6 +160,7 @@ export default {
       this.initGaugeChart();
       this.loadAlertChart();
     });
+    this.startAlertRefresh();
   },
 
   beforeDestroy() {
@@ -169,6 +175,7 @@ export default {
     }
     window.removeEventListener('resize', this.handleChartResize);
     this.$socket.client.off('connect', this.handleSocketConnect);
+    this.stopAlertRefresh();
   },
 
   methods: {
@@ -561,6 +568,20 @@ export default {
       } catch (e) {
         console.error('주간 경보 차트 데이터 조회 실패:', e);
       }
+    },
+
+    startAlertRefresh() {
+      this.stopAlertRefresh();
+      this.alertRefreshTimer = setInterval(() => {
+        this.loadAlertHistory();
+      }, 2000);
+    },
+
+    stopAlertRefresh() {
+      if (this.alertRefreshTimer) {
+        clearInterval(this.alertRefreshTimer);
+        this.alertRefreshTimer = null;
+      }
     }
   }
 };
@@ -938,5 +959,37 @@ export default {
     text-align: center;
     color: #666;
   }
+}
+
+.alert-history-table {
+  .table-row {
+    &.alert-level-3 {
+      animation: blink-amber 1s infinite;
+    }
+    &.alert-level-4 {
+      animation: blink-orange 1s infinite;
+    }
+    &.alert-level-5 {
+      animation: blink-red 1s infinite;
+    }
+  }
+}
+
+@keyframes blink-amber {
+  0% { background-color: #1e1e1e; }
+  50% { background-color: rgba(255, 193, 7, 0.2); }
+  100% { background-color: #1e1e1e; }
+}
+
+@keyframes blink-orange {
+  0% { background-color: #1e1e1e; }
+  50% { background-color: rgba(255, 152, 0, 0.2); }
+  100% { background-color: #1e1e1e; }
+}
+
+@keyframes blink-red {
+  0% { background-color: #1e1e1e; }
+  50% { background-color: rgba(244, 67, 54, 0.2); }
+  100% { background-color: #1e1e1e; }
 }
 </style>

@@ -102,12 +102,13 @@
                         filled
                       )
                       v-textarea(
-                        v-model="level.description"
+                        :value="`기준온도 ${level.threshold}℃ 이하일경우 경보알람을 발생시킵니다`"
                         label="설명"
                         rows="2"
                         auto-grow
                         dark
                         filled
+                        readonly
                       )
 
             // 알림 발송 설정

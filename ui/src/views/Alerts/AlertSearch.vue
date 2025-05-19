@@ -79,43 +79,44 @@
       no-data-text="데이터가 없습니다"
       class="elevation-1"
     )
-      template(v-slot:item.alert_type="{ item }")
-        span {{ getTypeText(item.alert_type) }}
-      
-      template(v-slot:item.alert_level="{ item }")
-        v-chip(
-          :color="getLevelColor(item.alert_level)"
-          small
-          label
-        ) {{ getLevelText(item.alert_level) }}
-      
-      template(v-slot:item.alert_status="{ item }")
-        v-chip(
-          :color="getStatusColor(item.alert_status)"
-          small
-          label
-        ) {{ getStatusText(item.alert_status) }}
-
-      template(v-slot:item.fk_detect_zone_id="{ item }")
-        v-chip(
-          :color="getStatusColor(item.fk_detect_zone_id)"
-          small
-          label
-        ) {{ item.fk_detect_zone_id + '구역' }}   
-
-      template(v-slot:item.actions="{ item }")
-        .tw-flex.tw-gap-2
-          v-btn(
-            v-if="item.alert_status !== 'P002'"
-            color="secondary"
-            small
-            @click="handleProcess(item)"
-          ) 처리
-          v-btn(
-            color="error"
-            small
-            @click="handleDelete(item)"
-          ) 삭제
+      template(v-slot:item="{ item }")
+        tr(:class="{'alert-level-3': Number(item.alert_level) >= 3, 'alert-level-4': Number(item.alert_level) >= 4, 'alert-level-5': Number(item.alert_level) >= 5}")
+          td.text-center {{ item.id }}
+          td.text-center {{ item.fk_camera_id }}
+          td.text-center {{ item.alert_accur_time }}
+          td.text-center {{ getTypeText(item.alert_type) }}
+          td.text-center
+            v-chip(
+              :color="getLevelColor(item.alert_level)"
+              small
+              label
+            ) {{ getLevelText(item.alert_level) }}
+          td.text-center
+            v-chip(
+              :color="getStatusColor(item.alert_status)"
+              small
+              label
+            ) {{ getStatusText(item.alert_status) }}
+          td.text-center
+            v-chip(
+              :color="getStatusColor(item.fk_detect_zone_id)"
+              small
+              label
+            ) {{ item.fk_detect_zone_id + '구역' }}
+          td.text-center {{ item.alert_description }}
+          td.text-center
+            .tw-flex.tw-gap-2.tw-justify-center
+              v-btn(
+                v-if="item.alert_status !== 'P002'"
+                color="secondary"
+                small
+                @click="handleProcess(item)"
+              ) 처리
+              v-btn(
+                color="error"
+                small
+                @click="handleDelete(item)"
+              ) 삭제
 </template>
 
 <script>
@@ -434,7 +435,37 @@ export default {
       .v-chip {
         font-weight: 500;
       }
+
+      tr {
+        &.alert-level-3 {
+          animation: blink-amber 1s infinite;
+        }
+        &.alert-level-4 {
+          animation: blink-orange 1s infinite;
+        }
+        &.alert-level-5 {
+          animation: blink-red 1s infinite;
+        }
+      }
     }
   }
+}
+
+@keyframes blink-amber {
+  0% { background-color: var(--cui-bg-card); }
+  50% { background-color: rgba(255, 193, 7, 0.2); }
+  100% { background-color: var(--cui-bg-card); }
+}
+
+@keyframes blink-orange {
+  0% { background-color: var(--cui-bg-card); }
+  50% { background-color: rgba(255, 152, 0, 0.2); }
+  100% { background-color: var(--cui-bg-card); }
+}
+
+@keyframes blink-red {
+  0% { background-color: var(--cui-bg-card); }
+  50% { background-color: rgba(244, 67, 54, 0.2); }
+  100% { background-color: var(--cui-bg-card); }
 }
 </style> 

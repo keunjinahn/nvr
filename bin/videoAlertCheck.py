@@ -174,7 +174,7 @@ class VideoAlertChecker:
 
             query = """
                 SELECT * FROM tb_video_receive_data 
-                ORDER BY create_date DESC limit 10
+                ORDER BY create_date DESC limit 1
             """            
             cursor.execute(query)
             video_data = cursor.fetchall()
@@ -200,13 +200,15 @@ class VideoAlertChecker:
 
                     if not roi_values:
                         continue
-                    #print("roi_values : ", roi_values)
+                    # print("roi_values : ", roi_values)
                     # print("alert_settings : ", self.alert_settings)
                     # Compare with alert thresholds
-                    for level, levelItem in enumerate(self.alert_settings['alarmLevels']):
+                    for level, levelItem in enumerate(reversed(self.alert_settings['alarmLevels'])):
+                        print("level : ", level, "levelItem : ", levelItem)
                         for idx, min_roi in enumerate(roi_values):
+                            #print("min_roi : ", min_roi, "levelItem : ", levelItem['threshold'])
                             if min_roi['value'] < float(levelItem['threshold']):
-                                self.create_alert(data['id'],data_value,idx, min_roi, level)
+                                self.create_alert(data['id'],data_value,idx, min_roi, int(levelItem['id']) -1)
                                 break
 
                 except json.JSONDecodeError:
@@ -234,9 +236,9 @@ class VideoAlertChecker:
                 WHERE fk_video_receive_data_id = %s AND fk_detect_zone_id = %s
                 LIMIT 1
             """
-            cursor.execute(check_query, (fk_video_receive_data_id, roi_num))
+            cursor.execute(check_query, (fk_video_receive_data_id, idx + 1))
             if cursor.fetchone():
-                logger.info(f"Duplicate alert exists for fk_video_receive_data_id={fk_video_receive_data_id}, fk_detect_zone_id={roi_num}. Skipping insert.")
+                logger.info(f"Duplicate alert exists for fk_video_receive_data_id={fk_video_receive_data_id}, fk_detect_zone_id={idx + 1}. Skipping insert.")
                 return
 
             alert_info = {
