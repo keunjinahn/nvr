@@ -571,7 +571,8 @@ export default {
 
       try {
         // stream API를 녹화 id로 요청
-        this.videoUrl = `http://localhost:9091/api/recordings/stream/${record.id}`;
+        const host = '20.41.121.184';
+        this.videoUrl = `http://${host}:9091/api/recordings/stream/${record.id}`;
         
         // 비디오 요소 설정
         if (this.$refs.videoPlayer) {

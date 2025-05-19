@@ -273,19 +273,20 @@ export default {
     },
 
     handleSelectionChange(item) {
+      const host = '20.41.121.184';
       if (item.selected) {
         if (!this.selectedVideo1) {
-          this.selectedVideo1 = `http://localhost:9091/api/recordings/stream/${item.id}`;
+          this.selectedVideo1 = `http://${host}:9091/api/recordings/stream/${item.id}`;
         } else if (!this.selectedVideo2) {
-          this.selectedVideo2 = `http://localhost:9091/api/recordings/stream/${item.id}`;
+          this.selectedVideo2 = `http://${host}:9091/api/recordings/stream/${item.id}`;
         } else {
           item.selected = false;
           this.$toast.warning('최대 2개의 영상만 선택할 수 있습니다.');
         }
       } else {
-        if (this.selectedVideo1 === `http://localhost:9091/api/recordings/stream/${item.id}`) {
+        if (this.selectedVideo1 === `http://${host}:9091/api/recordings/stream/${item.id}`) {
           this.selectedVideo1 = null;
-        } else if (this.selectedVideo2 === `http://localhost:9091/api/recordings/stream/${item.id}`) {
+        } else if (this.selectedVideo2 === `http://${host}:9091/api/recordings/stream/${item.id}`) {
           this.selectedVideo2 = null;
         }
       }
