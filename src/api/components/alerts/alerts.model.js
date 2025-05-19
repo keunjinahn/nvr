@@ -121,35 +121,35 @@ export const getDefaultAlertSettings = () => {
         id: 1,
         name: '1단계 (주의)',
         threshold: 60,
-        description: '온도가 60℃ 이상일 경우 주의 단계 알림을 발송합니다.',
+        description: '최저온도의 차가 이하일경우 주의 단계 알림을 발송합니다.',
         color: 'light-blue'
       },
       {
         id: 2,
         name: '2단계 (경고)',
         threshold: 70,
-        description: '온도가 70℃ 이상일 경우 경고 단계 알림을 발송합니다.',
+        description: '최저온도의 차가 이하일경우 주의 단계 알림을 발송합니다.',
         color: 'blue'
       },
       {
         id: 3,
         name: '3단계 (위험)',
         threshold: 80,
-        description: '온도가 80℃ 이상일 경우 위험 단계 알림을 발송합니다.',
+        description: '최저온도의 차가 이하일경우 주의 단계 알림을 발송합니다.',
         color: 'amber darken-2'
       },
       {
         id: 4,
         name: '4단계 (심각)',
         threshold: 90,
-        description: '온도가 90℃ 이상일 경우 심각 단계 알림을 발송합니다.',
+        description: '최저온도의 차가 이하일경우 주의 단계 알림을 발송합니다.',
         color: 'orange darken-3'
       },
       {
         id: 5,
         name: '5단계 (비상)',
         threshold: 100,
-        description: '온도가 100℃ 이상일 경우 비상 단계 알림을 발송합니다.',
+        description: '최저온도의 차가 이하일경우 주의 단계 알림을 발송합니다.',
         color: 'red darken-3'
       }
     ],

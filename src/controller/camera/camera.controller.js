@@ -53,12 +53,12 @@ export default class CameraController {
     if (!controller) {
       throw new Error(`Can not remove controller, controller for ${cameraName} not found!`);
     }
-
+    console.log("===> controller", controller);
     controller.prebuffer.destroy();
     controller.videoanalysis.destroy(true);
     controller.stream.destroy();
     controller.session.clearSession();
-
+    console.log("===> CameraController.cameras", cameraName);
     CameraController.cameras.delete(cameraName);
   }
 

@@ -14,6 +14,9 @@ export const list = async () => {
 };
 
 export const findByName = async (name) => {
+  const all = Database.interfaceDB.chain.get('cameras').value();
+  console.log('전체 카메라 목록:', all.map(c => c.name));
+  console.log('찾는 이름:', name);
   return await Database.interfaceDB.chain.get('cameras').find({ name: name }).cloneDeep().value();
 };
 
@@ -78,8 +81,16 @@ export const requestSnapshot = async (camera, fromSubSource) => {
 export const removeByName = async (name) => {
   ConfigService.ui.cameras = ConfigService.ui.cameras.filter((camera) => camera.name !== name);
   ConfigService.writeToConfig('cameras', ConfigService.ui.cameras);
-
-  await CameraController.removeController(name);
+  console.log("===> ConfigService.ui.cameras", ConfigService.ui.cameras);
+  try {
+    await CameraController.removeController(name);
+  } catch (e) {
+    if (e.message.includes('not found')) {
+      // 이미 없는 경우 OK 처리
+      return res.status(200).json({ message: 'Already removed.' });
+    }
+    throw e;
+  }
 
   await Database.writeConfigCamerasToDB();
   Database.controller?.emit('removeCamera', name);

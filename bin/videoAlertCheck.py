@@ -204,7 +204,7 @@ class VideoAlertChecker:
                     # print("alert_settings : ", self.alert_settings)
                     # Compare with alert thresholds
                     for level, levelItem in enumerate(reversed(self.alert_settings['alarmLevels'])):
-                        print("level : ", level, "levelItem : ", levelItem)
+                        # print("level : ", level, "levelItem : ", levelItem)
                         for idx, min_roi in enumerate(roi_values):
                             #print("min_roi : ", min_roi, "levelItem : ", levelItem['threshold'])
                             if min_roi['value'] < float(levelItem['threshold']):

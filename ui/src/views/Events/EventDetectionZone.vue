@@ -16,7 +16,9 @@
             class="mb-4"
             @click="customizing = false"
           )
-          .video-container
+          .video-container(
+            @mouseleave="handleMouseLeave"
+          )
             VideoCard(
               v-if="selectedCamera"
               :key="videoKey"
@@ -29,16 +31,25 @@
               :refreshSnapshot="!selectedCamera.live"
               class="video-card"
             )
-            Playground(
+            .selection-overlay(
               v-if="selectedCamera && customizing"
-              :width="videoContainerWidth"
-              :height="videoContainerHeight"
-              :regions="regions"
-              :customizing="customizing"
-              :options="playgroundOptions"
-              @addHandle="addHandle"
-              @updateHandle="updateHandle"
-              class="playground-overlay"
+              :style="{ width: '640px', height: '480px' }"
+              @mousedown="startDrag"
+              @mousemove="onDrag"
+              @mouseup="endDrag"
+            )
+              .selection-box(
+                v-if="isDragging"
+                :style="selectionBoxStyle"
+              )
+              .coordinate-display(
+                v-if="mousePosition"
+                :style="coordinateDisplayStyle"
+              )
+                | X: {{ mousePosition.x }}px Y: {{ mousePosition.y }}px
+            .detection-zone(
+              v-if="region"
+              :style="getZoneStyle(region)"
             )
           .options-panel
             v-row
@@ -127,7 +138,9 @@
                 v-select(
                   v-model="detectionZoneType"
                   :items="detectionZoneTypes"
-                  label="Type"
+                  item-text="text"
+                  :return-object="true"
+                  label="영역 번호"
                   outlined
                   dense
                   hide-details
@@ -227,8 +240,8 @@ export default {
       videoKey: '',
       refreshing: false,
       description: '',
-      videoContainerWidth: 0,
-      videoContainerHeight: 0,
+      videoContainerWidth: 640,
+      videoContainerHeight: 480,
       icons: {
         mdiMapMarkerRadius,
         mdiCheckboxMarkedCircle,
@@ -239,7 +252,7 @@ export default {
         mdiDelete
       },
       playgroundOptions: {},
-      regions: [],
+      region: null,
       customizing: false,
       options: {
         forceCloseTimer: {
@@ -271,20 +284,51 @@ export default {
       deleteDialog: false,
       rowToDelete: null,
       editId: null,
-      detectionZoneType: 'Z001',
+      detectionZoneType: null,
       detectionZoneActive: true,
-      detectionZoneTypes: [
-        { text: '객체', value: 'Z001' },
-        { text: '온도', value: 'Z002' }
-      ],
+      detectionZoneTypes: Array.from({ length: 11 }, (_, i) => ({ text: i.toString(), value: i })),
+      isDragging: false,
+      dragStart: { x: 0, y: 0 },
+      dragEnd: { x: 0, y: 0 },
+      mousePosition: null,
     };
+  },
+  computed: {
+    selectionBoxStyle() {
+      const left = Math.min(this.dragStart.x, this.dragEnd.x);
+      const top = Math.min(this.dragStart.y, this.dragEnd.y);
+      const width = Math.abs(this.dragEnd.x - this.dragStart.x);
+      const height = Math.abs(this.dragEnd.y - this.dragStart.y);
+      
+      return {
+        left: left + 'px',
+        top: top + 'px',
+        width: width + 'px',
+        height: height + 'px'
+      };
+    },
+    coordinateDisplayStyle() {
+      if (!this.mousePosition) return {};
+      return {
+        position: 'absolute',
+        left: (this.mousePosition.x + 10) + 'px',
+        top: (this.mousePosition.y + 10) + 'px',
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        color: 'white',
+        padding: '4px 8px',
+        borderRadius: '4px',
+        fontSize: '12px',
+        pointerEvents: 'none',
+        zIndex: 1000
+      };
+    }
   },
   watch: {
     selectedCameraName(newName, oldName) {
       if (newName !== oldName) {
         if (!this.editId) {  // 수정 모드가 아닐 때만 초기화
           this.customizing = false;
-          this.regions = [];
+          this.region = null;
           this.description = '';
           this.options = {
             forceCloseTimer: {
@@ -322,11 +366,8 @@ export default {
     },
 
     updateVideoContainerSize() {
-      const container = this.$el.querySelector('.video-container');
-      if (container) {
-        this.videoContainerWidth = container.offsetWidth;
-        this.videoContainerHeight = container.offsetHeight;
-      }
+      this.videoContainerWidth = 640;
+      this.videoContainerHeight = 480;
     },
 
     async refreshVideo() {
@@ -413,15 +454,15 @@ export default {
     },
 
     clear() {
-      this.regions = [];
+      this.region = null;
     },
 
     startCustom() {
       this.customizing = true;
       this.editId = null;
-      this.regions = [];
+      this.region = null;
       this.description = '';
-      this.detectionZoneType = 'Z001';
+      this.detectionZoneType = null;
       this.detectionZoneActive = true;
       this.options = {
         forceCloseTimer: {
@@ -446,9 +487,9 @@ export default {
     finishCustom() {
       this.customizing = false;
       this.editId = null;
-      this.regions = [];
+      this.region = null;
       this.description = '';
-      this.detectionZoneType = 'Z001';
+      this.detectionZoneType = null;
       this.detectionZoneActive = true;
       this.options = {
         forceCloseTimer: {
@@ -477,7 +518,7 @@ export default {
         sensitivity: this.options.sensitivity.value,
         difference: this.options.difference.value,
         description: this.description,
-        type: this.detectionZoneType,
+        type: this.detectionZoneType ? this.detectionZoneType.value : null,
         active: this.detectionZoneActive
       });
     },
@@ -488,7 +529,7 @@ export default {
         return;
       }
 
-      if (!this.regions || this.regions.length === 0) {
+      if (!this.region) {
         this.$toast.error('감지 영역을 설정해주세요.');
         return;
       }
@@ -499,6 +540,19 @@ export default {
       }
 
       const cameraId = this.cameraList.findIndex(cam => cam.name === this.selectedCamera.name);
+      const currentType = Number(this.detectionZoneType?.value);
+      const roiEnableArr = Array(10).fill('0');
+      this.eventDetectionZoneList.forEach(zone => {
+        const t = Number(zone.type);
+        if (!isNaN(t) && t >= 0 && t <= 9) {
+          roiEnableArr[9 - t] = '1'; // 0번이 오른쪽
+        }
+      });
+      if (!isNaN(currentType) && currentType >= 0 && currentType <= 9) {
+        roiEnableArr[9 - currentType] = '1';
+      }
+      const roiEnable = roiEnableArr.join('');
+      const roiIndex = (!isNaN(currentType) && currentType >= 0 && currentType <= 10) ? currentType : 0;
       const exist = this.eventDetectionZoneList.find(e => e.id === this.editId);
       const eventDetectionZoneData = {
         cameraId,
@@ -508,10 +562,12 @@ export default {
           sensitivity: this.options.sensitivity.value,
           difference: this.options.difference.value
         },
-        regions: this.regions,
+        regions: [this.region],
         description: this.description,
-        type: this.detectionZoneType,
-        active: this.detectionZoneActive
+        type: this.detectionZoneType ? this.detectionZoneType.value : null,
+        active: this.detectionZoneActive,
+        roiIndex: roiIndex,
+        roiEnable: roiEnable
       };
       if (exist) {
         // 수정
@@ -525,7 +581,7 @@ export default {
       this.clear();
       this.description = '';
       this.editId = null;
-      this.detectionZoneType = '';
+      this.detectionZoneType = null;
       this.detectionZoneActive = true;
       await this.loadEventDetectionZone();
     },
@@ -551,34 +607,56 @@ export default {
       this.options.dwellTimer.value = item.options.dwellTimer;
       this.options.sensitivity.value = item.options.sensitivity;
       this.options.difference.value = item.options.difference;
-      this.regions = JSON.parse(JSON.stringify(item.regions));
+      
+      // Convert stored coordinates to pixels if they're percentages
+      const storedRegion = item.regions[0];
+      if (storedRegion) {
+        this.region = {
+          left: Math.round(storedRegion.left),
+          top: Math.round(storedRegion.top),
+          right: Math.round(storedRegion.right),
+          bottom: Math.round(storedRegion.bottom),
+          coords: storedRegion.coords.map(coord => [
+            Math.round(coord[0]) + (coord[0] === storedRegion.left ? 1 : 0),  // Add correction for left
+            Math.round(coord[1]) + (coord[1] === storedRegion.bottom ? 1 : 0)  // Add correction for bottom
+          ])
+        };
+      }
+      
       this.description = item.description;
-      this.detectionZoneType = item.type || 'Z001';
+      this.detectionZoneType = this.detectionZoneTypes.find(t => t.value === Number(item.type));
       this.detectionZoneActive = item.active;
       this.customizing = true;
     },
 
     async editRow(item) {
-      // 현재 폼의 값으로 update
-      const cameraId = this.cameraList.findIndex(cam => cam.name === this.selectedCameraName);
-      const eventDetectionZoneData = {
-        cameraId,
-        options: {
-          forceCloseTimer: this.options.forceCloseTimer.value,
-          dwellTimer: this.options.dwellTimer.value,
-          sensitivity: this.options.sensitivity.value,
-          difference: this.options.difference.value
-        },
-        regions: this.regions,
-        description: this.description,
-        type: this.detectionZoneType,
-        active: this.detectionZoneActive
-      };
-      await updateEventDetectionZone(item.id, eventDetectionZoneData);
-      this.$toast.success('수정되었습니다.');
-      this.customizing = false;
-      this.editId = null;
-      await this.loadEventDetectionZone();
+      const found = this.detectionZoneTypes.find(t => t.value === Number(item.type));
+      this.detectionZoneType = found || this.detectionZoneTypes[0];
+      this.editId = item.id;
+      this.selectedCameraName = this.getCameraName(item.cameraId);
+      this.options.forceCloseTimer.value = item.options.forceCloseTimer;
+      this.options.dwellTimer.value = item.options.dwellTimer;
+      this.options.sensitivity.value = item.options.sensitivity;
+      this.options.difference.value = item.options.difference;
+      
+      // Convert stored coordinates to pixels if they're percentages
+      const storedRegion = item.regions[0];
+      if (storedRegion) {
+        this.region = {
+          left: Math.round(storedRegion.left),
+          top: Math.round(storedRegion.top),
+          right: Math.round(storedRegion.right),
+          bottom: Math.round(storedRegion.bottom),
+          coords: storedRegion.coords.map(coord => [
+            Math.round(coord[0]) + (coord[0] === storedRegion.left ? 1 : 0),  // Add correction for left
+            Math.round(coord[1]) + (coord[1] === storedRegion.bottom ? 1 : 0)  // Add correction for bottom
+          ])
+        };
+      }
+      
+      this.description = item.description;
+      this.detectionZoneActive = item.active;
+      this.customizing = true;
     },
 
     confirmDelete(item) {
@@ -588,7 +666,18 @@ export default {
 
     async deleteRow() {
       if (this.rowToDelete) {
-        await deleteEventDetectionZone(this.rowToDelete.id);
+        // 삭제 후 남은 리스트로 roiEnable 계산
+        const remainList = this.eventDetectionZoneList.filter(e => e.id !== this.rowToDelete.id);
+        const roiEnableArr = Array(10).fill('0');
+        remainList.forEach(zone => {
+          const t = Number(zone.type);
+          if (!isNaN(t) && t >= 0 && t <= 9) {
+            roiEnableArr[9 - t] = '1';
+          }
+        });
+        const roiEnable = roiEnableArr.join('');
+        const roiIndex = Number(this.rowToDelete.type);
+        await deleteEventDetectionZone(`${this.rowToDelete.id}?roiEnable=${roiEnable}&roiIndex=${roiIndex}`);
         this.$toast.success('삭제되었습니다.');
         this.deleteDialog = false;
         this.rowToDelete = null;
@@ -600,6 +689,113 @@ export default {
       const typeItem = this.detectionZoneTypes.find(t => t.value === type);
       return typeItem ? typeItem.text : type;
     },
+
+    handleMouseLeave() {
+      if (this.isDragging) {
+        this.isDragging = false;
+        this.dragStart = { x: 0, y: 0 };
+        this.dragEnd = { x: 0, y: 0 };
+        this.mousePosition = null;
+      }
+    },
+
+    startDrag(event) {
+      if (!this.customizing) return;
+      
+      const rect = event.target.getBoundingClientRect();
+      this.isDragging = true;
+      this.dragStart = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+      this.dragEnd = { ...this.dragStart };
+      this.updateMousePosition(event);
+      
+      // Clear existing region when starting new drag
+      this.region = null;
+    },
+    
+    onDrag(event) {
+      if (!this.isDragging) return;
+      
+      const rect = event.target.getBoundingClientRect();
+      this.dragEnd = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+
+      // Update mouse position for coordinate display
+      this.updateMousePosition(event);
+    },
+    
+    updateMousePosition(event) {
+      const rect = event.target.getBoundingClientRect();
+      const x = Math.round(event.clientX - rect.left);
+      const y = Math.round(event.clientY - rect.top);
+      this.mousePosition = { x, y };
+    },
+    
+    endDrag() {
+      if (!this.isDragging) return;
+      
+      this.isDragging = false;
+      
+      // Only create region if we have valid coordinates
+      if (this.dragStart.x !== 0 && this.dragStart.y !== 0 && 
+          this.dragEnd.x !== 0 && this.dragEnd.y !== 0) {
+        // Get pixel coordinates with corrections
+        const left = Math.round(Math.min(this.dragStart.x, this.dragEnd.x)) + 1;  // Add 1px correction
+        const top = Math.round(Math.min(this.dragStart.y, this.dragEnd.y));
+        const right = Math.round(Math.max(this.dragStart.x, this.dragEnd.x));
+        const bottom = Math.round(Math.max(this.dragStart.y, this.dragEnd.y)) + 1;  // Add 1px correction
+        
+        // Create a single region with pixel coordinates
+        this.region = {
+          left,
+          top,
+          right,
+          bottom,
+          coords: [
+            [left, top],
+            [right, top],
+            [right, bottom],
+            [left, bottom]
+          ]
+        };
+        
+        console.log('Region coordinates:', {
+          left,
+          top,
+          right,
+          bottom,
+          width: right - left,
+          height: bottom - top
+        });
+        
+        this.$emit('updateHandle', { region: this.region });
+      }
+      
+      this.mousePosition = null;
+    },
+    
+    getZoneStyle(zone) {
+      // Convert pixel coordinates to percentages for display
+      const leftPercent = Math.round((zone.left / this.videoContainerWidth) * 100);
+      const topPercent = Math.round((zone.top / this.videoContainerHeight) * 100);
+      const rightPercent = Math.round((zone.right / this.videoContainerWidth) * 100);
+      const bottomPercent = Math.round((zone.bottom / this.videoContainerHeight) * 100);
+      
+      return {
+        position: 'absolute',
+        left: leftPercent + '%',
+        top: topPercent + '%',
+        width: (rightPercent - leftPercent) + '%',
+        height: (bottomPercent - topPercent) + '%',
+        border: '2px solid rgba(255, 255, 255, 0.5)',
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        pointerEvents: 'none'
+      };
+    }
   },
   async mounted() {
     try {
@@ -624,6 +820,10 @@ export default {
         this.selectedCameraName = this.cameraList[0].name;
         this.updateSelectedCamera(this.selectedCameraName);
       }
+      // detectionZoneType 초기값을 object로 설정
+      if (this.detectionZoneTypes.length > 0) {
+        this.detectionZoneType = this.detectionZoneTypes[0];
+      }
     } catch (err) {
       this.$toast.error(err.message);
     }
@@ -646,15 +846,51 @@ export default {
 
   .video-container {
     position: relative;
-    width: 100%;
+    width: 640px;
     height: 480px;
     overflow: hidden;
-    margin-bottom: 20px;
-  }
+    margin: 0 auto 20px auto;
+    background-color: #000;
 
-  .video-card {
-    width: 100%;
-    height: 100%;
+    .video-card {
+      width: 640px;
+      height: 480px;
+    }
+
+    .selection-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 640px;
+      height: 480px;
+      cursor: crosshair;
+      
+      .selection-box {
+        position: absolute;
+        border: 2px solid rgba(255, 255, 255, 0.8);
+        background-color: rgba(255, 255, 255, 0.1);
+        pointer-events: none;
+      }
+
+      .coordinate-display {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        white-space: nowrap;
+        font-family: monospace;
+        font-size: 12px;
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        pointer-events: none;
+        z-index: 1000;
+      }
+    }
+    
+    .detection-zone {
+      position: absolute;
+      pointer-events: none;
+    }
   }
 
   .playground-overlay {

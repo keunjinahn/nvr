@@ -4,6 +4,97 @@
 import * as EventsModel from './events.model.js';
 import path from 'path';
 import fs from 'fs';
+import net from 'net';
+
+// Camera configuration
+const CAMERA_IP = '175.201.204.165';
+const CAMERA_PORT = 32000;
+
+// ROI Packet functions
+function buildRoiPacket(cmd, data) {
+  const header = 0xFF;
+  const address = 0x00;
+  const cmd_h = (cmd >> 8) & 0xFF;
+  const cmd_l = cmd & 0xFF;
+  const data_h = (data >> 8) & 0xFF;
+  const data_l = data & 0xFF;
+  const payload = [address, cmd_h, cmd_l, data_h, data_l];
+  const checksum = payload.reduce((a, b) => a + b, 0) & 0xFF;
+  return Buffer.from([header, ...payload, checksum]);
+}
+
+function sendPacketToCamera(packet, cameraIp, cameraPort) {
+  return new Promise((resolve, reject) => {
+    const client = new net.Socket();
+    client.setTimeout(5000);
+
+    client.connect(cameraPort, cameraIp, () => {
+      console.log('[sendPacketToCamera] Connected to camera');
+      client.write(packet);
+    });
+
+    client.on('data', (data) => {
+      console.log('[sendPacketToCamera] Received response:', data);
+      client.destroy();
+      resolve(data);
+    });
+
+    client.on('error', (err) => {
+      console.error('[sendPacketToCamera] Error:', err);
+      client.destroy();
+      reject(err);
+    });
+
+    client.on('timeout', () => {
+      console.error('[sendPacketToCamera] Timeout');
+      client.destroy();
+      reject(new Error('Timeout'));
+    });
+  });
+}
+
+async function sendRoiSetting(roiIndex, startX, startY, endX, endY, cameraIp, cameraPort, roiEnable) {
+  try {
+    console.log('[sendRoiSetting] Sending ROI settings:', {
+      roiIndex,
+      startX,
+      startY,
+      endX,
+      endY,
+      cameraIp,
+      cameraPort,
+      roiEnable
+    });
+
+    const baseAddr = 0x2320 + roiIndex * 0x10;
+    const params = [
+      [baseAddr + 0, startX],
+      [baseAddr + 1, startY],
+      [baseAddr + 2, endX],
+      [baseAddr + 3, endY]
+    ];
+
+    for (const [cmd, data] of params) {
+      console.log('[sendRoiSetting] Sending command:', { cmd: cmd.toString(16), data });
+      const packet = buildRoiPacket(cmd, data);
+      await sendPacketToCamera(packet, cameraIp, cameraPort);
+    }
+
+    // ROI Enable packet (0x2310)
+    const enableCmd = 0x2310;
+    const enableData = typeof roiEnable === 'string'
+      ? parseInt(roiEnable, 2)
+      : (typeof roiEnable === 'number' ? roiEnable : 0x3FF);
+    console.log('[sendRoiSetting] Sending ROI Enable packet:', { cmd: enableCmd.toString(16), data: enableData });
+    const enablePacket = buildRoiPacket(enableCmd, enableData);
+    await sendPacketToCamera(enablePacket, cameraIp, cameraPort);
+
+    console.log('[sendRoiSetting] ROI settings and enable sent successfully');
+  } catch (error) {
+    console.error('[sendRoiSetting] Error:', error);
+    throw error;
+  }
+}
 
 export const getAllEventHistory = async (req, res) => {
   try {
@@ -206,9 +297,36 @@ export const addDetectionZone = async (req, res) => {
       options: req.body.options,
       active: req.body.active
     };
+
+    const regionCoords = zoneData.regions[0]?.coords || [];
+    const startX = Math.min(...regionCoords.map(coord => coord[0]));
+    const startY = Math.min(...regionCoords.map(coord => coord[1]));
+    const endX = Math.max(...regionCoords.map(coord => coord[0]));
+    const endY = Math.max(...regionCoords.map(coord => coord[1]));
+
+    console.log('[addDetectionZone] converted coordinates:', {
+      startX,
+      startY,
+      endX,
+      endY,
+      originalRegions: zoneData.regions
+    });
+
+    console.log('[addDetectionZone] zoneData:', zoneData);
     const result = await EventsModel.addDetectionZone(zoneData);
+
+    if (result) {
+      try {
+        await sendRoiSetting(req.body.roiIndex, startX, startY, endX, endY, CAMERA_IP, CAMERA_PORT, req.body.roiEnable);
+      } catch (roiError) {
+        console.error('[addDetectionZone] ROI setting error:', roiError);
+        // Continue even if ROI setting fails
+      }
+    }
+
     res.status(201).json(result);
   } catch (err) {
+    console.error('[addDetectionZone] Error:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -221,12 +339,38 @@ export const updateDetectionZone = async (req, res) => {
       type: req.body.type,
       regions: req.body.regions,
       options: req.body.options,
-      active: req.body.active
+      active: req.body.active,
+      roiIndex: req.body.roiIndex
     };
+    console.log('[updateDetectionZone] zoneData:', zoneData);
+
+    const regionCoords = zoneData.regions[0]?.coords || [];
+    const startX = Math.min(...regionCoords.map(coord => coord[0])) + 7;
+    const startY = Math.min(...regionCoords.map(coord => coord[1])) + 2;
+    const endX = Math.max(...regionCoords.map(coord => coord[0])) - 2;
+    const endY = Math.max(...regionCoords.map(coord => coord[1]));
+
+    console.log('[updateDetectionZone] converted coordinates:', {
+      startX,
+      startY,
+      endX,
+      endY,
+      originalRegions: zoneData.regions
+    });
+
     const result = await EventsModel.updateDetectionZone(req.params.id, zoneData);
     if (!result) return res.status(404).json({ error: 'Not found' });
+
+    try {
+      await sendRoiSetting(req.body.roiIndex, startX, startY, endX, endY, CAMERA_IP, CAMERA_PORT, req.body.roiEnable);
+    } catch (roiError) {
+      console.error('[updateDetectionZone] ROI setting error:', roiError);
+      // Continue even if ROI setting fails
+    }
+
     res.json(result);
   } catch (err) {
+    console.error('[updateDetectionZone] Error:', err);
     res.status(500).json({ error: err.message });
   }
 };
@@ -235,6 +379,18 @@ export const deleteDetectionZone = async (req, res) => {
   try {
     const result = await EventsModel.deleteDetectionZone(req.params.id);
     if (!result) return res.status(404).json({ error: 'Not found' });
+
+    const roiEnable = req.query.roiEnable;
+    const roiIndex = req.query.roiIndex;
+    if (roiEnable !== undefined && roiIndex !== undefined) {
+      try {
+        await sendRoiSetting(roiIndex, 0, 0, 0, 0, CAMERA_IP, CAMERA_PORT, roiEnable);
+      } catch (roiError) {
+        console.error('[deleteDetectionZone] ROI setting error:', roiError);
+        // Continue even if ROI setting fails
+      }
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

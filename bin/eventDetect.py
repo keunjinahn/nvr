@@ -613,7 +613,7 @@ class EventDetecter:
             # 스레드 시작
             threads = [
                 threading.Thread(target=self.frame_capture_thread, args=(rtsp_url,), daemon=True),
-                # threading.Thread(target=self.object_detection_thread, args=(yolo_model, camera_name), daemon=True),
+                #threading.Thread(target=self.object_detection_thread, args=(yolo_model, camera_name), daemon=True),
                 #threading.Thread(target=self.motion_detection_thread, args=(camera_name, base_dir), daemon=True)
             ]
             

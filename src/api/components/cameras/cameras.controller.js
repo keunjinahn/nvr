@@ -197,8 +197,9 @@ export const getSnapshotByName = async (req, res) => {
 
 export const removeByName = async (req, res) => {
   try {
+    console.log("===> req.params", req.params);
     const camera = await CamerasModel.findByName(req.params.name);
-
+    console.log("===> camera", camera);
     if (!camera) {
       return res.status(404).send({
         statusCode: 404,
