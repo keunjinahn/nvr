@@ -466,7 +466,8 @@ export default {
         try {
           // 녹화 파일명에서 확장자를 제거하고 .png로 변경
           const thumbnailFilename = record.filename.replace(/\.[^/.]+$/, '.png');
-          const thumbnailUrl = `http://localhost:9091/api/recordings/thumbnail/${record.id}/${thumbnailFilename}`;
+          const host = process.env.VUE_APP_STREAM_HOST;
+          const thumbnailUrl = `http://${host}:9091/api/recordings/thumbnail/${record.id}/${thumbnailFilename}`;
           
           // 섬네일 URL을 저장
           this.$set(this.thumbnails, record.id, thumbnailUrl);
@@ -571,7 +572,7 @@ export default {
 
       try {
         // stream API를 녹화 id로 요청
-        const host = '20.41.121.184';
+        const host = process.env.VUE_APP_STREAM_HOST;
         this.videoUrl = `http://${host}:9091/api/recordings/stream/${record.id}`;
         
         // 비디오 요소 설정
@@ -663,7 +664,8 @@ export default {
           throw new Error('인증 토큰이 없습니다. 다시 로그인해주세요.');
         }
 
-        const response = await fetch(`http://localhost:9091/api/recordings/${this.selectedRecordingToDelete.id}`, {
+        const host = process.env.VUE_APP_STREAM_HOST;
+        const response = await fetch(`http://${host}:9091/api/recordings/${this.selectedRecordingToDelete.id}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${user.access_token}`,

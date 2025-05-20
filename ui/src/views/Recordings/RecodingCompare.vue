@@ -273,7 +273,7 @@ export default {
     },
 
     handleSelectionChange(item) {
-      const host = '20.41.121.184';
+      const host = process.env.VUE_APP_STREAM_HOST;
       if (item.selected) {
         if (!this.selectedVideo1) {
           this.selectedVideo1 = `http://${host}:9091/api/recordings/stream/${item.id}`;

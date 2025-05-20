@@ -484,7 +484,8 @@ export default {
 
       try {
         // stream API를 녹화 id로 요청
-        this.videoUrl = `http://localhost:9091/api/recordings/stream/${record.id}`;
+        const host = process.env.VUE_APP_STREAM_HOST;
+        this.videoUrl = `http://${host}:9091/api/recordings/stream/${record.id}`;
         
         // 비디오 요소 설정
         if (this.$refs.videoPlayer) {
@@ -575,7 +576,8 @@ export default {
           throw new Error('인증 토큰이 없습니다. 다시 로그인해주세요.');
         }
 
-        const response = await fetch(`http://localhost:9091/api/recordings/${this.selectedRecordingToDelete.id}`, {
+        const host = process.env.VUE_APP_STREAM_HOST;
+        const response = await fetch(`http://${host}:9091/api/recordings/${this.selectedRecordingToDelete.id}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${user.access_token}`,
@@ -683,7 +685,8 @@ export default {
 
     async showImageDialog(item) {
       try {
-        const url = 'http://localhost:9091/api/image';
+        const host = process.env.VUE_APP_STREAM_HOST;
+        const url = `http://${host}:9091/api/image`;
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
