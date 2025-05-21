@@ -6,6 +6,12 @@ import Database from '../../api/database.js';
 import LoggerService from '../logger/logger.service.js';
 import ConfigService from '../config/config.service.js';
 import { nanoid } from 'nanoid';
+import ScheduleModel from '../../models/schedule.js';
+import RecordingHistoryModel from '../../models/RecordingHistory.js';
+import sequelize from '../../models/index.js';
+import { Op } from 'sequelize';
+const Schedule = ScheduleModel(sequelize);
+const RecordingHistory = RecordingHistoryModel(sequelize);
 
 const logger = new LoggerService('RecordingProcess');
 
@@ -31,7 +37,12 @@ class RecordingProcess {
 
   async getCurrentlyActiveSchedules() {
     try {
-      const schedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value() || [];
+      const schedules = await Schedule.findAll({
+        where: {
+          isActive: true
+        }
+      });
+
       const now = new Date();
       const currentDay = now.getDay();
       const currentTime = now.toLocaleTimeString('en-US', {
@@ -40,14 +51,19 @@ class RecordingProcess {
         minute: '2-digit'
       });
 
-      // 오늘 날짜의 녹화 히스토리 확인
-      const todayStr = moment().tz('Asia/Seoul').format('YYYY-MM-DD');
-      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
-
-      const todayCompletedRecordings = recordingHistory.filter(record => {
-        const recordDate = record.startTime.split('T')[0];
-        return recordDate === todayStr &&
-          ['completed', 'stopped'].includes(record.status);
+      // 오늘 날짜의 녹화 히스토리 확인 (LIKE → 범위 조건)
+      const today = moment().tz('Asia/Seoul').startOf('day');
+      const tomorrow = moment(today).add(1, 'days');
+      const recordingHistory = await RecordingHistory.findAll({
+        where: {
+          startTime: {
+            [Op.gte]: today.toDate(),
+            [Op.lt]: tomorrow.toDate()
+          },
+          status: {
+            [Op.in]: ['completed', 'stopped']
+          }
+        }
       });
 
       return schedules.filter(schedule => {
@@ -59,7 +75,7 @@ class RecordingProcess {
         if (!isScheduleActive) return false;
 
         // 이미 완료된 녹화가 있는지 확인
-        const hasCompletedRecording = todayCompletedRecordings.some(record =>
+        const hasCompletedRecording = recordingHistory.some(record =>
           record.scheduleId === schedule.id &&
           record.cameraName === schedule.cameraName
         );
@@ -75,55 +91,51 @@ class RecordingProcess {
 
   async addRecordingHistory(scheduleId, cameraName, timeInfo, filename) {
     try {
-      // 트랜잭션 시작 - 데이터베이스 락 획득
-      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
-
       // 동일한 파일명으로 진행 중인 녹화가 있는지 확인
-      const existingRecordings = recordingHistory.filter(record =>
-        record.filename === filename ||
-        (record.scheduleId === scheduleId &&
-          record.cameraName === cameraName &&
-          record.status === 'recording')
-      );
+      const existingRecordings = await RecordingHistory.findAll({
+        where: {
+          [Op.or]: [
+            { filename: filename },
+            {
+              scheduleId: scheduleId,
+              cameraName: cameraName,
+              status: 'recording'
+            }
+          ]
+        }
+      });
 
       // 기존 녹화들의 상태를 'stopped'로 업데이트
       for (const existing of existingRecordings) {
         logger.info(`Marking existing recording as stopped: ${existing.id}`);
-        existing.status = 'stopped';
-        existing.endTime = timeInfo.formattedForFile;
-        existing.updatedAt = timeInfo.formattedForFile;
+        await existing.update({
+          status: 'stopped',
+          endTime: timeInfo.formattedForFile,
+          updatedAt: timeInfo.formattedForFile
+        });
       }
 
       const newRecord = {
-        id: nanoid(),
         scheduleId,
         cameraName,
         filename,
-        startTime: timeInfo.formattedForFile,
+        startTime: timeInfo.formattedForDB,
         endTime: null,
         status: 'recording',
-        createdAt: timeInfo.formattedForFile
+        createdAt: timeInfo.formattedForDB
       };
-
-      // 기존 녹화 업데이트와 새 녹화 추가를 한 번에 수행
-      const updatedHistory = [
-        ...recordingHistory.filter(r => !existingRecordings.find(e => e.id === r.id)),
-        ...existingRecordings,
-        newRecord
-      ];
-
-      // 데이터베이스 업데이트를 한 번에 수행
-      await Database.interfaceDB.chain.set('recordingHistory', updatedHistory).value();
-      await Database.interfaceDB.write();
+      logger.info('newRecord', newRecord);
+      // 새 녹화 추가
+      const createdRecord = await RecordingHistory.create(newRecord);
 
       logger.info('Recording history updated:', {
-        newRecordId: newRecord.id,
+        newRecordId: createdRecord.id,
         stoppedRecords: existingRecordings.map(r => r.id),
         filename,
         cameraName
       });
 
-      return newRecord.id;
+      return createdRecord.id;
     } catch (error) {
       logger.error('Error in addRecordingHistory:', error);
       throw error;
@@ -132,15 +144,12 @@ class RecordingProcess {
 
   async updateRecordingHistory(recordingId, updates) {
     try {
-      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
-      const recordIndex = recordingHistory.findIndex(r => r.id === recordingId);
+      const currentRecord = await RecordingHistory.findByPk(recordingId);
 
-      if (recordIndex === -1) {
+      if (!currentRecord) {
         logger.warn(`Recording history not found for ID: ${recordingId}`);
         return;
       }
-
-      const currentRecord = recordingHistory[recordIndex];
 
       // 이미 종료된 녹화는 업데이트하지 않음
       if (['completed', 'stopped', 'error'].includes(currentRecord.status) && updates.status === 'recording') {
@@ -148,14 +157,12 @@ class RecordingProcess {
         return;
       }
 
-      recordingHistory[recordIndex] = {
-        ...currentRecord,
+      const updatedRecord = {
         ...updates,
-        updatedAt: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss')
+        updatedAt: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss')
       };
 
-      await Database.interfaceDB.chain.set('recordingHistory', recordingHistory).value();
-      await Database.interfaceDB.write();
+      await currentRecord.update(updatedRecord);
 
       logger.info('Recording history updated:', {
         id: recordingId,
@@ -189,7 +196,8 @@ class RecordingProcess {
         timestamp: nowMoment.unix(),
         formattedForFile: nowMoment.format('YYYY-MM-DDTHH-mm-ss'),
         formattedForDisplay: nowMoment.format('YYYY-MM-DDTHH:mm:ss'),
-        dateString: nowMoment.format('YYYY-MM-DD')
+        dateString: nowMoment.format('YYYY-MM-DD'),
+        formattedForDB: nowMoment.format('YYYY-MM-DD HH:mm:ss')
       };
 
       // 녹화 디렉토리 생성
@@ -299,7 +307,7 @@ class RecordingProcess {
             // 녹화 히스토리 업데이트 - 에러 상태로
             if (recordingId) {
               await this.updateRecordingHistory(recordingId, {
-                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
                 status: 'error',
                 errorMessage: 'Empty recording file'
               });
@@ -308,7 +316,7 @@ class RecordingProcess {
             // 정상 종료 시 녹화 히스토리 업데이트
             if (recordingId) {
               await this.updateRecordingHistory(recordingId, {
-                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
                 status: hasError ? 'error' : 'completed',
                 errorMessage: hasError ? errorMessage : undefined
               });
@@ -318,7 +326,7 @@ class RecordingProcess {
           logger.error(`Error checking recording file: ${err.message}`);
           if (recordingId) {
             await this.updateRecordingHistory(recordingId, {
-              endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+              endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
               status: 'error',
               errorMessage: err.message
             });
@@ -389,7 +397,7 @@ class RecordingProcess {
       // 시작 실패 시 히스토리 업데이트
       if (recordingId) {
         await this.updateRecordingHistory(recordingId, {
-          endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss'),
+          endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
           status: 'error',
           errorMessage: error.message
         });
@@ -427,7 +435,7 @@ class RecordingProcess {
 
       // recordingHistory 업데이트
       if (recordingInfo.recordingId) {
-        const endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss');
+        const endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss');
         await this.updateRecordingHistory(recordingInfo.recordingId, {
           endTime,
           status: recordingInfo.hasError ? 'error' : 'stopped'
@@ -438,7 +446,7 @@ class RecordingProcess {
       const metadataPath = `${recordingInfo.outputPath}.json`;
       if (await fs.pathExists(metadataPath)) {
         const metadata = await fs.readJson(metadataPath);
-        metadata.endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss');
+        metadata.endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss');
         metadata.status = recordingInfo.hasError ? 'error' : 'stopped';
         await fs.writeJson(metadataPath, metadata);
       }
@@ -481,17 +489,24 @@ class RecordingProcess {
           continue;
         }
 
-        // 오늘 이미 완료된 녹화가 있는지 다시 한번 확인
-        const todayStr = moment().tz('Asia/Seoul').format('YYYY-MM-DD');
-        const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
-        const hasCompletedToday = recordingHistory.some(record =>
-          record.scheduleId === schedule.id &&
-          record.cameraName === schedule.cameraName &&
-          record.startTime.startsWith(todayStr) &&
-          ['completed', 'stopped'].includes(record.status)
-        );
+        // 오늘 이미 완료된 녹화가 있는지 다시 한번 확인 (LIKE → 범위 조건)
+        const today = moment().tz('Asia/Seoul').startOf('day');
+        const tomorrow = moment(today).add(1, 'days');
+        const recordingHistory = await RecordingHistory.findAll({
+          where: {
+            scheduleId: schedule.id,
+            cameraName: schedule.cameraName,
+            startTime: {
+              [Op.gte]: today.toDate(),
+              [Op.lt]: tomorrow.toDate()
+            },
+            status: {
+              [Op.in]: ['completed', 'stopped']
+            }
+          }
+        });
 
-        if (hasCompletedToday) {
+        if (recordingHistory.length > 0) {
           logger.info(`Skipping recording for schedule ${scheduleKey} as it was already completed today`);
           continue;
         }

@@ -852,7 +852,7 @@ export default {
     margin: 0 auto 20px auto;
     background-color: #000;
 
-    .video-card {
+  .video-card {
       width: 640px;
       height: 480px;
     }

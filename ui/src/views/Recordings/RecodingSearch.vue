@@ -134,6 +134,9 @@
             class="elevation-1"
             @click:row="handleRowClick"
           )
+            template(#item.cameraName="{ item }")
+              span {{ item.cameraName }}
+            
             template(#item.formattedStartTime="{ item }")
               span {{ item.formattedStartTime }}
             
@@ -433,15 +436,19 @@ export default {
         console.log('Recording history response:', response);
         
         if (Array.isArray(response)) {
-          this.recordingHistory = response.map(record => ({
-            ...record,
-            id: record.id || '',
-            cameraName: record.cameraName || 'Unknown Camera',
-            filename: record.filename || 'Unknown File',
-            startTime: record.startTime || new Date().toISOString(),
-            endTime: record.endTime || new Date().toISOString(),
-            status: record.status || 'error'
-          }));
+          this.recordingHistory = response.map(record => {
+            const data = record.dataValues || record;
+            return {
+              ...data,
+              id: data.id || '',
+              cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
+              filename: data.filename || 'Unknown File',
+              startTime: data.startTime || data.start_time || new Date().toISOString(),
+              endTime: data.endTime || data.end_time || null,
+              status: data.status || 'error'
+            };
+          });
+          console.log('Mapped recording history:', this.recordingHistory);
           await this.fetchThumbnails();
         } else {
           console.error('Invalid response format:', response);
@@ -512,18 +519,9 @@ export default {
       if (!dateString) {
         return '-';
       }
-      // 날짜 포맷 변환: T16-04-05 -> T16:04:05
-      function fixDateString(dateStr) {
-        if (!dateStr) return null;
-        return dateStr.replace(
-          /T(\d{2})-(\d{2})-(\d{2})/,
-          (match, p1, p2, p3) => `T${p1}:${p2}:${p3}`
-        );
-      }
-      const fixed = fixDateString(dateString);
-      const parsed = new Date(fixed);
-      if (isNaN(parsed.getTime())) return '-';
       try {
+        const parsed = new Date(dateString);
+        if (isNaN(parsed.getTime())) return '-';
         return format(parsed, 'yyyy-MM-dd HH:mm:ss', { locale: ko });
       } catch (error) {
         console.error('Error formatting date:', error);
@@ -574,7 +572,6 @@ export default {
         // stream API를 녹화 id로 요청
         const host = process.env.VUE_APP_STREAM_HOST;
         this.videoUrl = `http://${host}:9091/api/recordings/stream/${record.id}`;
-        
         // 비디오 요소 설정
         if (this.$refs.videoPlayer) {
           const video = this.$refs.videoPlayer;

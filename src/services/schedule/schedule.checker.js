@@ -1,4 +1,7 @@
-import Database from '../../api/database.js';
+import ScheduleModel from '../../models/schedule.js';
+import sequelize from '../../models/index.js';
+const Schedule = ScheduleModel(sequelize);
+
 import LoggerService from '../logger/logger.service.js';
 import RecordingService from '../recording/recording.service.js';
 
@@ -24,7 +27,9 @@ class ScheduleChecker {
 
   async getCurrentlyRecordingSchedules() {
     try {
-      const schedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value() || [];
+      const schedules = await Schedule.findAll({
+        where: { isActive: 1 }
+      });
       const now = new Date();
       const currentDay = now.getDay();
       const currentTime = now.toLocaleTimeString('en-US', {
@@ -34,9 +39,10 @@ class ScheduleChecker {
       });
 
       const recordingSchedules = schedules.filter(schedule => {
+        const days = schedule.days_of_week || [];
         return (
           schedule.isActive &&
-          schedule.days_of_week.includes(currentDay) &&
+          days.includes(currentDay) &&
           this.isTimeInRange(currentTime, schedule.start_time, schedule.end_time)
         );
       });

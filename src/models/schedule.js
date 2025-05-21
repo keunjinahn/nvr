@@ -1,57 +1,68 @@
-'use strict';
-
-import { Model, DataTypes } from 'sequelize';
+import { DataTypes } from 'sequelize';
 
 export default (sequelize) => {
-  class Schedule extends Model {
-    static associate(models) {
-      // define associations here if needed
-    }
-  }
-
-  Schedule.init({
+  const Schedule = sequelize.define('Schedule', {
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
-      autoIncrement: true
-    },
-    name: {
-      type: DataTypes.STRING,
+      autoIncrement: true,
       allowNull: false
     },
-    startTime: {
-      type: DataTypes.TIME,
-      allowNull: false
-    },
-    endTime: {
-      type: DataTypes.TIME,
-      allowNull: false
-    },
-    days: {
-      type: DataTypes.JSON,
+    fk_camera_id: {
+      type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: []
+      defaultValue: 0
+    },
+    cameraName: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+    },
+    days_of_week: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      get() {
+        const rawValue = this.getDataValue('days_of_week');
+        return rawValue ? JSON.parse(rawValue) : [];
+      },
+      set(val) {
+        this.setDataValue('days_of_week', JSON.stringify(val));
+      }
+    },
+    start_time: {
+      type: DataTypes.STRING(5),
+      allowNull: true
+    },
+    end_time: {
+      type: DataTypes.STRING(5),
+      allowNull: true
+    },
+    recording_type: {
+      type: DataTypes.STRING(50),
+      allowNull: true
     },
     isActive: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: true
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0
     },
-    createdAt: {
-      type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: DataTypes.NOW
+    source: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: ''
     },
-    updatedAt: {
+    create_date: {
       type: DataTypes.DATE,
-      allowNull: false,
-      defaultValue: DataTypes.NOW
+      allowNull: true
+    },
+    update_date: {
+      type: DataTypes.DATE,
+      allowNull: true
     }
   }, {
-    sequelize,
-    modelName: 'Schedule',
-    tableName: 'schedules',
-    timestamps: true
+    tableName: 'tb_schedules',
+    timestamps: false,
+    charset: 'utf8mb4',
+    collate: 'utf8mb4_general_ci'
   });
 
   return Schedule;

@@ -219,16 +219,19 @@ export default {
         this.loading = true;
         const response = await getRecordingHistory();
         if (response && Array.isArray(response)) {
-          this.recordingHistory = response.map(record => ({
-            ...record,
-            id: record.id || '',
-            cameraName: record.cameraName || 'Unknown Camera',
-            filename: record.filename || 'Unknown File',
-            startTime: record.startTime || new Date().toISOString(),
-            endTime: record.endTime || new Date().toISOString(),
-            status: record.status || 'error',
-            selected: false
-          }));
+          this.recordingHistory = response.map(record => {
+            const data = record.dataValues || record;
+            return {
+              ...data,
+              id: data.id || '',
+              cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
+              filename: data.filename || 'Unknown File',
+              startTime: data.startTime || data.start_time || new Date().toISOString(),
+              endTime: data.endTime || data.end_time || null,
+              status: data.status || 'error',
+              selected: false
+            };
+          });
         } else {
           this.recordingHistory = [];
           console.error('Invalid response format:', response);
@@ -248,21 +251,22 @@ export default {
         console.log('Recording history response:', response);
         
         if (Array.isArray(response)) {
-          this.recordingHistory = response.map(record => ({
-            ...record,
-            id: record.id || '',
-            cameraName: record.cameraName || 'Unknown Camera',
-            filename: record.filename || 'Unknown File',
-            startTime: record.startTime || new Date().toISOString(),
-            endTime: record.endTime || new Date().toISOString(),
-            status: record.status || 'error',
-            selected: false
-          }));
-          console.log('recording history:', this.recordingHistory);
-          
+          this.recordingHistory = response.map(record => {
+            const data = record.dataValues || record;
+            return {
+              ...data,
+              id: data.id || '',
+              cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
+              filename: data.filename || 'Unknown File',
+              startTime: data.startTime || data.start_time || new Date().toISOString(),
+              endTime: data.endTime || data.end_time || null,
+              status: data.status || 'error',
+              selected: false
+            };
+          });
         } else {
-          console.error('Invalid response format:', response);
           this.recordingHistory = [];
+          console.error('Invalid response format:', response);
         }
       } catch (error) {
         console.error('Failed to fetch recording history:', error);

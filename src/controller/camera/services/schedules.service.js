@@ -1,8 +1,10 @@
 'use strict';
 
 import { validateSchedule } from '../../../api/components/schedules/schedules.validation.js';
-import Database from '../../../api/database.js';
 import LoggerService from '../../../services/logger/logger.service.js';
+import ScheduleModel from '../../../models/schedule.js';
+import sequelize from '../../../models/index.js';
+const Schedule = ScheduleModel(sequelize);
 
 const logger = new LoggerService('Schedules');
 
@@ -14,19 +16,30 @@ class SchedulesService {
    */
   async getSchedules(filters = {}) {
     try {
-      let schedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value() || [];
-
-      if (filters.camera_name) {
-        schedules = schedules.filter(schedule => schedule.cameraName === filters.camera_name);
-      }
-
-      if (filters.isActive !== undefined) {
-        schedules = schedules.filter(schedule => schedule.isActive === filters.isActive);
-      }
-
+      const schedules = await Schedule.findAll({
+        where: {
+          isActive: 1
+        },
+        order: [['id', 'DESC']]
+      });
       return schedules;
     } catch (error) {
       logger.error('Error getting schedules:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a schedule by ID
+   * @param {number} id - Schedule ID
+   * @returns {Promise<Object>} Schedule object
+   */
+  async getScheduleById(id) {
+    try {
+      const schedule = await Schedule.findByPk(id);
+      return schedule;
+    } catch (error) {
+      logger.error('Error getting schedule by ID:', error);
       throw error;
     }
   }
@@ -49,28 +62,19 @@ class SchedulesService {
         throw new Error(validationError);
       }
 
-      const schedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value() || [];
-
-      // Generate new ID
-      const maxId = schedules.reduce((max, schedule) => Math.max(max, schedule.id || 0), 0);
-      const newSchedule = {
-        id: maxId + 1,
+      const schedule = await Schedule.create({
         ...scheduleData,
-        source: scheduleData.source,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      await Database.interfaceDB.chain.get('schedules').push(newSchedule).value();
-      await Database.interfaceDB.write();
-
-      logger.info('Schedule created successfully:', {
-        id: newSchedule.id,
-        cameraName: newSchedule.cameraName,
-        source: newSchedule.source
+        create_date: new Date(),
+        update_date: new Date()
       });
 
-      return newSchedule;
+      logger.info('Schedule created successfully:', {
+        id: schedule.id,
+        cameraName: schedule.cameraName,
+        source: schedule.source
+      });
+
+      return schedule;
     } catch (error) {
       logger.error('Failed to create schedule:', error);
       throw error;
@@ -87,58 +91,18 @@ class SchedulesService {
     try {
       logger.info('Updating schedule with data:', { id, scheduleData });
 
-      // 전체 schedules 데이터를 가져옴
-      let schedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value() || [];
-      const scheduleIndex = schedules.findIndex(s => s.id === parseInt(id));
-
-      if (scheduleIndex === -1) {
+      const schedule = await Schedule.findByPk(id);
+      if (!schedule) {
         throw new Error('Schedule not found');
       }
 
-      const existingSchedule = schedules[scheduleIndex];
+      await schedule.update({
+        ...scheduleData,
+        update_date: new Date()
+      });
 
-      // 기존 데이터와 새로운 데이터를 병합하되, 필드 이름을 올바르게 매핑
-      const updatedSchedule = {
-        ...existingSchedule,
-        cameraName: scheduleData.cameraName,
-        days_of_week: scheduleData.days_of_week || scheduleData.days || existingSchedule.days_of_week,
-        start_time: scheduleData.start_time || scheduleData.startTime || existingSchedule.start_time,
-        end_time: scheduleData.end_time || scheduleData.endTime || existingSchedule.end_time,
-        recording_type: scheduleData.recording_type || scheduleData.recordingType || existingSchedule.recording_type,
-        isActive: scheduleData.isActive !== undefined ? scheduleData.isActive : existingSchedule.isActive,
-        source: scheduleData.source || existingSchedule.source,
-        id: parseInt(id),
-        updatedAt: new Date().toISOString()
-      };
-
-      logger.info('Merged schedule data:', updatedSchedule);
-
-      const validationError = validateSchedule(updatedSchedule);
-      if (validationError) {
-        logger.warn('Schedule validation failed:', {
-          error: validationError,
-          data: updatedSchedule
-        });
-        throw new Error(validationError);
-      }
-
-      // 배열에서 해당 스케줄을 업데이트
-      schedules[scheduleIndex] = updatedSchedule;
-
-      // 전체 schedules 배열을 다시 저장
-      await Database.interfaceDB.chain.set('schedules', schedules).value();
-      await Database.interfaceDB.write();
-
-      // 저장 후 데이터 확인
-      const savedSchedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value();
-      logger.info('Saved schedules after update:', savedSchedules);
-
-      if (!savedSchedules.find(s => s.id === parseInt(id))) {
-        throw new Error('Failed to save schedule update');
-      }
-
-      logger.info('Schedule updated successfully:', { id, updatedSchedule });
-      return updatedSchedule;
+      logger.info('Schedule updated successfully:', { id, updatedSchedule: schedule });
+      return schedule;
     } catch (error) {
       logger.error('Error updating schedule:', error);
       throw error;
@@ -154,40 +118,17 @@ class SchedulesService {
     try {
       logger.info('Attempting to delete schedule:', { id });
 
-      // 전체 schedules 데이터를 가져옴
-      let schedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value() || [];
-
-      // ID를 정수로 변환하여 비교
-      const parsedId = parseInt(id);
-      const scheduleIndex = schedules.findIndex(s => s.id === parsedId);
-
-      if (scheduleIndex === -1) {
-        logger.warn('Schedule not found for deletion:', { id: parsedId });
+      const schedule = await Schedule.findByPk(id);
+      if (!schedule) {
+        logger.warn('Schedule not found for deletion:', { id });
         throw new Error('Schedule not found');
       }
 
-      // 삭제할 스케줄 정보 저장
-      const scheduleToDelete = schedules[scheduleIndex];
-
-      // 스케줄 배열에서 해당 스케줄 제거
-      schedules.splice(scheduleIndex, 1);
-
-      // 전체 schedules 배열을 다시 저장
-      await Database.interfaceDB.chain.set('schedules', schedules).value();
-      await Database.interfaceDB.write();
-
-      // 저장 후 데이터 확인
-      const savedSchedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value();
-      logger.info('Remaining schedules after deletion:', savedSchedules);
-
-      // 삭제된 스케줄이 실제로 제거되었는지 확인
-      if (savedSchedules.some(s => s.id === parsedId)) {
-        throw new Error('Failed to delete schedule');
-      }
+      await schedule.destroy();
 
       logger.info('Schedule deleted successfully:', {
-        id: parsedId,
-        deletedSchedule: scheduleToDelete
+        id: id,
+        deletedSchedule: schedule
       });
 
       return true;
@@ -206,35 +147,18 @@ class SchedulesService {
     try {
       logger.info('Toggling schedule status for id:', id);
 
-      // 전체 schedules 데이터를 가져옴
-      let schedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value() || [];
-      const scheduleIndex = schedules.findIndex(s => s.id === parseInt(id));
-
-      if (scheduleIndex === -1) {
+      const schedule = await Schedule.findByPk(id);
+      if (!schedule) {
         throw new Error('Schedule not found');
       }
 
-      const existingSchedule = schedules[scheduleIndex];
       const updatedSchedule = {
-        ...existingSchedule,
-        isActive: !existingSchedule.isActive,
-        updatedAt: new Date().toISOString()
+        ...schedule,
+        isActive: !schedule.isActive,
+        update_date: new Date()
       };
 
-      // 배열에서 해당 스케줄을 업데이트
-      schedules[scheduleIndex] = updatedSchedule;
-
-      // 전체 schedules 배열을 다시 저장
-      await Database.interfaceDB.chain.set('schedules', schedules).value();
-      await Database.interfaceDB.write();
-
-      // 저장 후 데이터 확인
-      const savedSchedules = await Database.interfaceDB.chain.get('schedules').cloneDeep().value();
-      logger.info('Saved schedules after toggle:', savedSchedules);
-
-      if (!savedSchedules.find(s => s.id === parseInt(id))) {
-        throw new Error('Failed to save schedule toggle');
-      }
+      await schedule.update(updatedSchedule);
 
       logger.info('Schedule status toggled successfully:', {
         id,
@@ -243,6 +167,45 @@ class SchedulesService {
       return updatedSchedule;
     } catch (error) {
       logger.error('Error toggling schedule status:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get active schedules
+   * @returns {Promise<Array>} Array of active schedule objects
+   */
+  async getActiveSchedules() {
+    try {
+      const schedules = await Schedule.findAll({
+        where: {
+          isActive: 1
+        },
+        order: [['id', 'DESC']]
+      });
+      return schedules;
+    } catch (error) {
+      logger.error('Error getting active schedules:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get schedules by camera ID
+   * @param {number} cameraId - Camera ID
+   * @returns {Promise<Array>} Array of schedule objects
+   */
+  async getSchedulesByCameraId(cameraId) {
+    try {
+      const schedules = await Schedule.findAll({
+        where: {
+          fk_camera_id: cameraId
+        },
+        order: [['id', 'DESC']]
+      });
+      return schedules;
+    } catch (error) {
+      logger.error('Error getting schedules by camera ID:', error);
       throw error;
     }
   }

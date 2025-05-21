@@ -182,19 +182,30 @@ export const routesConfig = (app) => {
 
     try {
       // recordingHistory에서 녹화 정보 찾기
-      const recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
-      const recording = recordingHistory.find(r => r.id === id);
+      const recording = await RecordingsModel.getRecordingHistoryById(id);
 
       if (!recording) {
         logger.warn(`[${requestId}] Recording not found in history: ${id}`);
         return res.status(404).json({ error: 'Recording not found' });
       }
-
+      logger.debug(`[${requestId}] Recording: ${JSON.stringify(recording)}`);
       // 녹화 파일 경로 생성
+      let datePart = '';
+      if (recording.startTime instanceof Date) {
+        datePart = recording.startTime.toISOString().split('T')[0];
+      } else if (typeof recording.startTime === 'string' && recording.startTime.includes('T')) {
+        datePart = recording.startTime.split('T')[0];
+      } else if (typeof recording.startTime === 'string' && recording.startTime.length >= 10) {
+        // 혹시 '2025-05-21 09:41:21' 같은 형식일 때
+        datePart = recording.startTime.substring(0, 10);
+      } else {
+        // fallback: 오늘 날짜
+        datePart = moment().format('YYYY-MM-DD');
+      }
       const recordingPath = path.join(
         ConfigService.recordingsPath,
         recording.cameraName,
-        recording.startTime.split('T')[0],
+        datePart,
         recording.filename
       );
 
@@ -354,24 +365,7 @@ export const routesConfig = (app) => {
       const requestId = Math.random().toString(36).substring(7);
 
       try {
-        // Check if recordingHistory collection exists
-        const recordingHistory = await Database.interfaceDB.chain
-          .has('recordingHistory')
-          .value();
-
-        if (!recordingHistory) {
-          logger.warn('Recording history collection not found', { requestId });
-          return res.status(404).json({
-            statusCode: 404,
-            message: "Recording history collection not found",
-            requestId
-          });
-        }
-
-        const recordings = await Database.interfaceDB.chain
-          .get('recordingHistory')
-          .cloneDeep()
-          .value() || [];
+        const recordings = await RecordingsModel.getAllRecordingHistory();
 
         // 응답 데이터 준비
         const responseData = recordings.map(record => ({
@@ -452,14 +446,12 @@ export const routesConfig = (app) => {
     async (req, res) => {
       try {
         const { cameraName } = req.params;
-        const recordingHistory = await Database.interfaceDB.chain
-          .get('recordingHistory')
-          .filter(record => record.cameraName === cameraName && record.status === 'recording')
-          .value();
+        const recordingHistory = await RecordingsModel.getRecordingHistoryByCameraId(cameraName);
+        const activeRecordings = recordingHistory.filter(record => record.status === 'recording');
 
         res.json({
-          isRecording: recordingHistory.length > 0,
-          currentRecording: recordingHistory[0] || null
+          isRecording: activeRecordings.length > 0,
+          currentRecording: activeRecordings[0] || null
         });
       } catch (error) {
         logger.error('Error fetching recording status:', error);
@@ -489,11 +481,7 @@ export const routesConfig = (app) => {
     PermissionMiddleware.minimumPermissionLevelRequired('recordings:access'),
     async (req, res) => {
       try {
-        const activeRecordings = await Database.interfaceDB.chain
-          .get('recordingHistory')
-          .filter(record => record.status === 'recording')
-          .value();
-
+        const activeRecordings = await RecordingsModel.getRecordingHistoryByStatus('recording');
         res.json(activeRecordings);
       } catch (error) {
         logger.error('Error fetching active recordings:', error);
@@ -535,10 +523,7 @@ export const routesConfig = (app) => {
         logger.info(`[${requestId}] Fetching thumbnail for recording ID: ${id}`);
 
         // Get recording info from database
-        const recording = await Database.interfaceDB.chain
-          .get('recordingHistory')
-          .find({ id })
-          .value();
+        const recording = await RecordingsModel.getRecordingHistoryById(id);
 
         if (!recording) {
           logger.warn(`[${requestId}] Recording not found with ID: ${id}`);
@@ -877,10 +862,7 @@ export const routesConfig = (app) => {
 
         // 녹화 정보 저장
         recording.filename = filename;
-        await Database.interfaceDB.chain
-          .get('recordingHistory')
-          .push(recording)
-          .write();
+        await RecordingsModel.addRecordingHistory(recording);
 
         const duration = Date.now() - startTime;
         logger.info(`[${requestId}] Recording started successfully in ${duration}ms`, {
@@ -1012,7 +994,6 @@ export const routesConfig = (app) => {
     timestamp: new Date().toISOString()
   });
 };
-
 // Helper function to find video file by filename
 async function findVideoFileByFilename(videoPath, filename) {
   try {
@@ -1077,3 +1058,4 @@ async function generateThumbnailFromStream(streamUrl, outputPath) {
     ffmpeg.on('error', reject);
   });
 }
+
