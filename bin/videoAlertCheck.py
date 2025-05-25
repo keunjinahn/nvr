@@ -208,7 +208,7 @@ class VideoAlertChecker:
                         for idx, min_roi in enumerate(roi_values):
                             #print("min_roi : ", min_roi, "levelItem : ", levelItem['threshold'])
                             if min_roi['value'] < float(levelItem['threshold']):
-                                self.create_alert(data['id'],data_value,idx, min_roi, int(levelItem['id']) -1)
+                                self.create_alert(data['id'],data_value,idx, min_roi, int(levelItem['id']) -1, None)
                                 break
 
                 except json.JSONDecodeError:
@@ -222,7 +222,7 @@ class VideoAlertChecker:
             if cursor:
                 cursor.close()
 
-    def create_alert(self, fk_video_receive_data_id, data_value, idx, min_roi, alert_level):
+    def create_alert(self, fk_video_receive_data_id, data_value, idx, min_roi, alert_level, temperature_diff=None, base_temperature=None, roi_temperature_diff=None, roi_min_temp=None, roi_max_temp=None):
         try:
             cursor = self.get_db_cursor()
             if not cursor:
@@ -241,13 +241,21 @@ class VideoAlertChecker:
                 logger.info(f"Duplicate alert exists for fk_video_receive_data_id={fk_video_receive_data_id}, fk_detect_zone_id={idx + 1}. Skipping insert.")
                 return
 
+            # 시나리오 3의 경우 다른 설명 포맷 사용
+            if min_roi['key'] == 'data_21':
+                temp_desc = f"현재 평균온도({min_roi['value']:.1f}℃)가 기준온도({base_temperature:.1f}℃)와 {temperature_diff:.1f}℃ 차이 (95% 신뢰구간: {roi_min_temp:.1f}℃ ~ {roi_max_temp:.1f}℃)"
+            else:
+                temp_desc = f"ROI 구간 온도차: {temperature_diff:.1f}℃ (최대-최소)" if base_temperature is None else f"base 온도차({base_temperature:.1f}℃) 대비 ROI 온도차({roi_temperature_diff:.1f}℃) 차이: {temperature_diff:.1f}%"
+
             alert_info = {
                 'min_roi_key': min_roi['key'],
                 'min_roi_value': min_roi['value'],
                 'max_roi_key': max_roi_key,
                 'max_roi_value': data_value.get(max_roi_key),
                 'alert_level': alert_level,
-                'check_time': datetime.now().isoformat()
+                'check_time': datetime.now().isoformat(),
+                'temperature_diff': temperature_diff,
+                'temperature_diff_desc': temp_desc
             }
             print("alert_info : ", alert_info)
             query = """
@@ -282,6 +290,245 @@ class VideoAlertChecker:
             if cursor:
                 cursor.close()
 
+    def scenario1_judge(self):
+        """
+        시나리오1: tb_video_receive_data의 최신 데이터 1개에서
+        각 ROI 구간별 (최대-최소) 값의 차이가 10도 이상이면 경보 생성
+        """
+        try:
+            cursor = self.get_db_cursor()
+            if not cursor:
+                return False, None
+
+            # 1. 최신 데이터 1개 조회
+            cursor.execute("""
+                SELECT * FROM tb_video_receive_data
+                ORDER BY create_date DESC
+                LIMIT 1
+            """)
+            current = cursor.fetchone()
+
+            if not current:
+                logger.info("No data found for scenario1_judge")
+                return False, None
+
+            # 2. ROI 값 추출 및 반복 (data_22~data_40: 최소, data_23~data_41: 최대)
+            current_info = json.loads(current['data_value'])
+            roi_pairs = [(i, i+1) for i in range(22, 41, 2)]  # (22,23), (24,25), ..., (40,41)
+
+            for idx, (min_idx, max_idx) in enumerate(roi_pairs):
+                min_key = f'data_{min_idx}'
+                max_key = f'data_{max_idx}'
+                min_val = current_info.get(min_key)
+                max_val = current_info.get(max_key)
+                if min_val is not None and max_val is not None:
+                    try:
+                        diff = abs(float(max_val) - float(min_val))
+                        logger.info(f"ROI {min_key}/{max_key} 최대-최소값 차이: {diff}℃ (최대: {max_val}, 최소: {min_val})")
+                        if 10.0 <= diff < 20.0:
+                            logger.info(f"누수판단: ROI {min_key}/{max_key} 온도차 {diff}℃ (기준: 10~20℃)")
+                            self.create_alert(
+                                current['id'],
+                                current_info,
+                                idx,
+                                {'key': min_key, 'value': min_val},
+                                0,
+                                diff
+                            )
+                        elif diff >= 20.0:
+                            logger.warning(f"ROI {min_key}/{max_key} 온도차 {diff}℃: 20℃ 이상 예외상황(센서오류 등)으로 경보 미생성")
+                    except Exception as e:
+                        logger.error(f"ROI 값 비교 오류: {e}")
+
+            return False, None
+
+        except Exception as e:
+            logger.error(f"scenario1_judge error: {e}")
+            return False, None
+        finally:
+            if cursor:
+                cursor.close()
+
+    def scenario2_judge(self):
+        """
+        시나리오2: 
+        - base 온도: data_19(최저)와 data_20(최고)의 차이
+        - 각 ROI의 최고-최저 온도차가 base 온도차와 25% 이상 차이나면 누수판단
+        """
+        try:
+            cursor = self.get_db_cursor()
+            if not cursor:
+                return False, None
+
+            # 1. 최신 데이터 1개 조회
+            cursor.execute("""
+                SELECT * FROM tb_video_receive_data
+                ORDER BY create_date DESC
+                LIMIT 1
+            """)
+            current = cursor.fetchone()
+
+            if not current:
+                logger.info("No data found for scenario2_judge")
+                return False, None
+
+            # 2. base 온도(data_19, data_20) 추출 및 차이 계산
+            current_info = json.loads(current['data_value'])
+            base_min = current_info.get('data_19')
+            base_max = current_info.get('data_20')
+            
+            if base_min is None or base_max is None:
+                logger.error("base 온도(data_19 또는 data_20) 정보가 없습니다.")
+                return False, None
+
+            try:
+                base_min = float(base_min)
+                base_max = float(base_max)
+                base_diff = abs(base_max - base_min)
+                logger.info(f"base 온도차: {base_diff:.1f}℃ (최고: {base_max}℃, 최저: {base_min}℃)")
+            except ValueError:
+                logger.error(f"base 온도 변환 오류: data_19={base_min}, data_20={base_max}")
+                return False, None
+
+            # 3. 각 ROI 지점의 최고-최저 온도차와 base 온도차 비교
+            roi_pairs = [(i, i+1) for i in range(22, 41, 2)]  # (22,23), (24,25), ..., (40,41)
+            for idx, (min_idx, max_idx) in enumerate(roi_pairs):
+                min_key = f'data_{min_idx}'
+                max_key = f'data_{max_idx}'
+                min_val = current_info.get(min_key)
+                max_val = current_info.get(max_key)
+                
+                if min_val is not None and max_val is not None:
+                    try:
+                        min_val = float(min_val)
+                        max_val = float(max_val)
+                        roi_diff = abs(max_val - min_val)
+                        
+                        # base 온도차와의 차이 계산 (%)
+                        diff_percent = abs((roi_diff - base_diff) / base_diff * 100)
+                        
+                        logger.info(f"ROI {min_key}/{max_key} 온도차: {roi_diff:.1f}℃ (최고: {max_val}℃, 최저: {min_val}℃), base 대비 차이: {diff_percent:.1f}%")
+                        
+                        if diff_percent >= 25.0:
+                            logger.info(f"누수판단: ROI {min_key}/{max_key} 온도차 {roi_diff:.1f}℃가 base 온도차 {base_diff:.1f}℃ 대비 {diff_percent:.1f}% 차이 (기준: 25%)")
+                            self.create_alert(
+                                current['id'],
+                                current_info,
+                                idx,
+                                {'key': min_key, 'value': min_val},
+                                0,
+                                diff_percent,  # 온도차 퍼센트
+                                base_diff,  # base 온도차
+                                roi_diff,  # ROI 온도차
+                                min_val,  # ROI 최저온도
+                                max_val   # ROI 최고온도
+                            )
+                    except Exception as e:
+                        logger.error(f"ROI {min_key}/{max_key} 값 비교 오류: {e}")
+
+            return False, None
+
+        except Exception as e:
+            logger.error(f"scenario2_judge error: {e}")
+            return False, None
+        finally:
+            if cursor:
+                cursor.close()
+
+    def scenario3_judge(self):
+        """
+        시나리오3: 
+        - 1시간 동안의 data_21(평균온도) 데이터를 조회하여 95% 신뢰구간의 기준온도 계산
+        - 최신 data_21 값과 기준온도의 차이가 5도 이상이면 누수로 판단
+        """
+        try:
+            cursor = self.get_db_cursor()
+            if not cursor:
+                return False, None
+
+            # 1. 1시간 동안의 data_21 평균온도 데이터 조회 및 95% 신뢰구간 계산
+            cursor.execute("""
+                WITH hourly_data AS (
+                    SELECT 
+                        CAST(JSON_UNQUOTE(JSON_EXTRACT(data_value, '$.data_21')) AS DECIMAL(10,2)) as avg_temp
+                    FROM tb_video_receive_data
+                    WHERE create_date >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                    AND JSON_EXTRACT(data_value, '$.data_21') IS NOT NULL
+                )
+                SELECT 
+                    AVG(avg_temp) as mean_temp,
+                    STDDEV(avg_temp) as std_temp,
+                    COUNT(*) as data_count
+                FROM hourly_data
+            """)
+            stats = cursor.fetchone()
+
+            if not stats or stats['data_count'] < 2:
+                logger.warning("1시간 동안의 충분한 데이터가 없습니다.")
+                return False, None
+
+            # 95% 신뢰구간 계산 (z-score = 1.96)
+            mean_temp = float(stats['mean_temp'])
+            std_temp = float(stats['std_temp'])
+            confidence_interval = 1.96 * std_temp
+            upper_bound = mean_temp + confidence_interval
+            lower_bound = mean_temp - confidence_interval
+
+            logger.info(f"1시간 평균온도 통계: 평균={mean_temp:.1f}℃, 표준편차={std_temp:.1f}℃")
+            logger.info(f"95% 신뢰구간: {lower_bound:.1f}℃ ~ {upper_bound:.1f}℃")
+
+            # 2. 최신 data_21 값 조회
+            cursor.execute("""
+                SELECT * FROM tb_video_receive_data
+                ORDER BY create_date DESC
+                LIMIT 1
+            """)
+            current = cursor.fetchone()
+
+            if not current:
+                logger.info("No current data found for scenario3_judge")
+                return False, None
+
+            current_info = json.loads(current['data_value'])
+            current_temp = current_info.get('data_21')
+
+            if current_temp is None:
+                logger.error("현재 평균온도(data_21) 정보가 없습니다.")
+                return False, None
+
+            try:
+                current_temp = float(current_temp)
+                # 기준온도와의 차이 계산
+                temp_diff = abs(current_temp - mean_temp)
+                
+                logger.info(f"현재 평균온도: {current_temp:.1f}℃, 기준온도(평균): {mean_temp:.1f}℃, 차이: {temp_diff:.1f}℃")
+                
+                if temp_diff >= 5.0:
+                    logger.info(f"누수판단: 현재 평균온도 {current_temp:.1f}℃가 기준온도 {mean_temp:.1f}℃와 {temp_diff:.1f}℃ 차이 (기준: 5℃)")
+                    self.create_alert(
+                        current['id'],
+                        current_info,
+                        0,  # ROI index는 사용하지 않음
+                        {'key': 'data_21', 'value': current_temp},
+                        0,
+                        temp_diff,  # 온도차
+                        mean_temp,  # 기준온도(평균)
+                        std_temp,  # 표준편차
+                        upper_bound,  # 상한값
+                        lower_bound   # 하한값
+                    )
+            except ValueError:
+                logger.error(f"온도 변환 오류: data_21={current_temp}")
+        
+        return False, None
+
+        except Exception as e:
+            logger.error(f"scenario3_judge error: {e}")
+            return False, None
+        finally:
+            if cursor:
+                cursor.close()
+
     def run(self):
         logger.info("Starting VideoAlertChecker...")
         while True:
@@ -293,10 +540,21 @@ class VideoAlertChecker:
                     self.get_alert_settings()
                     self.last_settings_check = current_time
 
-                # Check video data every 10 seconds
-                if current_time - self.last_data_check >= self.data_check_interval:
-                    self.check_video_data()
-                    self.last_data_check = current_time
+                # 시나리오 분기
+                scenario = None
+                if self.alert_settings and 'alert' in self.alert_settings and 'scenario' in self.alert_settings['alert']:
+                    scenario = self.alert_settings['alert']['scenario']
+                else:
+                    scenario = 'scenario1'  # 기본값
+
+                if scenario == 'scenario1':
+                    self.scenario1_judge()
+                elif scenario == 'scenario2':
+                    self.scenario2_judge()
+                elif scenario == 'scenario3':
+                    self.scenario3_judge()
+                else:
+                    logger.warning(f"Unknown scenario: {scenario}")
                 
                 time.sleep(1)  # Sleep for 1 second to prevent CPU overuse
 

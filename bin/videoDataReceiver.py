@@ -235,6 +235,9 @@ class VideoDataReceiver:
                                     logger.error(f"DB Insert 실패: {e}")
                                     logger.error(traceback.format_exc())
 
+                                # 1초 대기 후 다음 수신
+                                time.sleep(1)
+
                             else:
                                 print("[-] 수신 데이터 없음 (소켓은 열려 있음)")
                                 break  # 소켓 연결 종료
@@ -278,88 +281,15 @@ class VideoDataReceiver:
             logger.error(traceback.format_exc())
             return False
         
-    def build_roi2_packet(self,cmd, data):
-        print("[*] 패킷 구성 시작...")
-
-        header = 0xFF
-        address = 0x00
-        cmd_h = (cmd >> 8) & 0xFF
-        cmd_l = cmd & 0xFF
-        data_h = (data >> 8) & 0xFF
-        data_l = data & 0xFF
-
-        print(f"    Header      : 0x{header:02X}")
-        print(f"    Address     : 0x{address:02X}")
-        print(f"    CMD_H       : 0x{cmd_h:02X}")
-        print(f"    CMD_L       : 0x{cmd_l:02X}")
-        print(f"    DATA_H      : 0x{data_h:02X}")
-        print(f"    DATA_L      : 0x{data_l:02X}")
-
-        # Checksum: Byte2~Byte6의 8bit 합
-        payload = [address, cmd_h, cmd_l, data_h, data_l]
-        checksum = sum(payload) & 0xFF
-        print(f"    Checksum    : 0x{checksum:02X}")
-
-        packet = bytes([header] + payload + [checksum])
-        print(f"[*] 최종 패킷 (hex): {packet.hex()}")
-        return packet
-
-    def send_roi_setting(self, roi_index, start_x, start_y, end_x, end_y, camera_ip, camera_port):
-        """
-        ROI 설정 명령을 순차적으로 전송 (ROI0, ROI1, ...)
-        roi_index: 0이면 ROI0, 1이면 ROI1 ...
-        start_x, start_y, end_x, end_y: ROI 영역 좌표
-        camera_ip, camera_port: 카메라 접속 정보
-        """
-        # ROI별 레지스터 주소 계산
-        base_addr = 0x2320 + roi_index * 0x10
-        # 각 파라미터 (주소, 값)
-        params = [
-            (base_addr + 0, start_x),
-            (base_addr + 1, start_y),
-            (base_addr + 2, end_x),
-            (base_addr + 3, end_y)
-        ]
-        for cmd, data in params:
-            packet = self.build_roi2_packet(cmd, data)
-            self.send_packet_to_camera(packet, camera_ip, camera_port)
-
-
-    def send_packet_to_camera(self, packet, camera_ip, camera_port):
-        """
-        카메라에 TCP로 접속하여 패킷 전송
-        """
-        import socket
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(5)
-                sock.connect((camera_ip, camera_port))
-                sock.sendall(packet)
-                print(f"[+] 패킷 전송 완료 ({len(packet)} bytes)")
-                # 필요시 응답 수신
-                response = sock.recv(1024)
-                print(f"[+] 응답 수신: {response.hex()}")
-                return response
-        except Exception as e:
-            print(f"[!] 전송 실패: {e}")
-            return None
-
+ 
     def run(self):
         cmd_input = "2304"
         data_input = "0001"
 
         cmd = int(cmd_input, 16)
         data = int(data_input, 16)
-        # self.send_command_and_receive(cmd,data)
-        self.send_roi_setting(
-            roi_index=0,
-            start_x=10,
-            start_y=10,
-            end_x=100,
-            end_y=100,
-            camera_ip=CAMERA_IP,
-            camera_port=CAMERA_PORT
-        )
+        self.send_command_and_receive(cmd,data)
+
 
 if __name__ == "__main__":
     try:

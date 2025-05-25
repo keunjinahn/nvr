@@ -35,15 +35,6 @@
                 v-icon.tw-mr-2(size="24") {{ icons['mdiChartLine'] }}
                 span 분석통계
               v-btn.tab-btn(
-                :color="currentTab === 'report' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
-                @click="changeTab('report')"
-                text
-                height="75"
-                width="200"
-              )
-                v-icon.tw-mr-2(size="24") {{ icons['mdiFileDocument'] }}
-                span 보고서출력
-              v-btn.tab-btn(
                 :color="currentTab === 'zone' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
                 @click="changeTab('zone')"
                 text

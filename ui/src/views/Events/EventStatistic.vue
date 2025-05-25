@@ -6,43 +6,32 @@
         v-card.mb-3
           v-card-title.d-flex.align-center.py-2
             v-icon.mr-2(color="primary" small) {{ icons.mdiChartLine }}
-            span.subtitle-1 이벤트 발생 추이
+            span.subtitle-1 ROI별 실시간 온도 변화 추이
           v-card-text.pa-2
-            v-chart(:options="eventTrendOption" autoresize height="200" ref="trendChart" style="width:100%;height:200px;background:var(--cui-bg-card);")
+            v-chart(:options="eventTrendOption" autoresize height="400" ref="trendChart" style="width:100%;height:400px;background:var(--cui-bg-card);")
 
     v-row
       v-col(cols="12" md="6")
         v-card.mb-3
-          v-card-title.d-flex.align-center.py-2
-            v-icon.mr-2(color="primary" small) {{ icons.mdiChartPie }}
-            span.subtitle-1 영상별 이벤트 발생 건수
-          v-card-text.pa-2
-            v-chart(:options="eventByVideoOption" autoresize height="200" ref="videoChart" style="width:100%;height:200px;background:var(--cui-bg-card);")
-
-      v-col(cols="12" md="6")
-        v-card.mb-3
-          v-card-title.d-flex.align-center.py-2
-            v-icon.mr-2(color="primary" small) {{ icons.mdiChartLine }}
-            span.subtitle-1 영상별 온도 변화 추이
-          v-card-text.pa-2
-            v-chart(:options="temperatureOption" autoresize height="200" ref="tempChart" style="width:100%;height:200px;background:var(--cui-bg-card);")
-
-    v-row
-      v-col(cols="12" md="6")
-        v-card
           v-card-title.d-flex.align-center.py-2
             v-icon.mr-2(color="primary" small) {{ icons.mdiChartBar }}
-            span.subtitle-1 이벤트 처리 현황 (주간)
+            span.subtitle-1 ROI별 일일 평균 온도
           v-card-text.pa-2
-            v-chart(:options="eventStatusBarOption" autoresize height="200" ref="barChart" style="width:100%;height:200px;background:var(--cui-bg-card);")
-
+            v-chart(:options="roiAvgTempOption" autoresize height="400" ref="roiAvgTempChart" style="width:100%;height:400px;background:var(--cui-bg-card);")
       v-col(cols="12" md="6")
-        v-card
+        v-card.mb-3
           v-card-title.d-flex.align-center.py-2
-            v-icon.mr-2(color="primary" small) {{ icons.mdiChartPie }}
-            span.subtitle-1 이벤트 처리 현황 (비율)
+            v-icon.mr-2(color="primary" small) {{ icons.mdiChartBar }}
+            span.subtitle-1 ROI별 최소온도 변화율 TOP10
           v-card-text.pa-2
-            v-chart(:options="eventStatusPieOption" autoresize height="200" ref="pieChart" style="width:100%;height:200px;background:var(--cui-bg-card);")
+            v-data-table(
+              :headers="roiMinChangeHeaders"
+              :items="roiMinChange"
+              class="elevation-1"
+              dense
+            )
+
+    
 </template>
 
 <script>
@@ -67,6 +56,8 @@ import {
   mdiChartPie,
   mdiChartBar
 } from '@mdi/js';
+import { getRealtimeTemp, getDailyRoiAvgTemp, getDailyRoiMinChange } from '@/api/statistic.api';
+import * as echarts from 'echarts';
 
 use([
   CanvasRenderer,
@@ -97,9 +88,71 @@ export default {
 
     // 이벤트 발생 추이 차트 옵션
     eventTrendOption: {
-      xAxis: { type: 'category', data: ['A', 'B', 'C'] },
-      yAxis: { type: 'value' },
-      series: [{ type: 'bar', data: [1, 2, 3] }]
+      tooltip: { trigger: 'axis' },
+      legend: { 
+        data: Array.from({ length: 10 }, (_, i) => `ROI${i+1}`),
+        textStyle: {
+          color: '#fff'
+        }
+      },
+      xAxis: { 
+        type: 'category', 
+        data: [],
+        axisLabel: {
+          color: '#fff'
+        }
+      },
+      yAxis: { 
+        type: 'value',
+        axisLabel: {
+          color: '#fff'
+        }
+      },
+      series: Array.from({ length: 10 }, (_, i) => ({
+        name: `ROI${i+1}`,
+        type: 'line',
+        data: []
+      })),
+      markLine: {
+        data: [
+          {
+            name: '최대',
+            type: 'max',
+            lineStyle: {
+              color: '#ff4d4f',
+              type: 'dashed'
+            },
+            label: {
+              formatter: '최대: {c}',
+              color: '#fff'
+            }
+          },
+          {
+            name: '최소',
+            type: 'min',
+            lineStyle: {
+              color: '#52c41a',
+              type: 'dashed'
+            },
+            label: {
+              formatter: '최소: {c}',
+              color: '#fff'
+            }
+          },
+          {
+            name: '평균',
+            type: 'average',
+            lineStyle: {
+              color: '#1890ff',
+              type: 'dashed'
+            },
+            label: {
+              formatter: '평균: {c}',
+              color: '#fff'
+            }
+          }
+        ]
+      }
     },
 
     // 영상별 이벤트 발생 건수 파이 차트 옵션
@@ -257,7 +310,65 @@ export default {
           }
         }
       }]
-    }
+    },
+
+    roiAvgTempOption: {
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: {
+          type: 'shadow'
+        }
+      },
+      legend: {
+        data: ['평균 온도'],
+        textStyle: {
+          color: '#fff'
+        }
+      },
+      xAxis: {
+        type: 'category',
+        data: Array.from({ length: 10 }, (_, i) => `ROI${i+1}`),
+        axisLabel: {
+          color: '#fff'
+        }
+      },
+      yAxis: {
+        type: 'value',
+        name: '온도 (°C)',
+        axisLabel: {
+          color: '#fff',
+          formatter: '{value} °C'
+        }
+      },
+      series: [{
+        name: '평균 온도',
+        type: 'bar',
+        data: [],
+        itemStyle: {
+          color: '#1890ff'
+        },
+        label: {
+          show: true,
+          position: 'top',
+          color: '#fff',
+          formatter: '{c}°C'
+        }
+      }]
+    },
+
+    realtimeTemp: [],
+    tempChart: null,
+    tempChartOption: null,
+    tempTimer: null,
+
+    roiMinChange: [],
+    roiMinChangeHeaders: [
+      { text: 'NO', value: 'no', align: 'center' },
+      { text: 'ROI 번호', value: 'roi', align: 'center' },
+      { text: '평균온도', value: 'averageTemp', align: 'center' },
+      { text: '최소온도', value: 'minTemp', align: 'center' },
+      { text: '변화율(%)', value: 'changeRate', align: 'center' }
+    ],
   }),
 
   mounted() {
@@ -266,6 +377,187 @@ export default {
     console.log('tempChart:', this.$refs.tempChart);
     console.log('barChart:', this.$refs.barChart);
     console.log('pieChart:', this.$refs.pieChart);
+    this.loadRoiTempTrend();
+    this.loadRoiAvgTemp();
+    this.startTempTimer();
+    this.loadRoiMinChange();
+  },
+
+  beforeDestroy() {
+    if (this.tempChart) this.tempChart.dispose();
+    this.stopTempTimer();
+  },
+
+  methods: {
+    startTempTimer() {
+      this.tempTimer = setInterval(() => {
+        this.loadRoiTempTrend();
+      }, 3000);
+    },
+
+    stopTempTimer() {
+      if (this.tempTimer) {
+        clearInterval(this.tempTimer);
+        this.tempTimer = null;
+      }
+    },
+
+    async loadRoiTempTrend() {
+      try {
+        const res = await getRealtimeTemp();
+        const result = res.data.result || [];
+        const xData = result.map(d => new Date(d.time).toLocaleTimeString());
+        const roiSeries = Array.from({ length: 10 }, (_, i) =>
+          result.map(d => d.rois[i])
+        );
+
+        // 최신 데이터의 min, max, avg 값 가져오기
+        const latestData = result[0] || {};
+        const minValue = latestData.min;
+        const maxValue = latestData.max;
+        const avgValue = latestData.avg;
+
+        this.eventTrendOption = {
+          tooltip: { trigger: 'axis' },
+          legend: { 
+            data: Array.from({ length: 10 }, (_, i) => `ROI${i+1}`),
+            textStyle: {
+              color: '#fff'
+            }
+          },
+          xAxis: { 
+            type: 'category', 
+            data: xData,
+            axisLabel: {
+              color: '#fff'
+            }
+          },
+          yAxis: { 
+            type: 'value',
+            axisLabel: {
+              color: '#fff'
+            }
+          },
+          series: roiSeries.map((data, i) => ({
+            name: `ROI${i+1}`,
+            type: 'line',
+            data
+          })),
+          markLine: {
+            data: [
+              {
+                name: '최대',
+                yAxis: maxValue,
+                lineStyle: {
+                  color: '#ff4d4f',
+                  type: 'dashed'
+                },
+                label: {
+                  formatter: `최대: ${maxValue}°C`,
+                  color: '#fff'
+                }
+              },
+              {
+                name: '최소',
+                yAxis: minValue,
+                lineStyle: {
+                  color: '#52c41a',
+                  type: 'dashed'
+                },
+                label: {
+                  formatter: `최소: ${minValue}°C`,
+                  color: '#fff'
+                }
+              },
+              {
+                name: '평균',
+                yAxis: avgValue,
+                lineStyle: {
+                  color: '#1890ff',
+                  type: 'dashed'
+                },
+                label: {
+                  formatter: `평균: ${avgValue}°C`,
+                  color: '#fff'
+                }
+              }
+            ]
+          }
+        };
+      } catch (e) {
+        console.error('Error loading ROI temperature trend:', e);
+      }
+    },
+
+    async loadRoiAvgTemp() {
+      try {
+        const res = await getDailyRoiAvgTemp();
+        const result = res.data.result || [];
+        
+        this.roiAvgTempOption = {
+          ...this.roiAvgTempOption,
+          series: [{
+            ...this.roiAvgTempOption.series[0],
+            data: result.map(item => item.averageTemp)
+          }]
+        };
+      } catch (e) {
+        console.error('Error loading ROI average temperature:', e);
+      }
+    },
+
+    initTempChart() {
+      this.tempChart = echarts.init(this.$refs.tempChart);
+      this.tempChartOption = {
+        tooltip: { trigger: 'axis' },
+        legend: { data: [
+          ...Array.from({ length: 10 }, (_, i) => `ROI${i+1}`),
+          '최소', '최대', '평균'
+        ] },
+        xAxis: { type: 'category', data: [] },
+        yAxis: { type: 'value' },
+        series: [
+          ...Array.from({ length: 10 }, (_, i) => ({
+            name: `ROI${i+1}`,
+            type: 'line',
+            data: [],
+          })),
+          { name: '최소', type: 'line', data: [], lineStyle: { type: 'dashed' } },
+          { name: '최대', type: 'line', data: [], lineStyle: { type: 'dashed' } },
+          { name: '평균', type: 'line', data: [], lineStyle: { type: 'dashed' } },
+        ]
+      };
+      this.tempChart.setOption(this.tempChartOption);
+    },
+
+    updateTempChart() {
+      if (!this.tempChart) return;
+      const xData = this.realtimeTemp.map(d => new Date(d.time).toLocaleTimeString());
+      const roiSeries = Array.from({ length: 10 }, (_, i) =>
+        this.realtimeTemp.map(d => d.rois[i])
+      );
+      const minSeries = this.realtimeTemp.map(d => d.min);
+      const maxSeries = this.realtimeTemp.map(d => d.max);
+      const avgSeries = this.realtimeTemp.map(d => d.avg);
+      this.tempChart.setOption({
+        xAxis: { data: xData },
+        series: [
+          ...roiSeries.map((data, i) => ({ name: `ROI${i+1}`, data })),
+          { name: '최소', data: minSeries, lineStyle: { type: 'dashed' } },
+          { name: '최대', data: maxSeries, lineStyle: { type: 'dashed' } },
+          { name: '평균', data: avgSeries, lineStyle: { type: 'dashed' } },
+        ]
+      });
+    },
+
+    async loadRoiMinChange() {
+      try {
+        const res = await getDailyRoiMinChange();
+        this.roiMinChange = res.data.result || [];
+      } catch (e) {
+        console.error('Error loading ROI min change:', e);
+      }
+    },
   }
 };
 </script>

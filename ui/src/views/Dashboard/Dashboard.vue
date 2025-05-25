@@ -32,7 +32,16 @@
             .camera-display-area
               .display-box.left-box
                 .alert-history
-                  .alert-history-title 경보 이력
+                  .alert-history-title
+                    | 경보 이력
+                    v-btn(
+                      icon
+                      :color="autoRefreshAlertHistory ? 'primary' : 'grey'"
+                      @click="toggleAlertHistoryRefresh"
+                      class="ml-2"
+                      small
+                    )
+                      v-icon {{ icons.mdiRefresh }}
                   .alert-history-table
                     .table-row(
                       v-for="alert in alertHistory" 
@@ -77,7 +86,7 @@
                   .center-box
                     .chart-title 최근 7일 경보건수
                     .chart-container
-                      canvas(ref="alertChart")
+                      div(ref="alertChart" style="width:100%;height:200px;min-width:200px;min-height:200px;")
                   .bottom-box
                     .table-title 경보 이력
                     .alert-table
@@ -95,7 +104,7 @@ import {
   mdiRefresh
 } from '@mdi/js';
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
-import { getAlerts, getWeeklyAlertStats } from '@/api/alerts.api';
+import { getAlerts, getRecentAlertCounts } from '@/api/alerts.api';
 import VideoCard from '@/components/camera-card.vue';
 import socket from '@/mixins/socket';
 import * as echarts from 'echarts';
@@ -123,7 +132,8 @@ export default {
     alertCount: 4,
     alertHistory: [],
     env: process.env.NODE_ENV,
-    alertRefreshTimer: null
+    alertRefreshTimer: null,
+    autoRefreshAlertHistory: true
   }),
 
   computed: {
@@ -300,79 +310,32 @@ export default {
 
     initAlertChart() {
       const chartDom = this.$refs.alertChart;
+      if (!chartDom) return;
+      if (this.alertChart) {
+        this.alertChart.dispose();
+      }
       this.alertChart = echarts.init(chartDom);
-      
-      const option = {
-        backgroundColor: 'transparent',
-        tooltip: {
-          trigger: 'axis',
-          axisPointer: {
-            type: 'shadow'
-          }
-        },
-        grid: {
-          left: '3%',
-          right: '4%',
-          bottom: '3%',
-          containLabel: true
-        },
-        xAxis: {
-          type: 'category',
-          data: ['6일전', '5일전', '4일전', '3일전', '2일전', '어제', '오늘'],
-          axisLine: {
-            lineStyle: {
-              color: '#ffffff'
-            }
-          },
-          axisLabel: {
-            color: '#ffffff'
-          }
-        },
-        yAxis: {
-          type: 'value',
-          axisLine: {
-            lineStyle: {
-              color: '#ffffff'
-            }
-          },
-          axisLabel: {
-            color: '#ffffff'
-          },
-          splitLine: {
-            lineStyle: {
-              color: 'rgba(255, 255, 255, 0.1)'
-            }
-          }
-        },
-        series: [
-          {
-            name: '경보건수',
-            type: 'bar',
-            data: [3, 5, 2, 4, 6, 3, 2],
-            itemStyle: {
-              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                { offset: 0, color: '#83bff6' },
-                { offset: 0.5, color: '#188df0' },
-                { offset: 1, color: '#188df0' }
-              ])
-            },
-            emphasis: {
-              itemStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: '#2378f7' },
-                  { offset: 0.7, color: '#2378f7' },
-                  { offset: 1, color: '#83bff6' }
-                ])
-              }
-            }
-          }
-        ]
-      };
 
-      this.alertChart.setOption(option);
-      
-      // Handle window resize
-      window.addEventListener('resize', this.handleChartResize);
+      // 빈 데이터로만 초기화
+      this.alertChart.setOption({
+        backgroundColor: 'transparent',
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+        xAxis: { type: 'category', data: [], axisLine: { lineStyle: { color: '#ffffff' } }, axisLabel: { color: '#ffffff' } },
+        yAxis: { type: 'value', axisLine: { lineStyle: { color: '#ffffff' } }, axisLabel: { color: '#ffffff' }, splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.1)' } } },
+        series: [{
+          name: '경보건수',
+          type: 'bar',
+          data: [],
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: '#83bff6' },
+              { offset: 0.5, color: '#188df0' },
+              { offset: 1, color: '#188df0' }
+            ])
+          }
+        }]
+      });
     },
 
     initGaugeChart() {
@@ -549,24 +512,42 @@ export default {
 
     async loadAlertChart() {
       try {
-        const response = await getWeeklyAlertStats();
+        const response = await getRecentAlertCounts();
         const data = response.data.result;
-        const categories = data.map(d => d.date);
-        const levelSeries = [1,2,3,4,5].map(level => ({
-          name: this.getLevelText(String(level)),
-          type: 'bar',
-          stack: 'total',
-          data: data.map(d => d[level] || 0)
-        }));
-        this.alertChart.setOption({
-          xAxis: { type: 'category', data: categories },
-          yAxis: { type: 'value' },
-          legend: { data: levelSeries.map(s => s.name) },
-          tooltip: { trigger: 'axis' },
-          series: levelSeries
-        });
+
+        // 최근 7일 날짜 배열 생성 (오늘 포함)
+        const today = new Date();
+        const categories = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(today);
+          d.setDate(today.getDate() - i);
+          categories.push(d.toISOString().slice(0, 10));
+        }
+        const dataMap = Object.fromEntries(data.map(d => [d.date, d.count]));
+        const counts = categories.map(date => dataMap[date] || 0);
+
+        if (this.alertChart) {
+          this.alertChart.setOption({
+            xAxis: { type: 'category', data: categories },
+            yAxis: { type: 'value' },
+            legend: { show: false },
+            tooltip: { trigger: 'axis' },
+            series: [{
+              name: '경보건수',
+              type: 'bar',
+              data: counts,
+              itemStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                  { offset: 0, color: '#83bff6' },
+                  { offset: 0.5, color: '#188df0' },
+                  { offset: 1, color: '#188df0' }
+                ])
+              }
+            }]
+          }, true); // notMerge: true
+        }
       } catch (e) {
-        console.error('주간 경보 차트 데이터 조회 실패:', e);
+        console.error('최근 7일 경보 차트 데이터 조회 실패:', e);
       }
     },
 
@@ -581,6 +562,15 @@ export default {
       if (this.alertRefreshTimer) {
         clearInterval(this.alertRefreshTimer);
         this.alertRefreshTimer = null;
+      }
+    },
+
+    toggleAlertHistoryRefresh() {
+      this.autoRefreshAlertHistory = !this.autoRefreshAlertHistory;
+      if (this.autoRefreshAlertHistory) {
+        this.startAlertRefresh();
+      } else {
+        this.stopAlertRefresh();
       }
     }
   }
@@ -734,7 +724,7 @@ export default {
       display: flex;
       gap: 16px;
       margin-top: auto;
-      height: calc(100vh - 300px);
+      height: calc(100vh - 200px);
       
       .display-box {
         background-color: #2d2d2d;

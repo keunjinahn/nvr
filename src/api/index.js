@@ -10,6 +10,7 @@ import LoggerService from '../services/logger/logger.service.js';
 const { log } = LoggerService;
 
 import App from './app.js';
+import { routesConfig as statisticRoutesConfig } from './components/statistic/statistic.routes.js';
 
 export default class Server {
   constructor(controller) {
@@ -18,14 +19,16 @@ export default class Server {
       version: ConfigService.ui.version,
     });
 
+    statisticRoutesConfig(app);
+
     const server = ConfigService.ui.ssl
       ? https.createServer(
-          {
-            key: ConfigService.ui.ssl.key,
-            cert: ConfigService.ui.ssl.cert,
-          },
-          app
-        )
+        {
+          key: ConfigService.ui.ssl.key,
+          cert: ConfigService.ui.ssl.cert,
+        },
+        app
+      )
       : http.createServer(app);
 
     server.on('listening', async () => {

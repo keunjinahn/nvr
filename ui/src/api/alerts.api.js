@@ -132,4 +132,6 @@ export const getDefaultAlertSettings = async () => {
   };
 };
 
-export const getWeeklyAlertStats = async () => await api.get('/alerts/weekly-stats'); 
+export const getWeeklyAlertStats = async () => await api.get('/alerts/weekly-stats');
+
+export const getRecentAlertCounts = async () => await api.get('/alerts/recent_alert'); 

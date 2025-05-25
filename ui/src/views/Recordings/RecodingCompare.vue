@@ -229,7 +229,7 @@ export default {
               startTime: data.startTime || data.start_time || new Date().toISOString(),
               endTime: data.endTime || data.end_time || null,
               status: data.status || 'error',
-              selected: false
+            selected: false
             };
           });
         } else {
@@ -261,7 +261,7 @@ export default {
               startTime: data.startTime || data.start_time || new Date().toISOString(),
               endTime: data.endTime || data.end_time || null,
               status: data.status || 'error',
-              selected: false
+            selected: false
             };
           });
         } else {

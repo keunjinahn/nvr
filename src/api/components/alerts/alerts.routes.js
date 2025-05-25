@@ -301,6 +301,22 @@ export const routesConfig = (app) => {
 
   /**
    * @swagger
+   * /api/alerts/recent_alert:
+   *   get:
+   *     tags: [Alerts]
+   *     summary: 최근 7일간의 알림 건수 집계
+   *     responses:
+   *       200:
+   *         description: Successful
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/alerts/recent_alert', [
+    AlertsController.recentAlertCount
+  ]);
+
+  /**
+   * @swagger
    * /api/alerts/{id}:
    *   get:
    *     tags: [Alerts]

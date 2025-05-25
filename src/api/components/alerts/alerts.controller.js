@@ -3,6 +3,8 @@
 import * as AlertModel from './alerts.model.js';
 import AlertSetting from '../../../models/AlertSetting.js';
 import db from '../../../models/index.js'; // Sequelize instance
+import AlertHistory from '../../../models/AlertHistory.js';
+import { Op, fn, col, literal } from 'sequelize';
 
 export const insert = async (req, res) => {
   try {
@@ -176,6 +178,33 @@ export const getWeeklyStats = async (req, res) => {
       GROUP BY DATE(alert_accur_time)
       ORDER BY date ASC
     `);
+    res.json({ result: results });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// 최근 7일간의 알림 건수 집계
+export const recentAlertCount = async (req, res) => {
+  console.log('----------> recentAlertCount');
+  try {
+    const today = new Date();
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(today.getDate() - 6);
+
+    const results = await AlertHistory.findAll({
+      attributes: [
+        [fn('DATE', col('alert_accur_time')), 'date'],
+        [fn('COUNT', col('id')), 'count']
+      ],
+      where: {
+        alert_accur_time: {
+          [Op.gte]: sevenDaysAgo
+        }
+      },
+      group: [fn('DATE', col('alert_accur_time'))],
+      order: [[literal('date'), 'ASC']]
+    });
     res.json({ result: results });
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -86,6 +86,31 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted {{ icons['mdiThermometer'] }}
 
+                v-col(cols="12")
+                  label.form-input-label 누수판단 시나리오 선택
+                  v-radio-group(
+                    v-model="settings.alert.scenario"
+                    row
+                  )
+                    v-radio(
+                      label="시나리오 1"
+                      value="scenario1"
+                    )
+                    v-radio(
+                      label="시나리오 2"
+                      value="scenario2"
+                    )
+                    v-radio(
+                      label="시나리오 3"
+                      value="scenario3"
+                    )
+                  v-alert(
+                    type="info"
+                    outlined
+                    class="mt-2"
+                    v-if="settings.alert.scenario"
+                  ) {{ scenarioDescriptions[settings.alert.scenario] }}
+
             // 경보 단계 설정
             div(v-if="currentMenu === 'alarm-levels'")
               v-row
@@ -97,12 +122,12 @@
                         v-model="level.threshold"
                         label="기준 온도값"
                         type="number"
-                        suffix="℃"
+                        suffix="%"
                         dark
                         filled
                       )
                       v-textarea(
-                        :value="`설정온도 ${level.threshold}℃ 이하일경우 경보알람을 발생시킵니다`"
+                        :value="`기준치의 ${level.threshold}%를 초과할 경우 경보알람을 발생시킵니다.`"
                         label="설명"
                         rows="2"
                         auto-grow
@@ -280,17 +305,19 @@ export default {
     settings: null,
     isLoading: false,
     // 드롭다운 옵션들
-    alertTypes: ['알림', '경고', '긴급'],
-    sensitivityLevels: ['낮음', '중간', '높음'],
     notificationTypes: ['팝업', '이메일', 'SMS', '전체'],
-    priorityLevels: ['낮음', '중간', '높음', '긴급'],
     alarmLevelOptions: [
-      { text: '모든 단계', value: 1 },
-      { text: '2단계 이상', value: 2 },
-      { text: '3단계 이상', value: 3 },
-      { text: '4단계 이상', value: 4 },
-      { text: '5단계만', value: 5 }
-    ]
+      { text: '주의 (5%)', value: 'L001', threshold: 5 },
+      { text: '경고 (10%)', value: 'L002', threshold: 10 },
+      { text: '위험 (15%)', value: 'L003', threshold: 15 },
+      { text: '심각 (20%)', value: 'L004', threshold: 20 },
+      { text: '비상 (25%)', value: 'L005', threshold: 25 }
+    ],
+    scenarioDescriptions: {
+      scenario1: '최대-최소 온도차 10℃ 이상 & 2m 이상 구간 즉시 누수판단',
+      scenario2: '온도차 변화 25% 이상 & 1m 이상 구간 즉시 누수판단',
+      scenario3: 'Pixel별 1시간 평균온도 C2M distance 5℃ 이상(95% 신뢰구간) 시 누수판단'
+    },
   }),
 
   computed: {
@@ -356,6 +383,9 @@ export default {
     async setDefaultSettings() {
       try {
         this.settings = await getDefaultAlertSettings()
+        // 시나리오 기본값 추가
+        if (!this.settings.alert) this.settings.alert = {}
+        if (!this.settings.alert.scenario) this.settings.alert.scenario = 'scenario1'
       } catch (error) {
         console.error('기본 설정 불러오기 오류:', error)
         // API 호출에 실패한 경우 하드코딩된 기본값 사용
@@ -367,7 +397,8 @@ export default {
             priority: '높음',
             repeatInterval: 15,
             useSound: true,
-            leakThreshold: 5
+            leakThreshold: 5,
+            scenario: 'scenario1' // 기본값 추가
           },
           alarmLevels: [
             { 
@@ -638,5 +669,13 @@ export default {
       }
     }
   }
+}
+
+.scenario-desc {
+  display: block;
+  margin-left: 32px;
+  color: #aaa;
+  font-size: 0.95em;
+  margin-bottom: 8px;
 }
 </style>

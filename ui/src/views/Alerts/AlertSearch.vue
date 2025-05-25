@@ -86,37 +86,25 @@
           td.text-center {{ item.alert_accur_time }}
           td.text-center {{ getTypeText(item.alert_type) }}
           td.text-center
-        v-chip(
-          :color="getLevelColor(item.alert_level)"
-          small
-          label
-        ) {{ getLevelText(item.alert_level) }}
+            v-chip(:color="getLevelColor(item.alert_level)" small label) {{ getLevelText(item.alert_level) }}
           td.text-center
-        v-chip(
-          :color="getStatusColor(item.alert_status)"
-          small
-          label
-        ) {{ getStatusText(item.alert_status) }}
+            v-chip(:color="getStatusColor(item.alert_status)" small label) {{ getStatusText(item.alert_status) }}
           td.text-center
-        v-chip(
-          :color="getStatusColor(item.fk_detect_zone_id)"
-          small
-          label
-        ) {{ item.fk_detect_zone_id + '구역' }}   
-          td.text-center {{ item.alert_description }}
+            v-chip(:color="getStatusColor(item.fk_detect_zone_id)" small label) {{ item.fk_detect_zone_id + '구역' }}
+          td.text-center {{ getAlertDescription(item) }}
           td.text-center
             .tw-flex.tw-gap-2.tw-justify-center
-          v-btn(
-            v-if="item.alert_status !== 'P002'"
-            color="secondary"
-            small
-            @click="handleProcess(item)"
-          ) 처리
-          v-btn(
-            color="error"
-            small
-            @click="handleDelete(item)"
-          ) 삭제
+              v-btn(
+                v-if="item.alert_status !== 'P002'"
+                color="secondary"
+                small
+                @click="handleProcess(item)"
+              ) 처리
+              v-btn(
+                color="error"
+                small
+                @click="handleDelete(item)"
+              ) 삭제
 </template>
 
 <script>
@@ -274,6 +262,19 @@ export default {
         'A004': '차량 감지'
       }
       return types[type] || type
+    },
+
+    getAlertDescription(item) {
+      try {
+        if (!item.alert_info_json) {
+          return item.alert_description || '-'
+        }
+        const alertInfo = JSON.parse(item.alert_info_json)
+        return alertInfo.temperature_diff_desc || item.alert_description || '-'
+      } catch (e) {
+        console.error('알림 설명 파싱 오류:', e)
+        return item.alert_description || '-'
+      }
     },
 
     async handleProcess(alert) {
