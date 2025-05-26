@@ -70,23 +70,14 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted {{ icons['mdiTimerSand'] }}
                 
-                v-col(cols="12" md="6")
-                  label.form-input-label 누수판단 기준 온도값
-                  v-text-field(
-                    v-model="settings.alert.leakThreshold"
-                    type="number"
-                    suffix="℃"
-                    prepend-inner-icon="mdi-thermometer"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    hint="설정 온도 이하로 내려가면 누수로 판단합니다"
-                    persistent-hint
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiThermometer'] }}
+               
 
-                v-col(cols="12")
+            // 경보 단계 설정
+            div(v-if="currentMenu === 'alarm-levels'")
+              v-card.mb-4
+                v-card-title 경보 단계별 기준값 설정
+                v-card-text
+                  // 누수판단 시나리오 선택
                   label.form-input-label 누수판단 시나리오 선택
                   v-radio-group(
                     v-model="settings.alert.scenario"
@@ -111,30 +102,64 @@
                     v-if="settings.alert.scenario"
                   ) {{ scenarioDescriptions[settings.alert.scenario] }}
 
-            // 경보 단계 설정
-            div(v-if="currentMenu === 'alarm-levels'")
-              v-row
-                v-col(cols="12" md="4" v-for="level in settings.alarmLevels" :key="level.id")
-                  v-card(:color="level.color" dark outlined class="mb-4")
-                    v-card-title {{ level.name }}
-                    v-card-text
-                      v-text-field(
-                        v-model="level.threshold"
-                        label="기준 온도값"
-                        type="number"
-                        suffix="%"
-                        dark
-                        filled
-                      )
-                      v-textarea(
-                        :value="`기준치의 ${level.threshold}%를 초과할 경우 경보알람을 발생시킵니다.`"
-                        label="설명"
-                        rows="2"
-                        auto-grow
-                        dark
-                        filled
-                        readonly
-                      )
+                  // 기준값 표
+                  v-simple-table
+                    thead
+                      tr
+                        th 시나리오 종류
+                        th 1단계 기준(주의)
+                        th 2단계 기준(경고)
+                        th 3단계 기준(위험)
+                        th 4단계 기준(심각)
+                    tbody
+                      tr.alarm-level-table-row
+                        td 시나리오1 : 온도차이(℃) 기준
+                        td(v-for="(val, idx) in settings.alarmLevels.scenario1" :key="'s1-'+idx")
+                          v-text-field(
+                            v-model.number="settings.alarmLevels.scenario1[idx]"
+                            type="number"
+                            suffix="℃"
+                            dense
+                            filled
+                            outlined
+                            color="primary"
+                            :label="(idx+1)+'단계'"
+                            hide-details
+                            class="alarm-level-input"
+                            style="max-width:120px; margin:0 4px;"
+                          )
+                      tr.alarm-level-table-row
+                        td 시나리오2 : 온도변화량(%) 기준
+                        td(v-for="(val, idx) in settings.alarmLevels.scenario2" :key="'s2-'+idx")
+                          v-text-field(
+                            v-model.number="settings.alarmLevels.scenario2[idx]"
+                            type="number"
+                            suffix="%"
+                            dense
+                            filled
+                            outlined
+                            color="primary"
+                            :label="(idx+1)+'단계'"
+                            hide-details
+                            class="alarm-level-input"
+                            style="max-width:120px; margin:0 4px;"
+                          )
+                      tr.alarm-level-table-row
+                        td 시나리오3 : 온도차이2(℃) 기준
+                        td(v-for="(val, idx) in settings.alarmLevels.scenario3" :key="'s3-'+idx")
+                          v-text-field(
+                            v-model.number="settings.alarmLevels.scenario3[idx]"
+                            type="number"
+                            suffix="℃"
+                            dense
+                            filled
+                            outlined
+                            color="primary"
+                            :label="(idx+1)+'단계'"
+                            hide-details
+                            class="alarm-level-input"
+                            style="max-width:120px; margin:0 4px;"
+                          )
 
             // 알림 발송 설정
             div(v-if="currentMenu === 'notification'")
@@ -383,12 +408,27 @@ export default {
     async setDefaultSettings() {
       try {
         this.settings = await getDefaultAlertSettings()
-        // 시나리오 기본값 추가
         if (!this.settings.alert) this.settings.alert = {}
         if (!this.settings.alert.scenario) this.settings.alert.scenario = 'scenario1'
+        // alarmLevels 기본값 구조 변경
+        if (!this.settings.alarmLevels || typeof this.settings.alarmLevels !== 'object') {
+          this.settings.alarmLevels = {
+            scenario1: [3, 5, 8, 10],
+            scenario2: [10, 15, 20, 25],
+            scenario3: [2, 3, 4, 5]
+          }
+        }
+        // scenario1 보정
+        const defaultAlarmLevels = {
+          scenario1: [3, 5, 8, 10],
+          scenario2: [10, 15, 20, 25],
+          scenario3: [2, 3, 4, 5]
+        }
+        if (!Array.isArray(this.settings.alarmLevels.scenario1) || this.settings.alarmLevels.scenario1.length !== 4) {
+          this.settings.alarmLevels = { ...defaultAlarmLevels, ...this.settings.alarmLevels }
+        }
       } catch (error) {
         console.error('기본 설정 불러오기 오류:', error)
-        // API 호출에 실패한 경우 하드코딩된 기본값 사용
         this.settings = {
           alert: {
             enabled: true,
@@ -398,45 +438,13 @@ export default {
             repeatInterval: 15,
             useSound: true,
             leakThreshold: 5,
-            scenario: 'scenario1' // 기본값 추가
+            scenario: 'scenario1'
           },
-          alarmLevels: [
-            { 
-              id: 1, 
-              name: '1단계 (주의)', 
-              threshold: 60, 
-              description: '최저온도의 차가 이하일경우 주의 단계 알림을 발송합니다.',
-              color: 'light-blue' 
-            },
-            { 
-              id: 2, 
-              name: '2단계 (경고)', 
-              threshold: 70, 
-              description: '최저온도의 차가 이하일경우 경고 단계 알림을 발송합니다.', 
-              color: 'blue' 
-            },
-            { 
-              id: 3, 
-              name: '3단계 (위험)', 
-              threshold: 80, 
-              description: '최저온도의 차가 이하일경우 위험 단계 알림을 발송합니다.', 
-              color: 'amber darken-2' 
-            },
-            { 
-              id: 4, 
-              name: '4단계 (심각)', 
-              threshold: 90, 
-              description: '최저온도의 차가 이하일경우 심각 단계 알림을 발송합니다.', 
-              color: 'orange darken-3' 
-            },
-            { 
-              id: 5, 
-              name: '5단계 (비상)', 
-              threshold: 100, 
-              description: '최저온도의 차가 이하일경우 비상 단계 알림을 발송합니다.', 
-              color: 'red darken-3' 
-            }
-          ],
+          alarmLevels: {
+            scenario1: [3, 5, 8, 10],
+            scenario2: [10, 15, 20, 25],
+            scenario3: [2, 3, 4, 5]
+          },
           notification: {
             emailEnabled: false,
             emailAddress: '',
@@ -452,26 +460,30 @@ export default {
     // DB에서 로드한 설정과 기본 설정을 병합
     async mergeSettings(loadedSettings) {
       const defaultSettings = await getDefaultAlertSettings()
-      
-      // 각 주요 섹션 확인 (alert, alarmLevels, notification)
       const merged = { ...defaultSettings }
-      
       if (loadedSettings.alert) {
         merged.alert = { ...defaultSettings.alert, ...loadedSettings.alert }
       }
-      
-      if (loadedSettings.alarmLevels && Array.isArray(loadedSettings.alarmLevels)) {
-        // 각 단계별 설정 병합
-        merged.alarmLevels = defaultSettings.alarmLevels.map((defaultLevel) => {
-          const loadedLevel = loadedSettings.alarmLevels.find(l => l.id === defaultLevel.id)
-          return loadedLevel ? { ...defaultLevel, ...loadedLevel } : defaultLevel
-        })
+      // alarmLevels 구조 병합
+      if (loadedSettings.alarmLevels && typeof loadedSettings.alarmLevels === 'object') {
+        merged.alarmLevels = {
+          scenario1: Array.isArray(loadedSettings.alarmLevels.scenario1) ? loadedSettings.alarmLevels.scenario1.slice(0,4) : defaultSettings.alarmLevels.scenario1,
+          scenario2: Array.isArray(loadedSettings.alarmLevels.scenario2) ? loadedSettings.alarmLevels.scenario2.slice(0,4) : defaultSettings.alarmLevels.scenario2,
+          scenario3: Array.isArray(loadedSettings.alarmLevels.scenario3) ? loadedSettings.alarmLevels.scenario3.slice(0,4) : defaultSettings.alarmLevels.scenario3
+        }
+        // scenario1 보정
+        const defaultAlarmLevels = {
+          scenario1: [3, 5, 8, 10],
+          scenario2: [10, 15, 20, 25],
+          scenario3: [2, 3, 4, 5]
+        }
+        if (!Array.isArray(merged.alarmLevels.scenario1) || merged.alarmLevels.scenario1.length !== 4) {
+          merged.alarmLevels = { ...defaultAlarmLevels, ...merged.alarmLevels }
+        }
       }
-      
       if (loadedSettings.notification) {
         merged.notification = { ...defaultSettings.notification, ...loadedSettings.notification }
       }
-      
       return merged
     },
 
@@ -677,5 +689,38 @@ export default {
   color: #aaa;
   font-size: 0.95em;
   margin-bottom: 8px;
+}
+
+.alarm-level-input {
+  background: #232323 !important;
+  color: #fff !important;
+  border-radius: 6px !important;
+  .v-input__slot, .v-input__control {
+    background: transparent !important;
+    color: #fff !important;
+    border: 1.5px solid #4fc3f7 !important;
+    border-radius: 6px !important;
+  }
+  input {
+    color: #fff !important;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+  .v-label {
+    color: #b0bec5 !important;
+  }
+  .v-input__append-inner .v-icon {
+    color: #b0bec5 !important;
+  }
+  &:hover, &.v-input--is-focused {
+    .v-input__slot, .v-input__control {
+      border-color: #1976d2 !important;
+    }
+  }
+}
+
+.alarm-level-table-row {
+  height: 64px;
+  min-height: 64px;
 }
 </style>

@@ -21,6 +21,7 @@ from pathlib import Path
 import argparse
 import pymysql
 import socket
+import atexit
 
 def load_config():
     config = ConfigParser()
@@ -84,6 +85,28 @@ class VideoAlertChecker:
         self.last_data_check = 0
         self.settings_check_interval = 30  # 30 seconds
         self.data_check_interval = 10  # 10 seconds
+        self.running = True
+        
+        # 시그널 핸들러 등록
+        signal.signal(signal.SIGINT, self.signal_handler)
+        signal.signal(signal.SIGTERM, self.signal_handler)
+        
+        # 종료 시 정리 작업 등록
+        atexit.register(self.cleanup)
+
+    def signal_handler(self, signum, frame):
+        """시그널 핸들러"""
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        self.running = False
+
+    def cleanup(self):
+        """프로그램 종료 시 정리 작업"""
+        try:
+            logger.info("Performing cleanup...")
+            self.disconnect_db()
+            logger.info("Cleanup completed successfully")
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
 
     def connect_to_db(self):
         global nvrdb
@@ -139,6 +162,7 @@ class VideoAlertChecker:
 
     def get_alert_settings(self):
         try:
+            print("get_alert_settings start...")
             cursor = self.get_db_cursor()
             if not cursor:
                 return False
@@ -146,11 +170,11 @@ class VideoAlertChecker:
             query = """
                 SELECT alert_setting_json 
                 FROM tb_alert_setting 
-                WHERE id = 1
+                limit 1
             """
             cursor.execute(query)
             result = cursor.fetchone()
-
+            print("get_alert_settings result : ", result['alert_setting_json'])
             if result and result['alert_setting_json']:
                 self.alert_settings = json.loads(result['alert_setting_json'])
                 logger.info("Successfully retrieved alert settings from database")
@@ -293,13 +317,15 @@ class VideoAlertChecker:
     def scenario1_judge(self):
         """
         시나리오1: tb_video_receive_data의 최신 데이터 1개에서
-        각 ROI 구간별 (최대-최소) 값의 차이가 10도 이상이면 경보 생성
+        각 ROI 구간별 (최대-최소) 값의 차이가 기준값 이상이면 경보 생성
         """
+        cursor = None
+        print("scenario1_judge")
         try:
             cursor = self.get_db_cursor()
             if not cursor:
                 return False, None
-
+            
             # 1. 최신 데이터 1개 조회
             cursor.execute("""
                 SELECT * FROM tb_video_receive_data
@@ -316,6 +342,12 @@ class VideoAlertChecker:
             current_info = json.loads(current['data_value'])
             roi_pairs = [(i, i+1) for i in range(22, 41, 2)]  # (22,23), (24,25), ..., (40,41)
 
+            # scenario1의 4단계 기준값 가져오기
+            print("self.alert_settings : ", self.alert_settings)
+            levels = self.alert_settings['alarmLevels']['scenario1']
+            print("levels : ", levels)
+            # 4단계 기준값: [2, 5, 8, 10]
+
             for idx, (min_idx, max_idx) in enumerate(roi_pairs):
                 min_key = f'data_{min_idx}'
                 max_key = f'data_{max_idx}'
@@ -325,18 +357,16 @@ class VideoAlertChecker:
                     try:
                         diff = abs(float(max_val) - float(min_val))
                         logger.info(f"ROI {min_key}/{max_key} 최대-최소값 차이: {diff}℃ (최대: {max_val}, 최소: {min_val})")
-                        if 10.0 <= diff < 20.0:
-                            logger.info(f"누수판단: ROI {min_key}/{max_key} 온도차 {diff}℃ (기준: 10~20℃)")
-                            self.create_alert(
-                                current['id'],
-                                current_info,
-                                idx,
-                                {'key': min_key, 'value': min_val},
-                                0,
-                                diff
-                            )
-                        elif diff >= 20.0:
-                            logger.warning(f"ROI {min_key}/{max_key} 온도차 {diff}℃: 20℃ 이상 예외상황(센서오류 등)으로 경보 미생성")
+                        
+                        # 4단계 기준값과 비교하여 alert_level 결정
+                        if diff >= levels[3]:  # 10℃ 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff)
+                        elif diff >= levels[2]:  # 8℃ 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff)
+                        elif diff >= levels[1]:  # 5℃ 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff)
+                        elif diff >= levels[0]:  # 2℃ 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff)
                     except Exception as e:
                         logger.error(f"ROI 값 비교 오류: {e}")
 
@@ -353,7 +383,7 @@ class VideoAlertChecker:
         """
         시나리오2: 
         - base 온도: data_19(최저)와 data_20(최고)의 차이
-        - 각 ROI의 최고-최저 온도차가 base 온도차와 25% 이상 차이나면 누수판단
+        - 각 ROI의 최고-최저 온도차가 base 온도차와 기준값 이상 차이나면 누수판단
         """
         try:
             cursor = self.get_db_cursor()
@@ -390,6 +420,10 @@ class VideoAlertChecker:
                 logger.error(f"base 온도 변환 오류: data_19={base_min}, data_20={base_max}")
                 return False, None
 
+            # scenario2의 4단계 기준값 가져오기
+            levels = self.alert_settings['alarmLevels']['scenario2']
+            # 4단계 기준값: [10, 15, 20, 25] (%)
+
             # 3. 각 ROI 지점의 최고-최저 온도차와 base 온도차 비교
             roi_pairs = [(i, i+1) for i in range(22, 41, 2)]  # (22,23), (24,25), ..., (40,41)
             for idx, (min_idx, max_idx) in enumerate(roi_pairs):
@@ -409,20 +443,15 @@ class VideoAlertChecker:
                         
                         logger.info(f"ROI {min_key}/{max_key} 온도차: {roi_diff:.1f}℃ (최고: {max_val}℃, 최저: {min_val}℃), base 대비 차이: {diff_percent:.1f}%")
                         
-                        if diff_percent >= 25.0:
-                            logger.info(f"누수판단: ROI {min_key}/{max_key} 온도차 {roi_diff:.1f}℃가 base 온도차 {base_diff:.1f}℃ 대비 {diff_percent:.1f}% 차이 (기준: 25%)")
-                            self.create_alert(
-                                current['id'],
-                                current_info,
-                                idx,
-                                {'key': min_key, 'value': min_val},
-                                0,
-                                diff_percent,  # 온도차 퍼센트
-                                base_diff,  # base 온도차
-                                roi_diff,  # ROI 온도차
-                                min_val,  # ROI 최저온도
-                                max_val   # ROI 최고온도
-                            )
+                        # 4단계 기준값과 비교하여 alert_level 결정
+                        if diff_percent >= levels[3]:  # 25% 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff_percent, base_diff, roi_diff, min_val, max_val)
+                        elif diff_percent >= levels[2]:  # 20% 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff_percent, base_diff, roi_diff, min_val, max_val)
+                        elif diff_percent >= levels[1]:  # 15% 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff_percent, base_diff, roi_diff, min_val, max_val)
+                        elif diff_percent >= levels[0]:  # 10% 이상
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff_percent, base_diff, roi_diff, min_val, max_val)
                     except Exception as e:
                         logger.error(f"ROI {min_key}/{max_key} 값 비교 오류: {e}")
 
@@ -439,7 +468,7 @@ class VideoAlertChecker:
         """
         시나리오3: 
         - 1시간 동안의 data_21(평균온도) 데이터를 조회하여 95% 신뢰구간의 기준온도 계산
-        - 최신 data_21 값과 기준온도의 차이가 5도 이상이면 누수로 판단
+        - 최신 data_21 값과 기준온도의 차이가 기준값 이상이면 누수로 판단
         """
         try:
             cursor = self.get_db_cursor()
@@ -503,24 +532,21 @@ class VideoAlertChecker:
                 
                 logger.info(f"현재 평균온도: {current_temp:.1f}℃, 기준온도(평균): {mean_temp:.1f}℃, 차이: {temp_diff:.1f}℃")
                 
-                if temp_diff >= 5.0:
-                    logger.info(f"누수판단: 현재 평균온도 {current_temp:.1f}℃가 기준온도 {mean_temp:.1f}℃와 {temp_diff:.1f}℃ 차이 (기준: 5℃)")
-                    self.create_alert(
-                        current['id'],
-                        current_info,
-                        0,  # ROI index는 사용하지 않음
-                        {'key': 'data_21', 'value': current_temp},
-                        0,
-                        temp_diff,  # 온도차
-                        mean_temp,  # 기준온도(평균)
-                        std_temp,  # 표준편차
-                        upper_bound,  # 상한값
-                        lower_bound   # 하한값
-                    )
+                # scenario3의 4단계 기준값 가져오기
+                levels = self.alert_settings['alarmLevels']['scenario3']
+                # 4단계 기준값: [2, 3, 4, 5] (℃)
+
+                # 4단계 기준값과 비교하여 alert_level 결정
+                if temp_diff >= levels[3]:  # 5℃ 이상
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 3, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
+                elif temp_diff >= levels[2]:  # 4℃ 이상
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 2, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
+                elif temp_diff >= levels[1]:  # 3℃ 이상
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 1, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
+                elif temp_diff >= levels[0]:  # 2℃ 이상
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 0, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
             except ValueError:
                 logger.error(f"온도 변환 오류: data_21={current_temp}")
-        
-        return False, None
 
         except Exception as e:
             logger.error(f"scenario3_judge error: {e}")
@@ -531,42 +557,45 @@ class VideoAlertChecker:
 
     def run(self):
         logger.info("Starting VideoAlertChecker...")
-        while True:
-            try:
-                current_time = time.time()
-                
-                # Check alert settings every 30 seconds
-                if current_time - self.last_settings_check >= self.settings_check_interval:
-                    self.get_alert_settings()
-                    self.last_settings_check = current_time
+        try:
+            while self.running:
+                try:
+                    current_time = time.time()
+                    
+                    # Check alert settings every 30 seconds
+                    if current_time - self.last_settings_check >= self.settings_check_interval:
+                        self.get_alert_settings()
+                        self.last_settings_check = current_time
 
-                # 시나리오 분기
-                scenario = None
-                if self.alert_settings and 'alert' in self.alert_settings and 'scenario' in self.alert_settings['alert']:
-                    scenario = self.alert_settings['alert']['scenario']
-                else:
-                    scenario = 'scenario1'  # 기본값
+                    # 시나리오 분기
+                    scenario = None
+                    if self.alert_settings and 'alert' in self.alert_settings and 'scenario' in self.alert_settings['alert']:
+                        scenario = self.alert_settings['alert']['scenario']
+                    else:
+                        scenario = 'scenario1'  # 기본값
 
-                if scenario == 'scenario1':
-                    self.scenario1_judge()
-                elif scenario == 'scenario2':
-                    self.scenario2_judge()
-                elif scenario == 'scenario3':
-                    self.scenario3_judge()
-                else:
-                    logger.warning(f"Unknown scenario: {scenario}")
-                
-                time.sleep(1)  # Sleep for 1 second to prevent CPU overuse
+                    if scenario == 'scenario1':
+                        self.scenario1_judge()
+                    elif scenario == 'scenario2':
+                        self.scenario2_judge()
+                    elif scenario == 'scenario3':
+                        self.scenario3_judge()
+                    else:
+                        logger.warning(f"Unknown scenario: {scenario}")
+                    
+                    time.sleep(1)  # Sleep for 1 second to prevent CPU overuse
 
-            except KeyboardInterrupt:
-                logger.info("Received keyboard interrupt, shutting down...")
-                break
-            except Exception as e:
-                logger.error(f"Error in main loop: {str(e)}")
-                logger.error(traceback.format_exc())
-                time.sleep(5)  # Wait 5 seconds before retrying
+                except Exception as e:
+                    logger.error(f"Error in main loop: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    time.sleep(5)  # Wait 5 seconds before retrying
 
-        self.disconnect_db()
+        except Exception as e:
+            logger.error(f"Fatal error in run loop: {str(e)}")
+            logger.error(traceback.format_exc())
+        finally:
+            self.cleanup()
+            logger.info("VideoAlertChecker has been shut down")
 
 if __name__ == "__main__":
     try:
@@ -578,7 +607,11 @@ if __name__ == "__main__":
         alertChecker = VideoAlertChecker(debug_mode=args.debug)
         alertChecker.run()
 
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt, initiating graceful shutdown...")
     except Exception as e:
         logger.error(f"Error in main: {str(e)}")
         logger.error(traceback.format_exc())
+    finally:
+        logger.info("Program terminated")
 
