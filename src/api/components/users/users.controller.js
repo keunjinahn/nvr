@@ -93,67 +93,42 @@ export const getByName = async (req, res) => {
 export const patchByName = async (req, res) => {
   try {
     console.log('patchByName req.params:', req.params);
-    let user = await UserModel.findByName(req.params.name);
-
+    let user = await UserModel.findByName(req.params.userId);
+    console.log('patchByName user:', user);
     if (!user) {
       return res.status(404).send({
         statusCode: 404,
         message: 'User not exists',
       });
     }
+    console.log('1patchByName req.body:', req.body);
+    if (req.body === undefined || Object.keys(req?.body).length === 0) {
+      return res.status(400).send({
+        statusCode: 400,
+        message: 'Bad request',
+      });
+    }
+    console.log('2patchByName req.body:', req.body);
+    if (req.body.userId && req.params.userId !== req.body.userId) {
+      user = await UserModel.findByName(req.body.userId);
 
-    const upload = multer({
-      storage: multer.diskStorage({
-        destination: (request_, file, callback) => {
-          callback(null, ConfigService.databaseUserPath);
-        },
-        filename: (request_, file, callback) => {
-          const fileName = `photo_${user.id}_${file.originalname}`;
-          callback(null, fileName);
-        },
-      }),
-    }).single('photo');
-
-    upload(req, res, async (error) => {
-      if (error) {
-        res.status(500).send({
-          statusCode: 500,
-          message: error.message,
+      if (user) {
+        return res.status(422).send({
+          statusCode: 422,
+          message: 'User already exists',
         });
       }
-
-      if (req.file) {
-        req.body.photo = req.file.filename;
-      }
-
-      if (req.body === undefined || Object.keys(req?.body).length === 0) {
-        return res.status(400).send({
-          statusCode: 400,
-          message: 'Bad request',
-        });
-      }
-
-      if (req.body.userId && req.params.name !== req.body.userId) {
-        user = await UserModel.findByName(req.body.userId);
-
-        if (user) {
-          return res.status(422).send({
-            statusCode: 422,
-            message: 'User already exists',
-          });
-        }
-      }
-
-      if (req.body.password) {
-        let salt = crypto.randomBytes(16).toString('base64');
-        let hash = crypto.createHmac('sha512', salt).update(req.body.password).digest('base64');
-        req.body.password = salt + '$' + hash;
-      }
-
-      await UserModel.patchUser(req.params.name, req.body);
-
-      res.status(204).send({});
-    });
+    }
+    console.log('patchByName req.body.password:', req.body.password);
+    if (req.body.password) {
+      let salt = crypto.randomBytes(16).toString('base64');
+      let hash = crypto.createHmac('sha512', salt).update(req.body.password).digest('base64');
+      req.body.password = salt + '$' + hash;
+    }
+    console.log('patchByName req.body:', req.body);
+    await UserModel.patchUser(req.params.userId, req.body);
+    console.log('patchByName res.status(204).send({});');
+    res.status(204).send({});
   } catch (error) {
     res.status(500).send({
       statusCode: 500,

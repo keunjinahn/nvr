@@ -14,7 +14,7 @@ import LoggerService from '../../services/logger/logger.service.js';
 
 import Socket from '../../api/socket.js';
 
-import * as CamerasModel from '../../api/components/cameras/cameras.model.js';
+import * as CamerasModel from '../../api/components/cameras/cameras.model_old.js';
 import * as NotificationsModel from '../../api/components/notifications/notifications.model.js';
 import * as RecordingsModel from '../../api/components/recordings/recordings.model.js';
 import * as SettingsModel from '../../api/components/settings/settings.model.js';
@@ -279,10 +279,9 @@ export default class EventController {
                 }
 
                 log.debug(
-                  `${
-                    recordingSettings.active && allowRecording
-                      ? 'Recording saved.'
-                      : !allowRecording
+                  `${recordingSettings.active && allowRecording
+                    ? 'Recording saved.'
+                    : !allowRecording
                       ? 'Recording not allowed.'
                       : 'Recording skipped.'
                   } ${notificationsSettings.active ? 'Notification send.' : 'Notification skipped.'}`,
@@ -387,8 +386,7 @@ export default class EventController {
         ).map((awsLabel) => awsLabel.Name);
 
         log.debug(
-          `Label with confidence >= ${confidence}% ${
-            detected.length > 0 ? `found: ${detected.toString()}` : 'not found!'
+          `Label with confidence >= ${confidence}% ${detected.length > 0 ? `found: ${detected.toString()}` : 'not found!'
           }`,
           cameraName
         );

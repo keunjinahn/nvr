@@ -52,14 +52,30 @@ console_handler.setFormatter(logging.Formatter(
 ))
 logger.addHandler(console_handler)
 
+def load_config():
+    config = ConfigParser()
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.ini')
+    
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+    
+    config.read(config_path, encoding='utf-8')
+    return config
+
+# 설정 로드
+config = load_config()
 
 ### mariadb 연결정보 ####
-DBSERVER_IP = "127.0.0.1"  # localhost 대신 IP 주소 사용
-DBSERVER_PORT = 3306
-DBSERVER_USER = "dbadmin"
-DBSERVER_PASSWORD = "p#ssw0rd"
-DBSERVER_DB = "nvrdb"
+DBSERVER_IP = config.get('DATABASE', 'host')
+DBSERVER_PORT = config.getint('DATABASE', 'port')
+DBSERVER_USER = config.get('DATABASE', 'user')
+DBSERVER_PASSWORD = config.get('DATABASE', 'password')
+DBSERVER_DB = config.get('DATABASE', 'database')
+DBSERVER_CHARSET = config.get('DATABASE', 'charset')
 nvrdb = None
+
+CAMERA_NAME = config.get('EVENT_DETECT', 'camera_name')
+DETECTED_MOVE_DIR = config.get('EVENT_DETECT', 'detected_move_dir')
 ########################
 
 def parse_cameras_from_json():
@@ -103,6 +119,7 @@ class EventDetecter:
         self.last_setting_time = 0
         self.setting_lock = threading.Lock()
         self.detection_zones = {}  # {camera_id: [zone, ...]}
+        self.yolo_model = None  # Initialize YOLO model as None
         
         # 프레임 처리 간격 설정 (초 단위)
         self.frame_interval = 1.0  # 기본값 1초
@@ -169,7 +186,6 @@ class EventDetecter:
             logger.error(f'Error getting cursor: {str(e)}')
             return None
     
-        # YOLOv8 모델 초기화
     def get_rtsp_url_from_json(self,camera_name, json_path='../test/camera.ui/database/database.json'):
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -215,11 +231,11 @@ class EventDetecter:
             if cursor:
                 sql = ("""
                     INSERT INTO tb_event_history 
-                    (fk_camera_id, camera_name, event_accur_time, event_type, event_data_json, fk_detect_zone_id, detected_image_url, create_date)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (fk_camera_id, camera_name, event_accur_time, event_type, event_data_json, detected_image_url, create_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """)
                 cursor.execute(sql, (
-                    4, camera_name, event_accur_time, 'E001', event_data_json, 0, detected_image_url, create_date
+                    4, camera_name, event_accur_time, 'E001', event_data_json,detected_image_url, create_date
                 ))
                 cursor.close()
                 logger.info(f"DB Insert: {camera_name}, {event_data_json}, {detected_image_url}")
@@ -268,20 +284,25 @@ class EventDetecter:
 
     def get_Event_Config(self):
         try:
-            eventSettingData = None
-            eventDetectionZoneData = None
-            # 서버 API로 조회 (로컬 서버 기준)
-            resEventSetting = requests.get('http://localhost:9091/api/eventSetting', timeout=3)
-            if resEventSetting.status_code == 200:
-                eventSettingData = resEventSetting.json()
-            url = f'http://localhost:9091/api/detectionZone/camera/0'
-            resEventDetectionZone = requests.get(url, timeout=3)
-            if resEventDetectionZone.status_code == 200:
-                eventDetectionZoneData =   resEventDetectionZone.json() 
-            return json.loads(eventSettingData['object_json']) if eventSettingData.get('object_json') else None , eventDetectionZoneData
+            cursor = self.get_db_cursor()
+            if cursor:
+                # tb_event_setting 테이블에서 object_json 조회
+                sql = "SELECT object_json FROM tb_event_setting ORDER BY id DESC LIMIT 1"
+                cursor.execute(sql)
+                result = cursor.fetchone()
+                cursor.close()
+                
+                if result and result.get('object_json'):
+                    return json.loads(result['object_json']), None
+                else:
+                    logger.warning("No event setting found in database")
+                    return None, None
+            else:
+                logger.error("Failed to get database cursor")
+                return None, None
 
         except Exception as e:
-            logger.error(f'eventSetting 조회 실패: {e}')
+            logger.error(f'Error getting event setting from database: {e}')
             return None, None
 
     def setting_updater(self):
@@ -334,49 +355,44 @@ class EventDetecter:
         logger.info(f"Motion detection - Pixels changed: {motion_pixels}, Threshold: {Threshold}, Detected: {is_motion}")
         return is_motion
 
-    def process_detection_zones(self, prev_frame, curr_frame, base_dir):
-        zones = self.detection_zones
-        camera_name = self.cameras[0].get('name')
-        logger.info(f"Processing detection zones for camera {camera_name}")
-        for zone in zones:
-            try:
-                if zone.get('type') == 'Z001' and zone.get('active') == True:
-                    regions_data = zone.get('regions') or zone.get('zone_segment_json')
-                    logger.info(f"Processing zone - ID: {zone.get('id')}, Description: {zone.get('description')}")
-                    logger.info(f"Zone coordinates: {regions_data}")
-                    # regions_data가 문자열이면 JSON 파싱, 리스트면 그대로 사용
-                    polygon_data = regions_data[0]['coords']
-                    # polygon 데이터 구조 확인 및 변환
-                    polygon = None
-                    if isinstance(polygon_data, dict):
-                        # 딕셔너리 형태인 경우 points 키에서 좌표 추출
-                        points = polygon_data.get('points', [])
-                        if not points:
-                            logger.warning(f"No points found in polygon data: {polygon_data}")
-                            continue
-                        polygon = points
-                    elif isinstance(polygon_data, list):
-                        polygon = polygon_data
-                    else:
-                        logger.warning(f"Unexpected polygon data type: {type(polygon_data)}")
-                        continue
-                    
-                    # logger.info(f"Processing zone - ID: {zone.get('id')}, Description: {zone.get('description')}")
-                    # logger.info(f"Zone coordinates: {polygon}")
-                    
-                    if prev_frame is not None and self.detect_motion_in_polygon(prev_frame, curr_frame, polygon):
-                        image_path = self.save_detected_image(camera_name, curr_frame, base_dir)
-                        if image_path:
-                            # 움직임 감지 이벤트 DB 저장
-                            self.insert_motion_event_history(camera_name, image_path, zone.get('id'))
-                            logger.info(f"Motion detected and saved for camera {camera_name} in zone {zone.get('id')}")
-                    else:
-                        logger.debug(f"No motion detected in zone {zone.get('id')}")
-
-            except Exception as e:
-                logger.error(f"Error in motion detection for camera {camera_name}: {e}")
-                logger.error(f"Zone data: {zone}")
-                logger.error(f"Regions data: {regions_data}")
+    def process_detection(self, curr_frame):
+        camera_name = CAMERA_NAME
+        logger.info(f"Processing frame for camera {camera_name}")
+        
+        # Get current settings for object detection
+        with self.setting_lock:
+            object_setting = self.object_setting
+        
+        enable_tracking, detection_labels, confidence_threshold, _ = self.process_settings(object_setting)
+        
+        # Debug 모드일 때 원본 프레임 표시
+        # if self.debug_mode:
+        #     cv2.imshow('Original Frame', curr_frame)
+        #     cv2.waitKey(1)
+        
+        # Perform object detection on entire frame if enabled
+        if enable_tracking and self.yolo_model is not None:
+            frame = curr_frame.copy()
+            results, filtered_boxes, annotated, detected_objects = self.run_yolo_and_filter(
+                self.yolo_model, frame, detection_labels, confidence_threshold
+            )
+            
+            if filtered_boxes:
+                today = datetime.now().strftime('%Y-%m-%d')
+                output_dir = os.path.join(DETECTED_MOVE_DIR, today)
+                os.makedirs(output_dir, exist_ok=True)
+                filename = os.path.join(output_dir, f'{camera_name}_detection_{int(time.time())}.jpg')
+                cv2.imwrite(filename, annotated)
+                
+                # DB 기록
+                event_data_json = json.dumps(detected_objects, ensure_ascii=False)
+                event_accur_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                self.insert_event_history(camera_name, filename, event_data_json, event_accur_time)
+            
+            # Debug 모드일 때 감지된 객체가 있는 프레임 표시
+            # if self.debug_mode:
+            #     cv2.imshow('Object Detection', annotated)
+            #     cv2.waitKey(1)
 
     def run_yolo_and_filter(self, yolo_model, frame, detection_labels, confidence_threshold):
         results = yolo_model(frame)
@@ -385,6 +401,7 @@ class EventDetecter:
         annotated = frame.copy()
         for box, conf, cls in zip(results[0].boxes.xyxy.cpu().numpy(), results[0].boxes.conf.cpu().numpy(), results[0].boxes.cls.cpu().numpy()):
             label = results[0].names[int(cls)]
+            print(f"label: {label}, conf: {conf:.2f}, cls: {cls}")
             if detection_labels and label not in detection_labels:
                 logger.info(f"[검출제외] label={label}, conf={conf:.2f} (detectionType={detection_labels}) 대상 아님")
                 continue
@@ -471,7 +488,7 @@ class EventDetecter:
                         
                         if filtered_boxes:
                             today = datetime.now().strftime('%Y-%m-%d')
-                            output_dir = os.path.join('../test/camera.ui/detected_image', today)
+                            output_dir = os.path.join(DETECTED_MOVE_DIR, today)
                             os.makedirs(output_dir, exist_ok=True)
                             filename = os.path.join(output_dir, f'{camera_name}_detection_{int(time.time())}.jpg')
                             cv2.imwrite(filename, annotated)
@@ -507,8 +524,7 @@ class EventDetecter:
                     if not self.frame_queue.empty():
                         curr_frame = self.frame_queue.get()
                         logger.info("Got frame from queue")
-                        self.process_detection_zones(prev_frame, curr_frame, base_dir)
-                        prev_frame = curr_frame.copy()
+                        self.process_detection(curr_frame)
                         self.last_motion_detect_time = current_time
                         logger.debug(f"Motion detection processed at {current_time:.2f}, interval: {time_since_last:.2f}s")
                 
@@ -582,39 +598,49 @@ class EventDetecter:
             if self.debug_mode:
                 cv2.destroyWindow('Frame Capture (Debug)')
 
+    def get_all_cameras(self):
+        try:
+            cursor = self.get_db_cursor()
+            if cursor:
+                cursor.execute('SELECT * FROM tb_cameras')
+                self.cameras = cursor.fetchall()
+                cursor.close()
+                return True
+            else:
+                logger.error("DB cursor is None. Insert failed.")
+                return False
+        except Exception as e:
+            logger.error(f"DB Search Error: {str(e)}")
+            return False
+                
     def run(self):
         try:
-            camera_name = "댐영상1"
+            self.get_all_cameras()
+            print("CAMERA_NAME : ", CAMERA_NAME)
             rtsp_url = None
             for cam in self.cameras:
-                if cam.get('name') == camera_name:
+                if cam.get('name') == CAMERA_NAME:
                     if 'videoConfig' in cam and 'source' in cam['videoConfig']:
-                        src = cam['videoConfig']['source']
+                        src = json.loads(cam['videoConfig'])['source']
                         if 'rtsp://' in src:
                             rtsp_url = src[src.find('rtsp://'):].strip('"')
                             break
-                    if 'rtsp_url' in cam:
-                        rtsp_url = cam['rtsp_url']
-                        break
                         
             if not rtsp_url:
-                logger.error(f"Camera with name '{camera_name}' not found in self.cameras.")
+                logger.error(f"Camera with name '{CAMERA_NAME}' not found in self.cameras.")
                 return
 
             # 설정 갱신 스레드 시작
             threading.Thread(target=self.setting_updater, daemon=True).start()
             
             # YOLO 모델 초기화
-            yolo_model = YOLO('yolov8n.pt')
-            
-            # 기본 디렉토리 설정
-            base_dir = r'C:\D\project\nvr\src\nvr\test\camera.ui\detect_move'
-            
+            self.yolo_model = YOLO('yolov8n.pt')
+
+           
             # 스레드 시작
             threads = [
                 threading.Thread(target=self.frame_capture_thread, args=(rtsp_url,), daemon=True),
-                #threading.Thread(target=self.object_detection_thread, args=(yolo_model, camera_name), daemon=True),
-                #threading.Thread(target=self.motion_detection_thread, args=(camera_name, base_dir), daemon=True)
+                threading.Thread(target=self.motion_detection_thread, args=(CAMERA_NAME, DETECTED_MOVE_DIR), daemon=True)
             ]
             
             for thread in threads:

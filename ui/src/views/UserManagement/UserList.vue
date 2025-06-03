@@ -112,7 +112,8 @@
             :disabled="isProcessing"
           ) 취소
           v-btn.confirm-btn(
-            color="var(--cui-primary)"
+            outlined
+            color="white"
             :disabled="!valid || isProcessing"
             @click="saveUser"
           )

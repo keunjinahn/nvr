@@ -133,14 +133,14 @@ export const routesConfig = (app) => {
   // 초기 미들웨어 설정
   app.use((req, res, next) => {
     // 모든 요청에 대한 기본 로깅
-    logger.info('Incoming request:', {
-      method: req.method,
-      url: req.url,
-      path: req.path,
-      params: req.params,
-      query: req.query,
-      timestamp: new Date().toISOString()
-    });
+    // logger.info('Incoming request:', {
+    //   method: req.method,
+    //   url: req.url,
+    //   path: req.path,
+    //   params: req.params,
+    //   query: req.query,
+    //   timestamp: new Date().toISOString()
+    // });
 
     // CORS 헤더 설정
     res.header('Access-Control-Allow-Origin', '*');
@@ -188,7 +188,7 @@ export const routesConfig = (app) => {
         logger.warn(`[${requestId}] Recording not found in history: ${id}`);
         return res.status(404).json({ error: 'Recording not found' });
       }
-      logger.debug(`[${requestId}] Recording: ${JSON.stringify(recording)}`);
+      // logger.debug(`[${requestId}] Recording: ${JSON.stringify(recording)}`);
       // 녹화 파일 경로 생성
       let datePart = '';
       if (recording.startTime instanceof Date) {
@@ -209,7 +209,7 @@ export const routesConfig = (app) => {
         recording.filename
       );
 
-      logger.debug(`[${requestId}] Streaming video: ${recordingPath}`);
+      // logger.debug(`[${requestId}] Streaming video: ${recordingPath}`);
 
       if (!fs.existsSync(recordingPath)) {
         logger.warn(`[${requestId}] Video file not found: ${recordingPath}`);

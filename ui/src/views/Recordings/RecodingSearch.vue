@@ -42,7 +42,7 @@
                   clearable
                   @input="handleSearch"
                 )
-              v-col(cols="12" sm="2")
+              v-col(cols="12" sm="3")
                 v-menu(
                   ref="dateMenu"
                   v-model="dateMenu"
@@ -64,6 +64,7 @@
                       v-bind="attrs"
                       v-on="on"
                       clearable
+                      color="secondary"
                       @click:clear="clearDateRange"
                     )
                   v-date-picker(
@@ -71,7 +72,7 @@
                     range
                     no-title
                     scrollable
-                    color="primary"
+                    color="secondary"
                     @change="handleDateRangeChange"
                   )
               v-col(cols="12" sm="2")
@@ -86,7 +87,7 @@
                   clearable
                   @input="handleSearch"
                 )
-              v-col(cols="12" sm="4")
+              <!-- v-col(cols="12" sm="4")
                 v-chip-group(
                   v-if="activeFiltersCount > 0"
                   column
@@ -122,7 +123,7 @@
                     @click:close="searchFilters.status = ''"
                   )
                     v-icon(left small) {{ icons.mdiCheckboxMarkedCircle }}
-                    | {{ getStatusText(searchFilters.status) }}
+                    | {{ getStatusText(searchFilters.status) }} -->
     v-row
       v-col(cols="12")
         v-card
@@ -507,6 +508,8 @@ export default {
     handleDateRangeChange(range) {
       if (range.length === 2) {
         this.dateMenu = false;
+        this.searchFilters.dateRange = range;
+        this.searchFilters.dateRangeText = `${this.formatDateTime(range[0])} ~ ${this.formatDateTime(range[1])}`;
       }
     },
 

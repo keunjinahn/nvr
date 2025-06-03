@@ -23,7 +23,7 @@
               v-col(cols="12" sm="2")
                 v-text-field(
                   v-model="searchFilters.eventType"
-                  label="이벤트 종류"
+                  label="감지 대상"
                   prepend-inner-icon="mdi-camera"
                   dense
                   outlined
@@ -31,7 +31,7 @@
                   clearable
                   @input="handleSearch"
                 )
-              v-col(cols="12" sm="2")
+              v-col(cols="12" sm="3")
                 v-menu(
                   ref="dateMenu"
                   v-model="dateMenu"
@@ -60,16 +60,17 @@
                     range
                     no-title
                     scrollable
-                    color="primary"
+                    color="secondary"
                     @change="handleDateRangeChange"
                   )
-              v-col(cols="12" sm="4")
+              <!-- v-col(cols="12" sm="4")
                 v-chip-group(
                   v-if="activeFiltersCount > 0"
                   column
                 )
                   v-chip(
                     v-if="searchFilters.eventType"
+                    color="secondary"
                     small
                     close
                     @click:close="searchFilters.eventType = ''"
@@ -78,12 +79,13 @@
                     | {{ searchFilters.eventType }}
                   v-chip(
                     v-if="searchFilters.dateRange.length === 2"
+                    color="secondary"
                     small
                     close
                     @click:close="clearDateRange"
                   )
                     v-icon(left small) {{ icons.mdiCalendar }}
-                    | {{ searchFilters.dateRangeText }}
+                    | {{ searchFilters.dateRangeText }} -->
     v-row
       v-col(cols="12")
         v-card
@@ -250,7 +252,7 @@
         img(:src="imageDialogUrl" style="max-width:100%;max-height:500px;" v-if="imageDialogUrl")
       v-card-actions
         v-spacer
-        v-btn(color="primary" text @click="imageDialog=false") 닫기
+        v-btn(color="white" text @click="imageDialog=false") 닫기
 </template>
 
 <script>
@@ -308,7 +310,7 @@ export default {
       { text: '카메라명', value: 'camera_name' },
       { text: '이벤트시각', value: 'event_accur_time', align: 'center' },
       { text: '타입', value: 'event_type', align: 'center' },
-      { text: '감지상세', value: 'event_data_json', align: 'center' },
+      { text: '감지대상', value: 'event_data_json', align: 'center' },
       { text: '감지영역', value: 'fk_detect_zone_id', align: 'center' },
       { text: '이미지', value: 'detected_image_url', align: 'center' },
       { text: '등록일시', value: 'create_date', align: 'center' }
@@ -412,11 +414,22 @@ export default {
     async fetchEventHistory() {
       this.loading = true;
       try {
-        const response = await getEventHistory();
-        // event_accur_time 기준 내림차순 정렬
-        const sorted = [...response].sort((a, b) => new Date(b.event_accur_time) - new Date(a.event_accur_time));
-        this.eventHistory = sorted;
-        this.events = sorted;
+        const filters = {};
+        
+        // 날짜 범위 필터 적용
+        if (this.searchFilters.dateRange.length === 2) {
+          filters.startDate = this.searchFilters.dateRange[0];
+          filters.endDate = this.searchFilters.dateRange[1];
+        }
+        
+        // 이벤트 타입 필터 적용
+        if (this.searchFilters.eventType) {
+          filters.label = this.searchFilters.eventType;
+        }
+        
+        const response = await getEventHistory(filters);
+        this.eventHistory = response;
+        this.events = response;
       } catch (error) {
         this.eventHistory = [];
         this.events = [];
@@ -425,14 +438,19 @@ export default {
       }
     },
 
-    handleSearch() {
+    async handleSearch() {
       // 검색 조건이 변경될 때마다 필터링된 결과가 자동으로 업데이트됩니다
       // computed 속성인 filteredEventHistory가 처리합니다
+      await this.fetchEventHistory();
+      console.log('handleSearch', this.searchFilters)
     },
 
-    handleDateRangeChange(range) {
+    async handleDateRangeChange(range) {
       if (range.length === 2) {
         this.dateMenu = false;
+        this.searchFilters.dateRange = range;
+        this.searchFilters.dateRangeText = `${this.formatDateTime(range[0])} ~ ${this.formatDateTime(range[1])}`;
+        await this.fetchEventHistory();
       }
     },
 

@@ -92,19 +92,19 @@
           td.text-center
             v-chip(:color="getStatusColor(item.fk_detect_zone_id)" small label) {{ item.fk_detect_zone_id + '구역' }}
           td.text-center {{ getAlertDescription(item) }}
-          td.text-center
-            .tw-flex.tw-gap-2.tw-justify-center
-              v-btn(
-                v-if="item.alert_status !== 'P002'"
-                color="secondary"
-                small
-                @click="handleProcess(item)"
-              ) 처리
-              v-btn(
-                color="error"
-                small
-                @click="handleDelete(item)"
-              ) 삭제
+          //td.text-center
+          //  .tw-flex.tw-gap-2.tw-justify-center
+          //    v-btn(
+          //      v-if="item.alert_status !== 'P002'"
+          //      color="secondary"
+          //      small
+          //      @click="handleProcess(item)"
+          //      ) 처리
+          //    v-btn(
+          //      color="error"
+          //      small
+          //      @click="handleDelete(item)"
+          //    ) 삭제
 </template>
 
 <script>
@@ -130,8 +130,8 @@ export default {
       { text: '위험도', value: 'alert_level', align: 'center' },
       { text: '상태', value: 'alert_status', align: 'center' },
       { text: '감지 구역', value: 'fk_detect_zone_id', align: 'center' },
-      { text: '설명', value: 'alert_description', align: 'center' },
-      { text: '작업', value: 'actions', align: 'center', sortable: false, width: '150px' }
+      { text: '설명', value: 'alert_description', align: 'center' }
+      // { text: '작업', value: 'actions', align: 'center', sortable: false, width: '150px' }
     ],
     statusOptions: [
       { text: '전체', value: null },

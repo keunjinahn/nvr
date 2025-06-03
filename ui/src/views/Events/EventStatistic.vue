@@ -12,23 +12,24 @@
 
     v-row
       v-col(cols="12" md="6")
-        v-card.mb-3
+        v-card.mb-3(style="height: 500px")
           v-card-title.d-flex.align-center.py-2
             v-icon.mr-2(color="primary" small) {{ icons.mdiChartBar }}
             span.subtitle-1 ROI별 일일 평균 온도
-          v-card-text.pa-2
-            v-chart(:options="roiAvgTempOption" autoresize height="400" ref="roiAvgTempChart" style="width:100%;height:400px;background:var(--cui-bg-card);")
+          v-card-text.pa-2(style="height: calc(100% - 168px)")
+            v-chart(:options="roiAvgTempOption" autoresize height="100%" ref="roiAvgTempChart" style="width:100%;height:100%;background:var(--cui-bg-card);")
       v-col(cols="12" md="6")
-        v-card.mb-3
+        v-card.mb-3(style="height: 500px")
           v-card-title.d-flex.align-center.py-2
             v-icon.mr-2(color="primary" small) {{ icons.mdiChartBar }}
             span.subtitle-1 ROI별 최소온도 변화율 TOP10
-          v-card-text.pa-2
+          v-card-text.pa-2(style="height: calc(100% - 168px)")
             v-data-table(
               :headers="roiMinChangeHeaders"
               :items="roiMinChange"
               class="elevation-1"
               dense
+              style="height: 100%"
             )
 
     

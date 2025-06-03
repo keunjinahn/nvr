@@ -71,10 +71,7 @@ import LightBox from 'vue-it-bigger';
 import 'vue-it-bigger/dist/vue-it-bigger.min.css';
 import { mdiOpenInNew, mdiPlusCircle } from '@mdi/js';
 import VueAspectRatio from 'vue-aspect-ratio';
-
 import { getCamera, getCameraSettings } from '@/api/cameras.api';
-import { getNotifications } from '@/api/notifications.api';
-
 import VideoCard from '@/components/camera-card.vue';
 
 import socket from '@/mixins/socket';
@@ -117,42 +114,7 @@ export default {
       const settings = await getCameraSettings(this.$route.params.name);
 
       camera.data.settings = settings.data;
-
-      const lastNotifications = await getNotifications(`?cameras=${camera.data.name}&pageSize=5`);
-      this.notifications = lastNotifications.data.result;
-
-      this.images = lastNotifications.data.result.map((notification) => {
-        if (notification.recordStoring) {
-          let mediaContainer = {
-            id: notification.id,
-            type: 'image',
-            caption: `${notification.camera} - ${notification.time}`,
-            src: `/files/${notification.fileName}`,
-            thumb: `/files/${notification.fileName}`,
-          };
-
-          if (notification.recordType === 'Video') {
-            delete mediaContainer.src;
-
-            mediaContainer = {
-              ...mediaContainer,
-              type: 'video',
-              sources: [
-                {
-                  src: `/files/${notification.fileName}`,
-                  type: 'video/mp4',
-                },
-              ],
-              thumb: `/files/${notification.name}@2.jpeg`,
-              width: '100%',
-              height: 'auto',
-              autoplay: false,
-            };
-          }
-
-          return mediaContainer;
-        }
-      });
+      
 
       this.camera = camera.data;
 

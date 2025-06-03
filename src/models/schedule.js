@@ -11,7 +11,11 @@ export default (sequelize) => {
     fk_camera_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: 0
+      defaultValue: 0,
+      references: {
+        model: 'tb_cameras',
+        key: 'id'
+      }
     },
     cameraName: {
       type: DataTypes.STRING(255),
@@ -64,6 +68,14 @@ export default (sequelize) => {
     charset: 'utf8mb4',
     collate: 'utf8mb4_general_ci'
   });
+
+  // 관계 설정
+  Schedule.associate = (models) => {
+    Schedule.belongsTo(models.Camera, {
+      foreignKey: 'fk_camera_id',
+      as: 'camera'
+    });
+  };
 
   return Schedule;
 }; 

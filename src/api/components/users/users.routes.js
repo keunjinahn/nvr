@@ -124,7 +124,7 @@ export const routesConfig = (app) => {
    */
   app.patch('/api/users/:userId', [
     ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.onlySameUserOrAdminCanDoThisAction,
+    PermissionMiddleware.minimumPermissionLevelRequired('admin'),
     UsersController.patchByName,
   ]);
 

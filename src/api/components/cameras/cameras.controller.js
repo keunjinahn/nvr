@@ -44,7 +44,6 @@ export const insert = async (req, res) => {
 export const list = async (req, res, next) => {
   try {
     res.locals.items = await CamerasModel.list();
-
     return next();
   } catch (error) {
     res.status(500).send({

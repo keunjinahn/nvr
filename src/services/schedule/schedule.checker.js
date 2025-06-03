@@ -11,6 +11,7 @@ class ScheduleChecker {
   constructor() {
     this.checkInterval = null;
     this.lastCheck = new Map(); // 마지막 체크 상태 저장
+    this.lastCheckMissCount = new Map();
   }
 
   isTimeInRange(currentTime, startTime, endTime) {
@@ -20,16 +21,18 @@ class ScheduleChecker {
 
     const current = parseInt(currentHour) * 60 + parseInt(currentMinute);
     const start = parseInt(startHour) * 60 + parseInt(startMinute);
-    const end = parseInt(endHour) * 60 + parseInt(endMinute);
+    const end = parseInt(endHour) * 60 + parseInt(endMinute) + 1;
 
-    return current >= start && current < end;
+    return current >= start && current <= end;
   }
 
   async getCurrentlyRecordingSchedules() {
     try {
       const schedules = await Schedule.findAll({
-        where: { isActive: 1 }
+        where: { isActive: 1 },
+        attributes: ['id', 'cameraName', 'fk_camera_id', 'start_time', 'end_time', 'recording_type', 'days_of_week', 'source']
       });
+
       const now = new Date();
       const currentDay = now.getDay();
       const currentTime = now.toLocaleTimeString('en-US', {
@@ -71,13 +74,13 @@ class ScheduleChecker {
       // 현재 녹화해야 할 스케줄들 처리
       logger.info(`recordingSchedules:`, recordingSchedules);
       for (const schedule of recordingSchedules) {
-        const { cameraName, id, recording_type } = schedule;
+        const { cameraName, id, recording_type, fk_camera_id } = schedule;
 
         // 이미 녹화 중인지 확인
         if (!RecordingService.isRecording(cameraName)) {
           // 녹화 시작
-          await RecordingService.startRecording(cameraName, id, recording_type);
-          logger.info(`Started recording for camera: ${cameraName} (schedule ${id})`);
+          await RecordingService.startRecording(cameraName, id, recording_type, fk_camera_id);
+          logger.info(`Started recording for camera: ${cameraName} (schedule ${id}, camera_id: ${fk_camera_id})`);
         }
       }
 
@@ -93,6 +96,7 @@ class ScheduleChecker {
           schedules: recordingSchedules.map(s => ({
             id: s.id,
             cameraName: s.cameraName,
+            fk_camera_id: s.fk_camera_id,
             start_time: s.start_time,
             end_time: s.end_time,
             recording_type: s.recording_type,
@@ -100,6 +104,22 @@ class ScheduleChecker {
             source: s.source
           }))
         });
+      }
+
+      // 녹화 중지 조건을 더 엄격하게
+      for (const [recordingKey, recordingInfo] of this.activeRecordings) {
+        if (!currentCameras.has(recordingKey)) {
+          const missCount = this.lastCheckMissCount.get(recordingKey) || 0;
+          if (missCount >= 2) {
+            logger.info(`Stopping recording for inactive schedule: ${recordingKey}`);
+            await this.stopRecording(recordingInfo.cameraName, recordingInfo.scheduleId);
+            this.lastCheckMissCount.delete(recordingKey);
+          } else {
+            this.lastCheckMissCount.set(recordingKey, missCount + 1);
+          }
+        } else {
+          this.lastCheckMissCount.delete(recordingKey);
+        }
       }
 
       return recordingSchedules;

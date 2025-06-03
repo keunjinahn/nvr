@@ -288,26 +288,26 @@ export default {
       mdiPhone,
       mdiAlert
     },
-    currentMenu: 'alert',
+    currentMenu: 'alarm-levels',
     menus: [
-      {
-        id: 'alert',
-        title: '기본 경보 설정',
-        subtitle: '경보 기본 설정',
-        icon: mdiBell
-      },
+      // {
+      //   id: 'alert',
+      //   title: '기본 경보 설정',
+      //   subtitle: '경보 기본 설정',
+      //   icon: mdiBell
+      // },
       {
         id: 'alarm-levels',
         title: '경보 단계 설정',
         subtitle: '단계별 온도 기준 설정',
         icon: mdiThermometer
       },
-      {
-        id: 'notification',
-        title: '알림 발송 설정',
-        subtitle: '이메일/문자 알림 설정',
-        icon: mdiBellRing
-      },
+      // {
+      //   id: 'notification',
+      //   title: '알림 발송 설정',
+      //   subtitle: '이메일/문자 알림 설정',
+      //   icon: mdiBellRing
+      // },
       {
         id: 'empty3',
         title: '',

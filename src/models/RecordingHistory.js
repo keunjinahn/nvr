@@ -11,7 +11,7 @@ export default (sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
-      field: 'fk_camera_id'
+      field: 'fk_camera_id',
     },
     scheduleId: {
       type: DataTypes.INTEGER,

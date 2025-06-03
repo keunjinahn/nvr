@@ -30,7 +30,6 @@
     .tw-mt-2
       v-data-table.tw-w-full(
         v-if="listMode && cameras.length"
-        @click:row="clickRow"
         :items-per-page="-1"
         calculate-widths
         disable-pagination
@@ -42,23 +41,25 @@
         item-key="name"
         class="elevation-1"
         mobile-breakpoint="0"
+        @click:row="(item, event) => clickRow(item, event)"
       )
         template(v-slot:item.status="{ item }")
           .tw-w-full.tw-text-center  
             v-icon(size="10" :color="camStates.some((cam) => cam.name === item.name && cam.status === 'ONLINE') ? 'success' : 'error'") {{ icons['mdiCircle'] }}
         template(v-slot:item.preview="{ item }")
-          vue-aspect-ratio.tw-m-3(ar="16:9" width="100px")
-            VideoCard(:camera="item" snapshot @cameraStatus="cameraStatus")
+          .no-row-click(@click.stop)
+            vue-aspect-ratio.tw-m-3(ar="16:9" width="100px")
+              VideoCard(:camera="item" snapshot @cameraStatus="cameraStatus")
         template(v-slot:item.name="{ item }")
           b {{ item.name }}
         template(v-slot:item.model="{ item }")
-          .text-font-disabled {{ item.model || 'IP Camera' }}
+          span.white--text {{ item.model || 'IP Camera' }}
         template(v-slot:item.address="{ item }")
-          .text-font-disabled {{ item.url }}
+          span.white--text {{ item.url }}
         template(v-slot:item.lastNotification="{ item }")
           .text-font-disabled {{ item.lastNotification ? item.lastNotification.time : $t('no_data') }}
         template(v-slot:item.liveFeed="{ item }")
-          v-chip(color="var(--cui-primary)" dark small style="cursor: pointer" @click="$router.push(`/cameras/${item.name}`)") {{ camStates.some((cam) => cam.name === item.name && cam.status === 'ONLINE') ? $t('live') : $t('offline') }}
+          v-chip(color="var(--cui-primary)" dark small) {{ camStates.some((cam) => cam.name === item.name && cam.status === 'ONLINE') ? $t('live') : $t('offline') }}
         template(v-slot:item.actions="{ item }")
           .tw-flex.tw-items-center.tw-gap-2
             v-btn.edit-btn(
@@ -170,7 +171,7 @@
           :disabled="isProcessing"
         ) 취소
         v-btn.confirm-btn(
-          color="var(--cui-primary)"
+          color="secondary"
           :disabled="!valid || isProcessing"
           @click="addVideo"
         ) 
@@ -179,7 +180,7 @@
             indeterminate
             size="20"
             width="2"
-            color="white"
+            color="secondary"
           )
           v-icon.tw-mr-2(v-else size="20") {{ isEditMode ? icons['mdiContentSave'] : icons['mdiPlus'] }}
           span {{ isEditMode ? '수정하기' : '추가하기' }}
@@ -230,7 +231,6 @@ import VueAspectRatio from 'vue-aspect-ratio';
 
 import { getSetting } from '@/api/settings.api';
 import { getCameras, getCameraSettings, addCamera, removeCamera } from '@/api/cameras.api';
-import { getNotifications } from '@/api/notifications.api';
 
 import FilterCard from '@/components/filter.vue';
 import VideoCard from '@/components/camera-card.vue';
@@ -408,8 +408,13 @@ export default {
         this.camStates.push(data);
       }
     },
-    clickRow(item) {
-      this.$router.push(`/cameras/${item.name}`);
+    clickRow(item, event) {
+      if (event && event.target && event.target.closest('.no-row-click')) {
+        // 썸네일 클릭 시 아무 동작도 하지 않음
+        return;
+      }
+      // 상세 페이지 이동
+      // this.$router.push(`/cameras/${item.name}`);
     },
     changeListView(view) {
       localStorage.setItem('listModeCameras', view);
@@ -425,35 +430,46 @@ export default {
     },
     async infiniteHandler($state) {
       try {
-        const response = await getCameras(`?pageSize=5&page=${this.page || 1}` + this.query);
+        const response = await getCameras(`?pageSize=20&page=${this.page || 1}` + this.query);
+        
+        if (response?.data?.result) {
+          const rawCameras = response.data.result;
+          const processedCameras = [];
+          
+          for (const camera of rawCameras) {
+            try {
+              if (!camera?.name) {
+                console.warn('Skipping camera without name:', camera);
+                continue;
+              }
 
-        for (const camera of response.data.result) {
-          const settings = await getCameraSettings(camera.name);
-          camera.settings = settings.data;
-
-          const lastNotification = await getNotifications(`?cameras=${camera.name}&pageSize=5`);
-          camera.lastNotification = lastNotification.data.result.length > 0 ? lastNotification.data.result[0] : false;
-
-          camera.url = camera.videoConfig.source.replace(/\u00A0/g, ' ').split('-i ')[1];
-
-          if (!camera.url.startsWith('/')) {
-            const protocol = camera.url.split('://')[0];
-            const url = new URL(camera.url.replace(protocol, 'http'));
-            camera.url = `${protocol}://${url.hostname}:${url.port || 80}${url.pathname}`;
+              const settingsResponse = await getCameraSettings(camera.name);
+              const processedCamera = {
+                ...camera,
+                settings: settingsResponse?.data.settings || {},
+                url: camera.videoConfig?.source?.replace(/\u00A0/g, ' ').split('-i ')[1] || ''
+              };
+              
+              processedCameras.push(processedCamera);
+            } catch (err) {
+              console.error(`Error processing camera ${camera?.name || 'unknown'}:`, err);
+            }
           }
-        }
 
-        if (response.data.result.length > 0) {
-          this.page += 1;
-          this.cameras.push(...response.data.result);
-
-          $state.loaded();
+          if (processedCameras.length > 0) {
+            this.page += 1;
+            this.cameras.push(...processedCameras);
+            $state.loaded();
+          } else {
+            $state.complete();
+          }
         } else {
           $state.complete();
         }
       } catch (err) {
-        console.log(err);
-        this.$toast.error(err.message);
+        console.error('Error in infiniteHandler:', err);
+        this.$toast.error(err.message || '카메라 목록을 불러오는데 실패했습니다.');
+        $state.complete();
       }
     },
     onResize() {

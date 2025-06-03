@@ -267,16 +267,17 @@ export default {
     async loadCameras() {
       try {
         const response = await getCameras();
-        
         if (Array.isArray(response.data)) {
           this.cameras = response.data.map(camera => ({
             name: camera.name,
-            source:camera.videoConfig.source
+            source:camera.videoConfig.source,
+            id:camera.id
           }));
         } else if (response.data && response.data.result) {
           this.cameras = response.data.result.map(camera => ({
             name: camera.name,
-            source:camera.videoConfig.source
+            source:camera.videoConfig.source,
+            id:camera.id
           }));
         } else {
           console.error('Unexpected camera data format:', response.data);
@@ -311,7 +312,6 @@ export default {
 
       // 오늘 요일 가져오기 (0: 일요일, 6: 토요일)
       const today = now.getDay();
-
       this.editedItem = {
         id: null,
         cameraName: this.cameras.length > 0 ? this.cameras[0].name : '',
@@ -320,7 +320,8 @@ export default {
         days: [today],
         recordingType: 'Video',
         isActive: true,
-        source:this.cameras.length > 0 ? this.cameras[0].source : ''
+        source:this.cameras.length > 0 ? this.cameras[0].source : '',
+        fk_camera_id:this.cameras.length > 0 ? this.cameras[0].id : ''
       };
 
       // 폼 초기화
@@ -346,7 +347,8 @@ export default {
         days: item.days || item.days_of_week || [],
         recordingType: item.recordingType || item.recording_type || 'Video',
         isActive: item.isActive !== undefined ? item.isActive : true,
-        source: item.source
+        source: item.source,
+        fk_camera_id: item.fk_camera_id
       };
 
       
@@ -386,9 +388,9 @@ export default {
             endTime: this.editedItem.endTime,
             recordingType: this.editedItem.recordingType || 'Video',
             isActive: this.editedItem.isActive !== undefined ? this.editedItem.isActive : true,
-            source:this.editedItem.source
+            source:this.editedItem.source,
+            fk_camera_id:this.editedItem.fk_camera_id
           };
-
           console.log('Saving schedule with data:', scheduleData); // 디버깅용 로그
 
           let response;
@@ -492,6 +494,7 @@ export default {
       const selectedCamera = this.cameras.find(camera => camera.name === cameraName);
       if (selectedCamera) {
         this.editedItem.source = selectedCamera.source;
+        this.editedItem.fk_camera_id = selectedCamera.id;
         console.log('Camera source updated:', selectedCamera.source);
       }
     },

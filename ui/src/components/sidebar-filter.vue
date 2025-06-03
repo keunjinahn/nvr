@@ -68,7 +68,6 @@
 import { mdiCalendarRange, mdiCamera, mdiDoorOpen, mdiLabel, mdiImageMultiple } from '@mdi/js';
 
 import { getSetting } from '@/api/settings.api';
-import { getNotifications } from '@/api/notifications.api';
 import { getRecordings } from '@/api/recordings.api';
 
 import { bus } from '@/main';
@@ -359,19 +358,7 @@ export default {
 
       this.$emit('filter', this.query);
     },
-    async getNotificationLabels() {
-      const labels = [];
-      let response = await getNotifications('?page=1');
 
-      for (this.page; this.page <= response.data.pagination.totalPages; this.page++) {
-        if (this.page > 1) {
-          response = await getNotifications(`?page=${this.page}`);
-        }
-        response.data.result.forEach((notification) => labels.push(notification.label));
-      }
-
-      return labels;
-    },
     async getRecordingsLabels() {
       const labels = [];
       let response = await getRecordings('?page=1');

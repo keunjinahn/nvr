@@ -43,7 +43,6 @@ div
 import { mdiAutorenew, mdiCalendar, mdiChevronDown, mdiChevronUp, mdiFilter } from '@mdi/js';
 
 import { getSetting } from '@/api/settings.api';
-import { getNotifications } from '@/api/notifications.api';
 import { getRecordings } from '@/api/recordings.api';
 
 export default {
@@ -366,19 +365,6 @@ export default {
       }
 
       this.$emit('filter', this.query);
-    },
-    async getNotificationLabels() {
-      const labels = [];
-      let response = await getNotifications('?page=1');
-
-      for (this.page; this.page <= response.data.pagination.totalPages; this.page++) {
-        if (this.page > 1) {
-          response = await getNotifications(`?page=${this.page}`);
-        }
-        response.data.result.forEach((notification) => labels.push(notification.label));
-      }
-
-      return labels;
     },
     async getRecordingsLabels() {
       const labels = [];

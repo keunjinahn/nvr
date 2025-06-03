@@ -2,13 +2,35 @@ import EventHistoryModel from '../../../models/EventHistory.js';
 import sequelize from '../../../models/index.js';
 import EventSettingModel from '../../../models/EventSetting.js';
 import EventDetectionZoneModel from '../../../models/EventDetectionZone.js';
+import { Op } from 'sequelize';
 
 const EventHistory = EventHistoryModel(sequelize);
 const EventSetting = EventSettingModel(sequelize);
 const EventDetectionZone = EventDetectionZoneModel(sequelize);
 
-const getAllEventHistory = async () => {
-  return await EventHistory.findAll();
+const getAllEventHistory = async (filters = {}) => {
+  const { startDate, endDate, label } = filters;
+
+  let whereClause = {};
+
+  // 날짜 범위 필터
+  if (startDate && endDate) {
+    whereClause.event_accur_time = {
+      [Op.between]: [startDate, endDate]
+    };
+  }
+
+  // label 필터 (event_data_json에서 검색)
+  if (label) {
+    whereClause.event_data_json = {
+      [Op.like]: `%${label}%`
+    };
+  }
+
+  return await EventHistory.findAll({
+    where: whereClause,
+    order: [['event_accur_time', 'DESC']]
+  });
 };
 
 const getEventHistoryById = async (id) => {

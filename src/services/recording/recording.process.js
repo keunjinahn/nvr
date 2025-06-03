@@ -74,10 +74,11 @@ class RecordingProcess {
 
         if (!isScheduleActive) return false;
 
-        // 이미 완료된 녹화가 있는지 확인
+        // 이미 완료된 녹화가 있는지 확인 (진행중인 녹화는 제외)
         const hasCompletedRecording = recordingHistory.some(record =>
           record.scheduleId === schedule.id &&
-          record.cameraName === schedule.cameraName
+          record.cameraName === schedule.cameraName &&
+          (record.status === 'completed' || record.status === 'stopped')
         );
 
         // 활성화된 스케줄이지만 이미 완료된 녹화가 있으면 제외
@@ -89,7 +90,7 @@ class RecordingProcess {
     }
   }
 
-  async addRecordingHistory(scheduleId, cameraName, timeInfo, filename) {
+  async addRecordingHistory(scheduleId, cameraName, timeInfo, filename, fk_camera_id) {
     try {
       // 동일한 파일명으로 진행 중인 녹화가 있는지 확인
       const existingRecordings = await RecordingHistory.findAll({
@@ -99,6 +100,7 @@ class RecordingProcess {
             {
               scheduleId: scheduleId,
               cameraName: cameraName,
+              fk_camera_id: fk_camera_id,
               status: 'recording'
             }
           ]
@@ -122,7 +124,8 @@ class RecordingProcess {
         startTime: timeInfo.formattedForDB,
         endTime: null,
         status: 'recording',
-        createdAt: timeInfo.formattedForDB
+        createdAt: timeInfo.formattedForDB,
+        fk_camera_id: fk_camera_id
       };
       logger.info('newRecord', newRecord);
       // 새 녹화 추가
@@ -175,7 +178,7 @@ class RecordingProcess {
     }
   }
 
-  async startRecording(cameraName, scheduleId, source) {
+  async startRecording(cameraName, scheduleId, source, fk_camera_id) {
     const recordingKey = `${cameraName}_${scheduleId}`;
     let recordingId = null;
 
@@ -224,7 +227,7 @@ class RecordingProcess {
 
       // recordingHistory에 추가 - 한 번만 수행
       try {
-        recordingId = await this.addRecordingHistory(scheduleId, cameraName, timeInfo, filename);
+        recordingId = await this.addRecordingHistory(scheduleId, cameraName, timeInfo, filename, fk_camera_id);
       } catch (error) {
         logger.error('Failed to add recording history:', error);
         return;
@@ -344,7 +347,7 @@ class RecordingProcess {
             this.lastRetryTimes.set(recordingKey, now);
             // 재시도 시에는 새로운 recordingHistory 생성
             setTimeout(() => {
-              this.startRecording(cameraName, scheduleId, source);
+              this.startRecording(cameraName, scheduleId, source, fk_camera_id);
             }, 5000);
           } else {
             logger.warn(`Skipping retry for ${recordingKey} due to frequent failures`);
@@ -378,7 +381,7 @@ class RecordingProcess {
       };
 
       this.activeRecordings.set(recordingKey, recordingInfo);
-
+      logger.info(`====> this.activeRecordings: ${Array.from(this.activeRecordings.entries())}`);
       // 녹화 메타데이터 저장
       const metadataPath = path.join(recordingDir, `${filename}.json`);
       await fs.writeJson(metadataPath, {
@@ -463,14 +466,18 @@ class RecordingProcess {
   async checkAndUpdateRecordings() {
     try {
       const activeSchedules = await this.getCurrentlyActiveSchedules();
-
+      console.log('====> activeSchedules', activeSchedules);
       // 현재 활성화된 스케줄의 카메라와 스케줄ID를 맵으로 관리
       const activeScheduleMap = new Map();
       activeSchedules.forEach(schedule => {
         const scheduleKey = `${schedule.cameraName}_${schedule.id}`;
         activeScheduleMap.set(scheduleKey, schedule);
       });
-
+      logger.info(
+        '====> activeScheduleMap:',
+        Object.fromEntries(activeScheduleMap)
+      );
+      console.log('this.activeRecordings:', Object.fromEntries(this.activeRecordings));
       // 현재 녹화 중인 프로세스 확인 및 중지
       for (const [recordingKey, recordingInfo] of this.activeRecordings) {
         // 해당 스케줄이 더 이상 활성화되지 않은 경우 녹화 중지
@@ -512,7 +519,7 @@ class RecordingProcess {
         }
 
         logger.info(`Starting new recording for schedule: ${scheduleKey}`);
-        await this.startRecording(schedule.cameraName, schedule.id, schedule.source);
+        await this.startRecording(schedule.cameraName, schedule.id, schedule.source, schedule.fk_camera_id);
       }
 
     } catch (error) {

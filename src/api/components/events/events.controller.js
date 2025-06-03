@@ -98,7 +98,13 @@ async function sendRoiSetting(roiIndex, startX, startY, endX, endY, cameraIp, ca
 
 export const getAllEventHistory = async (req, res) => {
   try {
-    const data = await EventsModel.getAllEventHistory();
+    const { startDate, endDate, label } = req.query;
+    const filters = {
+      startDate: startDate ? new Date(startDate) : null,
+      endDate: endDate ? new Date(endDate) : null,
+      label
+    };
+    const data = await EventsModel.getAllEventHistory(filters);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

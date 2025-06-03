@@ -58,7 +58,8 @@ export default class Socket {
     );
 
     Socket.io.on('connection', async (socket) => {
-      //check if token is valid
+      //check if token is valid 
+      console.log("===> socket.encoded_token", socket.encoded_token);
       const token = socket.encoded_token;
       const tokenExist = await Token.findOne({ where: { token: token, valid: true } });
 
@@ -78,28 +79,28 @@ export default class Socket {
       );
 
       // 권한 체크 없이 항상 알림 데이터 전송
-      const notifications = await Database.interfaceDB?.chain.get('notifications').cloneDeep().value();
-      const systemNotifications = Database.notificationsDB?.chain.get('notifications').cloneDeep().value();
+      // const notifications = await Database.interfaceDB?.chain.get('notifications').cloneDeep().value();
+      // const systemNotifications = Database.notificationsDB?.chain.get('notifications').cloneDeep().value();
 
-      if (notifications && systemNotifications) {
-        const size = notifications.length + systemNotifications.length;
-        socket.emit('notification_size', size);
-      }
-
+      // if (notifications && systemNotifications) {
+      //   const size = notifications.length + systemNotifications.length;
+      //   socket.emit('notification_size', size);
+      // }
+      console.log("===> socket.on('join_stream')");
       socket.on('join_stream', (data) => {
         if (data.feed) {
           socket.join(`stream/${data.feed}`);
           log.debug(`${socket.decoded_token.username} (${socket.conn.remoteAddress}) joined stream: ${data.feed}`);
         }
       });
-
+      console.log("===> socket.on('leave_stream')");
       socket.on('leave_stream', (data) => {
         if (data.feed) {
           socket.leave(`stream/${data.feed}`);
           log.debug(`${socket.decoded_token.username} (${socket.conn.remoteAddress}) left stream: ${data.feed}`);
         }
       });
-
+      console.log("===> socket.on('rejoin_stream')");
       socket.on('rejoin_stream', (data) => {
         if (data.feed) {
           socket.leave(`stream/${data.feed}`);
@@ -108,7 +109,7 @@ export default class Socket {
           log.debug(`${socket.decoded_token.username} (${socket.conn.remoteAddress}) re-joined stream: ${data.feed}`);
         }
       });
-
+      console.log("===> socket.on('refresh_stream')");
       socket.on('refresh_stream', (data) => {
         if (data.feed) {
           log.debug(

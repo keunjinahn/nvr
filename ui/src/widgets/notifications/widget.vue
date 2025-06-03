@@ -29,8 +29,6 @@
 /* eslint-disable vue/require-default-prop */
 import { mdiChevronRight } from '@mdi/js';
 
-import { getNotifications } from '@/api/notifications.api';
-
 export default {
   name: 'NotificationsWidget',
 
@@ -50,23 +48,6 @@ export default {
 
   async mounted() {
     try {
-      const lastNotifications = await getNotifications('?pageSize=5');
-      this.notifications = lastNotifications.data.result;
-
-      this.notifications = this.notifications.map((not) => {
-        if (!not.message) {
-          if (not.camera && not.room) {
-            not.message = this.$t('notification_text').replace('@', not.camera).replace('%', not.room);
-          } else {
-            not.message = this.$t('movement_detected');
-          }
-        }
-
-        return not;
-      });
-
-      this.$socket.client.on('notification', this.handleNotification);
-
       this.loading = false;
     } catch (err) {
       console.log(err);
@@ -75,18 +56,9 @@ export default {
   },
 
   beforeDestroy() {
-    this.$socket.client.off('notification', this.handleNotification);
   },
 
   methods: {
-    handleNotification(notification) {
-      this.notifications.push(notification);
-
-      if (this.notifications.length > 5) {
-        const length = this.notifications.length - 5;
-        this.notifications = this.notifications.slice(0, -length);
-      }
-    },
   },
 };
 </script>

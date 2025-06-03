@@ -108,7 +108,7 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted {{ icons['mdiAccountGroup'] }}
 
-                v-col(cols="12" md="6")
+                <!-- v-col(cols="12" md="6")
                   label.form-input-label 최소 감지 크기
                   v-text-field(
                     v-model="settings.object.minSize"
@@ -120,7 +120,7 @@
                     solo
                   )
                     template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiResize'] }}
+                      v-icon.text-muted {{ icons['mdiResize'] }} -->
 
                 v-col(cols="12" md="6")
                   label.form-input-label 감지 정확도
@@ -135,7 +135,7 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted {{ icons['mdiTarget'] }}
 
-                v-col(cols="12" md="6")
+                <!-- v-col(cols="12" md="6")
                   label.form-input-label 추적 간격
                   v-text-field(
                     v-model="settings.object.trackingDuration"
@@ -147,7 +147,7 @@
                     solo
                   )
                     template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTimer'] }}
+                      v-icon.text-muted {{ icons['mdiTimer'] }} -->
 
                 v-col(cols="12" md="6")
                   .tw-flex.tw-justify-between.tw-items-center
@@ -266,26 +266,26 @@ export default {
       mdiBackupRestore,
       mdiHarddisk
     },
-    currentMenu: 'temperature',
+    currentMenu: 'object',
     menus: [
-      {
-        id: 'temperature',
-        title: '온도 설정',
-        subtitle: '온도 감지 및 알림 설정',
-        icon: mdiThermometer
-      },
+      // {
+      //   id: 'temperature',
+      //   title: '온도 설정',
+      //   subtitle: '온도 감지 및 알림 설정',
+      //   icon: mdiThermometer
+      // },
       {
         id: 'object',
         title: '객체 설정',
         subtitle: '객체 감지 설정',
         icon: mdiAccountGroup
       },
-      {
-        id: 'system',
-        title: '시스템 설정',
-        subtitle: '시스템 환경 설정',
-        icon: mdiCog
-      },
+      // {
+      //   id: 'system',
+      //   title: '시스템 설정',
+      //   subtitle: '시스템 환경 설정',
+      //   icon: mdiCog
+      // },
       {
         id: 'empty1',
         title: '',
@@ -333,7 +333,7 @@ export default {
         useSound: true
       },
       object: {
-        detectionType: '사람',
+        detectionType: '전체',
         minSize: 100,
         accuracy: '높음',
         trackingDuration: 10,
@@ -389,7 +389,7 @@ export default {
           useSound: alert.useSound ?? true
         },
         object: {
-          detectionType: object.detectionType ?? '사람',
+          detectionType: object.detectionType ?? '전체',
           minSize: object.minSize ?? 100,
           accuracy: object.accuracy ?? '높음',
           trackingDuration: object.trackingDuration ?? 10,
@@ -421,7 +421,7 @@ export default {
           useSound: true
         },
         object: {
-          detectionType: '사람',
+          detectionType: '전체',
           minSize: 100,
           accuracy: '높음',
           trackingDuration: 10,

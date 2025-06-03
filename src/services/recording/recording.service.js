@@ -3,30 +3,80 @@ import path from 'path';
 import moment from 'moment-timezone';
 import LoggerService from '../logger/logger.service.js';
 import ConfigService from '../config/config.service.js';
-import Database from '../../api/database.js';
+import RecordingHistoryModel from '../../models/RecordingHistory.js';
+import Camera from '../../models/Camera.js';
+import sequelize from '../../models/index.js';
+import { Op } from 'sequelize';
 
 const logger = new LoggerService('RecordingService');
+const RecordingHistory = RecordingHistoryModel(sequelize);
 
 export class RecordingService {
   constructor() {
-    this.activeRecordings = new Map(); // 현재 녹화 중인 카메라 맵
+    this.activeRecordings = new Map(); // key: `${cameraName}_${scheduleId}`
     this.recordingsPath = ConfigService.recordingsPath;
   }
 
-  async addRecordingHistory(scheduleId, cameraName, startTime, filename) {
-    logger.warn('Recording history is now managed by RecordingProcess');
-    return null;
+  async addRecordingHistory(scheduleId, cameraName, startTime, filename, fk_camera_id) {
+    try {
+      // 카메라 ID 조회
+      const camera = await Camera.findOne({
+        where: { name: cameraName }
+      });
+
+      if (!camera) {
+        throw new Error(`Camera not found: ${cameraName}`);
+      }
+
+      const newRecord = {
+        scheduleId,
+        cameraName,
+        fk_camera_id,
+        filename,
+        startTime: moment(startTime).tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
+        status: 'recording',
+        createdAt: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss')
+      };
+
+      const createdRecord = await RecordingHistory.create(newRecord);
+      logger.info('Recording history added:', createdRecord);
+      return createdRecord.id;
+    } catch (error) {
+      logger.error('Error in addRecordingHistory:', error);
+      throw error;
+    }
   }
 
   async updateRecordingHistory(recordingId, updates) {
-    logger.warn('Recording history is now managed by RecordingProcess');
-    return null;
+    try {
+      const currentRecord = await RecordingHistory.findByPk(recordingId);
+      if (!currentRecord) {
+        logger.warn(`Recording history not found for ID: ${recordingId}`);
+        return;
+      }
+
+      const updatedRecord = {
+        ...updates,
+        updatedAt: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss')
+      };
+
+      await currentRecord.update(updatedRecord);
+      logger.info('Recording history updated:', {
+        id: recordingId,
+        previousStatus: currentRecord.status,
+        newStatus: updates.status,
+        updates
+      });
+    } catch (error) {
+      logger.error('Error in updateRecordingHistory:', error);
+    }
   }
 
-  async startRecording(cameraName, scheduleId, recordingType) {
+  async startRecording(cameraName, scheduleId, recordingType, fk_camera_id) {
     try {
-      if (this.activeRecordings.has(cameraName)) {
-        logger.warn(`Recording already in progress for camera: ${cameraName}`);
+      const key = `${cameraName}_${scheduleId}`;
+      if (this.activeRecordings.has(key)) {
+        logger.warn(`Recording already in progress for camera: ${cameraName}, schedule: ${scheduleId}`);
         return false;
       }
 
@@ -41,7 +91,8 @@ export class RecordingService {
         scheduleId,
         cameraName,
         timestamp,
-        filename
+        filename,
+        fk_camera_id
       );
 
       // 녹화 시작 시간 (한국 시간)
@@ -49,6 +100,7 @@ export class RecordingService {
       const recordingInfo = {
         recordingId,
         scheduleId,
+        fk_camera_id,
         startTime,
         recordingType,
         status: 'recording'
@@ -70,24 +122,25 @@ export class RecordingService {
         timestamp: timestamp
       });
 
-      this.activeRecordings.set(cameraName, recordingInfo);
-      logger.info(`Started recording for camera: ${cameraName}`, recordingInfo);
+      this.activeRecordings.set(key, recordingInfo);
+      logger.info(`Started recording for camera: ${cameraName}, schedule: ${scheduleId}`, recordingInfo);
 
       return true;
     } catch (error) {
-      logger.error(`Failed to start recording for camera: ${cameraName}`, error);
+      logger.error(`Failed to start recording for camera: ${cameraName}, schedule: ${scheduleId}`, error);
       return false;
     }
   }
 
-  async stopRecording(cameraName) {
+  async stopRecording(cameraName, scheduleId) {
     try {
-      if (!this.activeRecordings.has(cameraName)) {
-        logger.warn(`No active recording found for camera: ${cameraName}`);
+      const key = `${cameraName}_${scheduleId}`;
+      if (!this.activeRecordings.has(key)) {
+        logger.warn(`No active recording found for camera: ${cameraName}, schedule: ${scheduleId}`);
         return false;
       }
 
-      const recordingInfo = this.activeRecordings.get(cameraName);
+      const recordingInfo = this.activeRecordings.get(key);
       recordingInfo.status = 'stopped';
 
       // 종료 시간도 한국 시간으로 설정
@@ -116,32 +169,33 @@ export class RecordingService {
         status: 'completed'
       });
 
-      this.activeRecordings.delete(cameraName);
-      logger.info(`Stopped recording for camera: ${cameraName}`, recordingInfo);
+      this.activeRecordings.delete(key);
+      logger.info(`Stopped recording for camera: ${cameraName}, schedule: ${scheduleId}`, recordingInfo);
 
       return true;
     } catch (error) {
-      logger.error(`Failed to stop recording for camera: ${cameraName}`, error);
+      logger.error(`Failed to stop recording for camera: ${cameraName}, schedule: ${scheduleId}`, error);
       return false;
     }
   }
 
-  isRecording(cameraName) {
-    return this.activeRecordings.has(cameraName);
+  isRecording(cameraName, scheduleId) {
+    const key = `${cameraName}_${scheduleId}`;
+    return this.activeRecordings.has(key);
   }
 
   getActiveRecordings() {
-    return Array.from(this.activeRecordings.entries()).map(([cameraName, info]) => ({
-      cameraName,
+    return Array.from(this.activeRecordings.entries()).map(([key, info]) => ({
       ...info
     }));
   }
 
-  async getRecordingStatus(cameraName) {
-    if (this.activeRecordings.has(cameraName)) {
+  async getRecordingStatus(cameraName, scheduleId) {
+    const key = `${cameraName}_${scheduleId}`;
+    if (this.activeRecordings.has(key)) {
       return {
         isRecording: true,
-        ...this.activeRecordings.get(cameraName)
+        ...this.activeRecordings.get(key)
       };
     }
 
@@ -153,18 +207,23 @@ export class RecordingService {
 
   async getRecordingHistory(filters = {}) {
     try {
-      let recordingHistory = await Database.interfaceDB.chain.get('recordingHistory').cloneDeep().value() || [];
+      const whereClause = {};
 
       // 필터 적용
       if (filters.cameraName) {
-        recordingHistory = recordingHistory.filter(r => r.cameraName === filters.cameraName);
+        whereClause.cameraName = filters.cameraName;
       }
       if (filters.scheduleId) {
-        recordingHistory = recordingHistory.filter(r => r.scheduleId === filters.scheduleId);
+        whereClause.scheduleId = filters.scheduleId;
       }
       if (filters.status) {
-        recordingHistory = recordingHistory.filter(r => r.status === filters.status);
+        whereClause.status = filters.status;
       }
+
+      const recordingHistory = await RecordingHistory.findAll({
+        where: whereClause,
+        order: [['id', 'DESC']]
+      });
 
       // 결과가 비어있는 경우 빈 배열 반환
       if (!recordingHistory || recordingHistory.length === 0) {
@@ -173,13 +232,10 @@ export class RecordingService {
 
       // 시간 정보 포맷팅
       const formattedHistory = recordingHistory.map(record => ({
-        ...record,
+        ...record.toJSON(),
         startTime: record.startTime ? moment(record.startTime).tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss') : null,
         endTime: record.endTime ? moment(record.endTime).tz('Asia/Seoul').format('YYYY-MM-DDTHH-mm-ss') : null
       }));
-
-      // 최신 기록이 먼저 오도록 정렬
-      formattedHistory.sort((a, b) => b.id - a.id);
 
       return formattedHistory;
     } catch (error) {

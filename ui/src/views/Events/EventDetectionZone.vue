@@ -51,111 +51,111 @@
               v-if="region"
               :style="getZoneStyle(region)"
             )
-          .options-panel
-            v-row
-              v-col(cols="6")
-                .option-item
-                  v-row(align="center" no-gutters)
-                    v-col(cols="5")
-                      span.option-label Force Close Timer
-                    v-col(cols="5")
-                      v-slider(
-                        v-model="options.forceCloseTimer.value"
-                        :min="1"
-                        :max="100"
-                        @input="updateOptions"
-                        color="primary"
-                        hide-details
-                        class="mt-0"
-                      )
-                    v-col(cols="2")
-                      span.option-value {{ options.forceCloseTimer.value }}
-              v-col(cols="6")
-                .option-item
-                  v-row(align="center" no-gutters)
-                    v-col(cols="5")
-                      span.option-label Dwell Timer
-                    v-col(cols="5")
-                      v-slider(
-                        v-model="options.dwellTimer.value"
-                        :min="1"
-                        :max="100"
-                        @input="updateOptions"
-                        color="primary"
-                        hide-details
-                        class="mt-0"
-                      )
-                    v-col(cols="2")
-                      span.option-value {{ options.dwellTimer.value }}
-            v-row
-              v-col(cols="6")
-                .option-item
-                  v-row(align="center" no-gutters)
-                    v-col(cols="5")
-                      span.option-label Sensitivity
-                    v-col(cols="5")
-                      v-slider(
-                        v-model="options.sensitivity.value"
-                        :min="1"
-                        :max="100"
-                        @input="updateOptions"
-                        color="primary"
-                        hide-details
-                        class="mt-0"
-                      )
-                    v-col(cols="2")
-                      span.option-value {{ options.sensitivity.value }}
-              v-col(cols="6")
-                .option-item
-                  v-row(align="center" no-gutters)
-                    v-col(cols="5")
-                      span.option-label Difference
-                    v-col(cols="5")
-                      v-slider(
-                        v-model="options.difference.value"
-                        :min="1"
-                        :max="100"
-                        @input="updateOptions"
-                        color="primary"
-                        hide-details
-                        class="mt-0"
-                      )
-                    v-col(cols="2")
-                      span.option-value {{ options.difference.value }}
-            v-row.mt-4
-              v-col(cols="6")
-                v-text-field(
-                  v-model="description"
-                  label="Description"
-                  outlined
-                  dense
-                  hide-details
-                  dark
-                  background-color="#2a2a2a"
-                  color="primary"
-                )
-              v-col(cols="3")
-                v-select(
-                  v-model="detectionZoneType"
-                  :items="detectionZoneTypes"
-                  item-text="text"
-                  :return-object="true"
-                  label="영역 번호"
-                  outlined
-                  dense
-                  hide-details
-                  dark
-                  background-color="#2a2a2a"
-                  color="primary"
-                )
-              v-col(cols="3")
-                v-switch(
-                  v-model="detectionZoneActive"
-                  label="Active"
-                  color="primary"
-                  hide-details
-                  dark
-                )
+          // .options-panel
+          //   v-row
+          //     v-col(cols="6")
+          //       .option-item
+          //         v-row(align="center" no-gutters)
+          //           v-col(cols="5")
+          //             span.option-label Force Close Timer
+          //           v-col(cols="5")
+          //             v-slider(
+          //               v-model="options.forceCloseTimer.value"
+          //               :min="1"
+          //               :max="100"
+          //               @input="updateOptions"
+          //               color="primary"
+          //               hide-details
+          //               class="mt-0"
+          //             )
+          //           v-col(cols="2")
+          //             span.option-value {{ options.forceCloseTimer.value }}
+          //     v-col(cols="6")
+          //       .option-item
+          //         v-row(align="center" no-gutters)
+          //           v-col(cols="5")
+          //             span.option-label Dwell Timer
+          //           v-col(cols="5")
+          //             v-slider(
+          //               v-model="options.dwellTimer.value"
+          //               :min="1"
+          //               :max="100"
+          //               @input="updateOptions"
+          //               color="primary"
+          //               hide-details
+          //               class="mt-0"
+          //             )
+          //           v-col(cols="2")
+          //             span.option-value {{ options.dwellTimer.value }}
+          //   v-row
+          //     v-col(cols="6")
+          //       .option-item
+          //         v-row(align="center" no-gutters)
+          //           v-col(cols="5")
+          //             span.option-label Sensitivity
+          //           v-col(cols="5")
+          //             v-slider(
+          //               v-model="options.sensitivity.value"
+          //               :min="1"
+          //               :max="100"
+          //               @input="updateOptions"
+          //               color="primary"
+          //               hide-details
+          //               class="mt-0"
+          //             )
+          //           v-col(cols="2")
+          //             span.option-value {{ options.sensitivity.value }}
+          //     v-col(cols="6")
+          //       .option-item
+          //         v-row(align="center" no-gutters)
+          //           v-col(cols="5")
+          //             span.option-label Difference
+          //           v-col(cols="5")
+          //             v-slider(
+          //               v-model="options.difference.value"
+          //               :min="1"
+          //               :max="100"
+          //               @input="updateOptions"
+          //               color="primary"
+          //               hide-details
+          //               class="mt-0"
+          //             )
+          //           v-col(cols="2")
+          //             span.option-value {{ options.difference.value }}
+          v-row.mt-4
+            v-col(cols="6")
+              v-text-field(
+                v-model="description"
+                label="Description"
+                outlined
+                dense
+                hide-details
+                dark
+                background-color="#2a2a2a"
+                color="primary"
+              )
+            v-col(cols="3")
+              v-select(
+                v-model="detectionZoneType"
+                :items="detectionZoneTypes"
+                item-text="text"
+                :return-object="true"
+                label="영역 번호"
+                outlined
+                dense
+                hide-details
+                dark
+                background-color="#2a2a2a"
+                color="primary"
+              )
+            v-col(cols="3")
+              v-switch(
+                v-model="detectionZoneActive"
+                label="Active"
+                color="primary"
+                hide-details
+                dark
+              )
           .tw-flex.tw-justify-center.tw-mt-4
           .button-box.button-box-dark.tw-flex.tw-flex-row.tw-gap-4
             v-btn(@click="customizing ? finishCustom() : startCustom()")
@@ -218,7 +218,6 @@
 
 <script>
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
-import { getNotifications } from '@/api/notifications.api';
 import VideoCard from '@/components/camera-card.vue';
 import { mdiRefresh, mdiMapMarkerRadius, mdiCheckboxMarkedCircle, mdiUndo, mdiPlus, mdiPencil, mdiDelete } from '@mdi/js';
 import Playground from '@/components/playground.vue';
@@ -802,12 +801,10 @@ export default {
       const response = await getCameras();
       for (const camera of response.data.result) {
         const settings = await getCameraSettings(camera.name);
-        camera.settings = settings.data;
+        camera.settings = settings.data.settings;
         camera.favourite = camera.settings.camview.favourite;
         camera.live = camera.settings.camview.live || false;
         camera.refreshTimer = camera.settings.camview.refreshTimer || 60;
-        const lastNotification = await getNotifications(`?cameras=${camera.name}&pageSize=5`);
-        camera.lastNotification = lastNotification.data.result.length > 0 ? lastNotification.data.result[0] : false;
         camera.url = camera.videoConfig.source.replace(/\u00A0/g, ' ').split('-i ')[1];
         if (!camera.url.startsWith('/')) {
           const protocol = camera.url.split('://')[0];

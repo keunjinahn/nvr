@@ -6,10 +6,16 @@ export const getRealtimeTemp = async (req, res) => {
     const { cameraId } = req.query;
     const where = {};
     if (cameraId) where.fk_camera_id = cameraId;
+
+    // 현재 시간에서 1분 전 시간 계산
+    const oneMinuteAgo = new Date(Date.now() - 60 * 1000);
+    where.create_date = {
+      [Op.gte]: oneMinuteAgo
+    };
+
     const rows = await VideoReceiveData.findAll({
       where,
-      order: [['create_date', 'DESC']],
-      limit: 60,
+      order: [['create_date', 'DESC']]
     });
     rows.reverse();
     const result = rows.map(row => {
@@ -33,16 +39,15 @@ export const getDailyRoiAvgTemp = async (req, res) => {
   try {
     const { cameraId } = req.query;
     const where = {};
-    if (cameraId) where.fk_camera_id = 1;
-
     // 오늘 날짜의 시작과 끝 시간 설정
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-
+    console.log(today, tomorrow)
+    const oneDay = new Date(Date.now() - 60 * 60 * 24 * 1000);
     where.create_date = {
-      [Op.between]: [today, tomorrow]
+      [Op.gte]: oneDay
     };
 
     const rows = await VideoReceiveData.findAll({
@@ -100,21 +105,20 @@ export const getDailyRoiMinChange = async (req, res) => {
     const where = {};
     if (cameraId) where.fk_camera_id = cameraId;
 
-    // 오늘 날짜의 시작과 끝 시간 설정
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
+    const oneDay = new Date(Date.now() - 60 * 60 * 24 * 1000);
     where.create_date = {
-      [Op.between]: [today, tomorrow]
+      [Op.gte]: oneDay
     };
-
     const rows = await VideoReceiveData.findAll({
       where,
       attributes: ['data_value'],
       order: [['create_date', 'ASC']]
     });
+
+    // // 데이터가 없으면 빈 배열 반환
+    // if (rows.length === 0) {
+    //   return res.json({ result: [] });
+    // }
 
     // ROI별 온도 데이터 추출
     const roiTemps = Array.from({ length: 10 }, () => []);

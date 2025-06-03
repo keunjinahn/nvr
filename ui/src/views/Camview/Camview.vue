@@ -52,7 +52,6 @@ import 'gridstack/dist/jq/gridstack-dd-jqueryui';
 import { mdiCog } from '@mdi/js';
 
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
-import { getNotifications } from '@/api/notifications.api';
 import { getSetting, changeSetting } from '@/api/settings.api';
 
 import VideoCard from '@/components/camera-card.vue';
@@ -102,8 +101,6 @@ export default {
         camera.favourite = camera.settings.camview.favourite;
         camera.live = camera.settings.camview.live || false;
         camera.refreshTimer = camera.settings.camview.refreshTimer || 60;
-        const lastNotification = await getNotifications(`?cameras=${camera.name}&pageSize=5`);
-        camera.lastNotification = lastNotification.data.result.length > 0 ? lastNotification.data.result[0] : false;
       }
 
       this.allCameras = cameras.data.result;

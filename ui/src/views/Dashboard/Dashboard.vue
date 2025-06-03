@@ -170,7 +170,7 @@ export default {
       this.initGaugeChart();
       this.loadAlertChart();
     });
-    this.startAlertRefresh();
+    //this.startAlertRefresh();
   },
 
   beforeDestroy() {
