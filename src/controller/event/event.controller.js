@@ -14,7 +14,7 @@ import LoggerService from '../../services/logger/logger.service.js';
 
 import Socket from '../../api/socket.js';
 
-import * as CamerasModel from '../../api/components/cameras/cameras.model_old.js';
+import * as CamerasModel from '../../api/components/cameras/cameras.model.js';
 import * as NotificationsModel from '../../api/components/notifications/notifications.model.js';
 import * as RecordingsModel from '../../api/components/recordings/recordings.model.js';
 import * as SettingsModel from '../../api/components/settings/settings.model.js';
