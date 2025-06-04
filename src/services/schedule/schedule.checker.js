@@ -106,21 +106,21 @@ class ScheduleChecker {
         });
       }
 
-      // 녹화 중지 조건을 더 엄격하게
-      for (const [recordingKey, recordingInfo] of this.activeRecordings) {
-        if (!currentCameras.has(recordingKey)) {
-          const missCount = this.lastCheckMissCount.get(recordingKey) || 0;
-          if (missCount >= 2) {
-            logger.info(`Stopping recording for inactive schedule: ${recordingKey}`);
-            await this.stopRecording(recordingInfo.cameraName, recordingInfo.scheduleId);
-            this.lastCheckMissCount.delete(recordingKey);
-          } else {
-            this.lastCheckMissCount.set(recordingKey, missCount + 1);
-          }
-        } else {
-          this.lastCheckMissCount.delete(recordingKey);
-        }
-      }
+      // // 녹화 중지 조건을 더 엄격하게
+      // for (const [recordingKey, recordingInfo] of this.activeRecordings) {
+      //   if (!currentCameras.has(recordingKey)) {
+      //     const missCount = this.lastCheckMissCount.get(recordingKey) || 0;
+      //     if (missCount >= 2) {
+      //       logger.info(`Stopping recording for inactive schedule: ${recordingKey}`);
+      //       await this.stopRecording(recordingInfo.cameraName, recordingInfo.scheduleId);
+      //       this.lastCheckMissCount.delete(recordingKey);
+      //     } else {
+      //       this.lastCheckMissCount.set(recordingKey, missCount + 1);
+      //     }
+      //   } else {
+      //     this.lastCheckMissCount.delete(recordingKey);
+      //   }
+      // }
 
       return recordingSchedules;
     } catch (error) {
@@ -136,7 +136,7 @@ class ScheduleChecker {
 
     this.checkInterval = setInterval(async () => {
       await this.checkSchedules();
-    }, intervalMinutes * 60 * 1000);
+    }, intervalMinutes * 30 * 1000);
 
     logger.info('Schedule checker started');
   }

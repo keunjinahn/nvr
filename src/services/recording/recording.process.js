@@ -190,7 +190,6 @@ class RecordingProcess {
           logger.debug(`Recording already in progress for schedule: ${recordingKey}, skipping...`);
           return;
         }
-        await this.stopRecording(cameraName, scheduleId);
       }
 
       // 시간 정보 생성 (한국 시간 기준)
@@ -346,9 +345,9 @@ class RecordingProcess {
             logger.warn(`Abnormal exit for schedule ${recordingKey}, attempting to restart...`);
             this.lastRetryTimes.set(recordingKey, now);
             // 재시도 시에는 새로운 recordingHistory 생성
-            setTimeout(() => {
-              this.startRecording(cameraName, scheduleId, source, fk_camera_id);
-            }, 5000);
+            // setTimeout(() => {
+            //   this.startRecording(cameraName, scheduleId, source, fk_camera_id);
+            // }, 5000);
           } else {
             logger.warn(`Skipping retry for ${recordingKey} due to frequent failures`);
           }
@@ -381,7 +380,7 @@ class RecordingProcess {
       };
 
       this.activeRecordings.set(recordingKey, recordingInfo);
-      logger.info(`====> this.activeRecordings: ${Array.from(this.activeRecordings.entries())}`);
+      // logger.info(`====> this.activeRecordings: ${Array.from(this.activeRecordings.entries())}`);
       // 녹화 메타데이터 저장
       const metadataPath = path.join(recordingDir, `${filename}.json`);
       await fs.writeJson(metadataPath, {
@@ -466,18 +465,15 @@ class RecordingProcess {
   async checkAndUpdateRecordings() {
     try {
       const activeSchedules = await this.getCurrentlyActiveSchedules();
-      console.log('====> activeSchedules', activeSchedules);
+      // console.log('====> activeSchedules', activeSchedules);
       // 현재 활성화된 스케줄의 카메라와 스케줄ID를 맵으로 관리
       const activeScheduleMap = new Map();
       activeSchedules.forEach(schedule => {
         const scheduleKey = `${schedule.cameraName}_${schedule.id}`;
         activeScheduleMap.set(scheduleKey, schedule);
       });
-      logger.info(
-        '====> activeScheduleMap:',
-        Object.fromEntries(activeScheduleMap)
-      );
-      console.log('this.activeRecordings:', Object.fromEntries(this.activeRecordings));
+
+      // console.log('this.activeRecordings:', Object.fromEntries(this.activeRecordings));
       // 현재 녹화 중인 프로세스 확인 및 중지
       for (const [recordingKey, recordingInfo] of this.activeRecordings) {
         // 해당 스케줄이 더 이상 활성화되지 않은 경우 녹화 중지
