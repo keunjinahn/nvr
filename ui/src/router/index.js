@@ -318,6 +318,23 @@ export const routes = [
         component: () => import(/* webpackChunkName: "events" */ '@/views/Alerts/AlertSearch.vue')
       },
       {
+        path: 'status',
+        name: 'AlertStatus',
+        meta: {
+          auth: {
+            requiresAuth: true,
+            requiredLevel: []
+          },
+          config: {
+            fixedNavbar: true,
+            showFooter: true,
+            showNavbar: true,
+            showSidebar: true
+          }
+        },
+        component: () => import(/* webpackChunkName: "events" */ '@/views/Alerts/AlertStatus.vue')
+      },
+      {
         path: 'setting',
         name: 'AlertSetting',
         meta: {

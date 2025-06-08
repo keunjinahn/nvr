@@ -148,14 +148,6 @@
                 background-color="#2a2a2a"
                 color="primary"
               )
-            v-col(cols="3")
-              v-switch(
-                v-model="detectionZoneActive"
-                label="Active"
-                color="primary"
-                hide-details
-                dark
-              )
           .tw-flex.tw-justify-center.tw-mt-4
           .button-box.button-box-dark.tw-flex.tw-flex-row.tw-gap-4
             v-btn(@click="customizing ? finishCustom() : startCustom()")
@@ -182,14 +174,6 @@
               span {{ item.description }}
             template(#[`item.type`]="{ item }")
               span {{ getTypeText(item.type) }}
-            template(#[`item.active`]="{ item }")
-              v-switch(
-                v-model="item.active"
-                color="primary"
-                hide-details
-                dense
-                disabled
-              )
             template(v-slot:item.actions="{ item }")
               .tw-flex.tw-items-center.tw-gap-2
                 v-btn.edit-btn(
@@ -210,7 +194,7 @@
           v-dialog(v-model="deleteDialog" max-width="400px")
             v-card
               v-card-title.error--text 삭제 확인
-              v-card-text 정말 삭제하시겠습니까?
+              v-card-text.tw-text-white 정말 삭제하시겠습니까?
               v-card-actions
                 v-btn(@click="deleteDialog = false") 취소
                 v-btn(color="error" @click="deleteRow") 삭제
@@ -277,7 +261,6 @@ export default {
         { text: '카메라', value: 'cameraName' },
         { text: 'Description', value: 'description' },
         { text: 'Type', value: 'type' },
-        { text: 'Active', value: 'active' },
         { text: '작업', value: 'actions', sortable: false, align: 'center' }
       ],
       deleteDialog: false,
@@ -535,6 +518,15 @@ export default {
 
       if (!this.description || this.description.trim() === '') {
         this.$toast.error('설명을 입력해주세요.');
+        return;
+      }
+
+     // 중복 영역 번호 체크
+      const isDuplicateType = this.eventDetectionZoneList.some(
+        zone => zone.type === this.detectionZoneType?.value
+      );
+      if (isDuplicateType) {
+        this.$toast.error('동일한 영역 번호가 이미 존재합니다.');
         return;
       }
 

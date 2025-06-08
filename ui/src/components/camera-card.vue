@@ -229,9 +229,9 @@ export default {
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       return isMobile;
     },
-    pauseStream() {
+    pauseStream(rejoin) {
       if (this.player) {
-        this.player.source.pause(true);
+        this.player.source.pause(rejoin);
       }
     },
     refreshStream(rejoin) {
@@ -302,7 +302,7 @@ export default {
       }
 
       try {
-        const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
+        const status = await getCameraStatus(this.camera.name, 5);
 
         this.$emit('cameraStatus', {
           name: this.camera.name,
@@ -356,25 +356,28 @@ export default {
         }
       }
       try {
-        const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
+        const status = await getCameraStatus(this.camera.name, 5);
 
         if (status.data.status === 'ONLINE') {
           this.offline = false;
+
+          if (this.player) {
+            this.stopStream();
+          }
 
           this.player = new JSMpeg.Player(null, {
             source: JSMpegWritableSource,
             canvas: this.$refs.streamBox,
             audio: true,
-            //disableWebAssembly: true,
             pauseWhenHidden: false,
             videoBufferSize: 1024 * 1024,
             onSourcePaused: () => {
               this.play = false;
             },
             onSourceEstablished: () => {
+              console.log('Stream source established');
               this.loading = false;
               this.offline = false;
-
               this.play = true;
               this.player.volume = 0;
               this.audio = !this.isMobile() && this.player.volume;
@@ -384,41 +387,51 @@ export default {
                 this.streamTimeout = null;
               }
             },
+            onSourceCompleted: () => {
+              console.log('Stream source completed');
+              this.refreshStream(true);
+            },
+            onError: (error) => {
+              console.error('Stream error:', error);
+              this.refreshStream(true);
+            }
           });
 
           this.player.volume = 0;
           this.player.name = this.camera.name;
           this.audio = !this.isMobile() && this.player.volume;
 
+          if (!this.$socket.client.connected) {
+            console.log('Socket not connected, attempting to connect...');
+            this.$socket.client.connect();
+          }
+
+          this.$socket.client.off(this.camera.name, this.writeStream);
+          this.$socket.client.on(this.camera.name, this.writeStream);
+
+          console.log('Joining stream:', this.camera.name);
           this.$socket.client.emit('join_stream', {
             feed: this.camera.name,
           });
 
-          this.$socket.client.on(this.camera.name, this.writeStream);
-
           this.streamTimeout = setTimeout(() => {
             if (this.loading) {
+              console.log('Stream timeout');
               this.loading = false;
               this.offline = true;
-
               this.stopStream();
               this.$toast.warning(`${this.camera.name}: ${this.$t('timeout')}`);
             }
           }, this.timeout * 1000);
         } else {
-          this.stopStream();
-
+          console.log('Camera offline');
           this.offline = true;
-          this.$toast.error(`${this.camera.name}: ${this.$t('offline')}`);
-        }
-      } catch (err) {
-        this.stopStream();
-
-        console.log(this.camera.name, err);
-        this.$toast.error(`${this.camera.name}: ${err.message}`);
-
-        this.loading = false;
+          this.loading = false;
+        } 
+      } catch (error) {
+        console.error('Error starting stream:', error);
         this.offline = true;
+        this.loading = false;
       }
     },
     destroy() {

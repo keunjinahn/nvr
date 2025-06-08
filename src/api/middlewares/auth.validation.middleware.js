@@ -42,12 +42,10 @@ const getBearerToken = async (userId, password) => {
 };
 
 export const validJWTNeeded = async (req, res, next) => {
-  //console.log('[AUTH] validJWTNeeded req.query:', req.query);
   if (req.query.userId && req.query.password) {
     const authorization = await getBearerToken(req.query.userId, req.query.password);
     if (authorization) {
       req.headers['authorization'] = `Bearer ${authorization}`;
-      //console.log('[AUTH] Generated Bearer token from query params');
     }
   }
 
@@ -57,41 +55,78 @@ export const validJWTNeeded = async (req, res, next) => {
       let authorization = authHeader.split(/\s+/);
 
       if (authorization[0] !== 'Bearer') {
-        //console.log('[AUTH] Authorization header is not Bearer:', authHeader);
         return res.status(401).send({
           statusCode: 401,
-          message: 'Unauthorized',
+          message: '인증 토큰 형식이 올바르지 않습니다.',
+          error: 'INVALID_TOKEN_FORMAT'
         });
-      } else {
-        //check if user/token exists in database and is still valid
-        const user = await AuthModel.findByToken(authorization[1]);
-        //console.log('[AUTH] Token DB lookup result:', user);
-
-        if (!user || (user && !user.valid)) {
-          console.log('[AUTH] Token not found or not valid');
-          return res.status(401).send({
-            statusCode: 401,
-            message: 'Token expired',
-          });
-        }
-
-        req.jwt = jwt.verify(authorization[1], jwtSecret);
-        //console.log('[AUTH] JWT verified:', req.jwt);
-
-        return next();
       }
+
+      // 토큰 검증
+      const decoded = jwt.verify(authorization[1], jwtSecret);
+
+      // 토큰 만료 시간 체크
+      const now = Math.floor(Date.now() / 1000);
+      if (decoded.exp - now < 300) { // 5분 이내로 만료되는 경우
+        // 새로운 토큰 발급
+        const newToken = jwt.sign(
+          {
+            id: decoded.id,
+            userId: decoded.userId,
+            sessionTimer: decoded.sessionTimer,
+            permissionLevel: decoded.permissionLevel,
+            photo: decoded.photo
+          },
+          jwtSecret,
+          { expiresIn: decoded.sessionTimer || 28800 }
+        );
+
+        // 기존 토큰 무효화
+        await AuthModel.invalidateByToken(authorization[1]);
+        // 새 토큰 저장
+        await AuthModel.insert(newToken);
+
+        // 응답 헤더에 새 토큰 추가
+        res.setHeader('X-New-Token', newToken);
+      }
+
+      // 데이터베이스에서 토큰 유효성 확인
+      const user = await AuthModel.findByToken(authorization[1]);
+      if (!user || (user && !user.valid)) {
+        return res.status(401).send({
+          statusCode: 401,
+          message: '토큰이 만료되었거나 유효하지 않습니다.',
+          error: 'TOKEN_EXPIRED_OR_INVALID'
+        });
+      }
+
+      req.jwt = decoded;
+      return next();
     } catch (error) {
-      console.log('[AUTH] JWT verification error:', error);
+      console.error('[AUTH] JWT verification error:', error);
+
+      let errorMessage = '인증 오류가 발생했습니다.';
+      let errorCode = 'AUTH_ERROR';
+
+      if (error.name === 'TokenExpiredError') {
+        errorMessage = '토큰이 만료되었습니다. 다시 로그인해주세요.';
+        errorCode = 'TOKEN_EXPIRED';
+      } else if (error.name === 'JsonWebTokenError') {
+        errorMessage = '유효하지 않은 토큰입니다.';
+        errorCode = 'INVALID_TOKEN';
+      }
+
       return res.status(401).send({
         statusCode: 401,
-        message: error,
+        message: errorMessage,
+        error: errorCode
       });
     }
   } else {
-    console.log('[AUTH] No Authorization header present');
     return res.status(401).send({
       statusCode: 401,
-      message: 'Unauthorized',
+      message: '인증 토큰이 필요합니다.',
+      error: 'TOKEN_REQUIRED'
     });
   }
 };

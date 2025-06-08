@@ -1,344 +1,499 @@
 <template lang="pug">
-.sidebar-root
-  .notification-status
-    v-container(fluid)
-      v-row
-        v-col(cols="12")
-          v-card.notification-card
-            .camera-status
-              .status-header
-              .camera-list-container
-                .camera-grid(v-if="cameras && cameras.length > 0")
-                  .camera-box(
-                    v-for="(camera, index) in cameras"
-                    :key="`camera-${index}`"
-                    :class="{ 'active': selectedCameraIndex === index }"
-                    @click="selectCamera(index)"
-                  )
-                    .camera-thumbnail
-                      VideoCard(
-                        :ref="`thumbnail-${camera.name}`"
-                        :camera="camera"
-                        stream
-                        noLink
-                        hideNotifications
-                        hideIndicatorFullscreen
-                        :style="{ height: '120px' }"
-                      )
-                    .camera-info
-                      .camera-name {{ camera.name }}
-                .no-cameras(v-else)
-                  span.no-cameras-text 카메라 목록이 없습니다. ({{ cameras.length }})
-            .camera-display-area
-              .display-box.left-box
-                .alert-history
-                  .alert-history-title
-                    | 경보 이력
-                    v-btn(
-                      icon
-                      :color="autoRefreshAlertHistory ? 'primary' : 'grey'"
-                      @click="toggleAlertHistoryRefresh"
-                      class="ml-2"
-                      small
-                    )
-                      v-icon {{ icons.mdiRefresh }}
-                  .alert-history-table
-                    .table-row(
-                      v-for="alert in alertHistory" 
-                      :key="alert.id"
-                      :class="{'alert-level-3': Number(alert.level) >= 3, 'alert-level-4': Number(alert.level) >= 4, 'alert-level-5': Number(alert.level) >= 5}"
-                    )
-                      .table-item
-                        .item-label 경보시간
-                        .item-value {{ alert.time }}
-                      .table-item
-                        .item-label 경보종류
-                        .item-value {{ getTypeText(alert.type) }}
-                      .table-item
-                        .item-label 경보단계
-                        .item-value {{ getLevelText(alert.level) }}
-                      .table-item
-                        .item-label 최고온도
-                        .item-value {{ alert.maxTemp }}°C
-                      .table-item
-                        .item-label 최저온도
-                        .item-value {{ alert.minTemp }}°C
-              .display-box.center-box
-                VideoCard(
-                  v-if="selectedCamera"
-                  :ref="`main-${selectedCamera.name}`"
-                  :key="`video-${selectedCamera.name}-${videoKey}`"
-                  :camera="selectedCamera"
-                  stream
-                  noLink
-                  hideNotifications
-                  hideIndicatorFullscreen
-                  :style="{ height: '100%' }"
+.dashboard-2by2
+  .cell.cell-topleft
+    .topleft-inner-row
+      .topleft-inner-left
+        .time-display
+          .site-time-block
+            .site-name(v-if="location_info") {{ location_info }}
+            .current-time {{ currentTime }}
+        .weather-widget
+          .weather-info
+            .temperature {{ weather.temperature }}°C
+            .weather-description {{ weather.description }}
+            .location {{ weather.location }}
+      .topleft-inner-right
+        .gauge-container
+          .gauge-meter(ref="gaugeChart" style="width:100%;height:180px;min-width:180px;min-height:180px;")
+        .bottom-box
+          .table-title 경보 이력
+          .alert-table
+            .table-header
+              .header-cell 경보레벨
+              .header-cell 발생일자
+            .table-body
+              .table-row(
+                v-for="alert in alertHistory"
+                :key="alert.id"
+                :class="['alert-row', `level-${alert.level}`]"
                 )
-                .no-video(v-else)
-                  span.no-video-text 영상을 선택해주세요
-              .display-box.right-box
-                .right-box-content
-                  .top-box
-  
-                    .gauge-container
-                      .gauge-meter(ref="gaugeChart")
-                  .center-box
-                    .chart-title 최근 7일 경보건수
-                    .chart-container
-                      div(ref="alertChart" style="width:100%;height:200px;min-width:200px;min-height:200px;")
-                  .bottom-box
-                    .table-title 경보 이력
-                    .alert-table
-                      .table-header
-                        .header-cell 경보레벨
-                        .header-cell 발생일자
-                      .table-body
-                        .table-row(v-for="alert in alertHistory" :key="alert.id")
-                          .table-cell {{ getLevelText(alert.level) }}
-                          .table-cell {{ alert.time }}
+                .table-cell
+                  span.level-icon(:class="`level-${alert.level}`")
+                    span(v-if="alert.level == 4") ⚠️
+                    span(v-else-if="alert.level == 3") 🔶
+                    span(v-else-if="alert.level == 2") 🟡
+                    span(v-else-if="alert.level == 1") 🟦
+                    span(v-else) 🟩
+                  span.level-text {{ getLevelText(alert.level) }}
+                .table-cell {{ alert.time }}
+  .cell.cell-topright
+    .box-title 열화상 영상
+    .video-container
+      vue-aspect-ratio(ar="4:3")
+        VideoCard(
+          v-if="thermalCamera"
+          :key="videoKeyThermal"
+          :ref="thermalCamera.name"
+          :camera="thermalCamera"
+          title
+          title-position="bottom"
+          :stream="thermalCamera.live"
+          @cameraStatus="cameraStatus"
+        )
+        .no-camera(v-else) No thermal camera available
+  .cell.cell-bottomleft
+    .bottomleft-inner-col
+      .bottomleft-inner-top
+        .box-title ROI List
+        .table-container
+          table.zone-table
+            thead
+              tr
+                th ROI
+                th Max Temp
+                th Min Temp
+                th Avg Temp
+                th Graph
+                th Download
+            tbody
+              tr(
+                v-for="(zone, idx) in zones"
+                :key="zone.name"
+                :class="{selected: selectedZoneIdx === idx}"
+                @click="showChart(zone)"
+              )
+                td {{ zone.zone_desc }}
+                td {{ zone.maxTemp }}
+                td {{ zone.minTemp }}
+                td {{ zone.avgTemp }}
+                td
+                  span.icon-chart 📈
+                td
+                  span.icon-excel(@click.stop="downloadExcel(zone)") 📊
+      .bottomleft-inner-bottom
+        .box-title Time Series Temperature
+        .chart-container
+          v-chart(:options="chartOption" autoresize height="400" ref="trendChart" style="width:100%;height:400px;background:var(--cui-bg-card);")
+  .cell.cell-bottomright
+    .box-title 실화상 영상
+    .video-container
+      vue-aspect-ratio(ar="4:3")
+        VideoCard(
+          v-if="visibleCamera"
+          :key="videoKeyVisible"
+          :ref="visibleCamera.name"
+          :camera="visibleCamera"
+          title
+          title-position="bottom"
+          :stream="visibleCamera.live"
+          @cameraStatus="cameraStatus"
+        )
+        .no-camera(v-else) No visible camera available
 </template>
   
 <script>
-import { 
-  mdiRefresh
-} from '@mdi/js';
-import { getCameras, getCameraSettings } from '@/api/cameras.api';
-import { getAlerts, getRecentAlertCounts } from '@/api/alerts.api';
+import { use } from 'echarts/core';
+import { CanvasRenderer } from 'echarts/renderers';
+import { BarChart, LineChart } from 'echarts/charts';
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
 import VideoCard from '@/components/camera-card.vue';
+import { getCameras, getCameraSettings } from '@/api/cameras.api';
+import { getRoiDataList } from '@/api/statistic.api';
+import VChart from 'vue-echarts';
+import VueAspectRatio from 'vue-aspect-ratio';
 import socket from '@/mixins/socket';
+import * as XLSX from 'xlsx';
 import * as echarts from 'echarts';
+import { getAlerts} from '@/api/alerts.api';
+import { getEventSetting } from '@/api/eventSetting.api.js'
+use([
+  CanvasRenderer,
+  BarChart,
+  LineChart,
+  GridComponent,
+  TooltipComponent,
+  LegendComponent
+]);
 
 export default {
-  name: 'NotificationStatus',
-
+name: 'Dashboard',
   components: {
-    VideoCard
+    VideoCard,
+    'v-chart': VChart,
+    'vue-aspect-ratio': VueAspectRatio
   },
-
   mixins: [socket],
-
-  data: () => ({
-    icons: {
-      mdiRefresh
+data() {
+  return {
+    cameraList: [],
+    thermalCamera: null,
+    visibleCamera: null,
+    videoKeyThermal: '',
+    videoKeyVisible: '',
+    camStates: [],
+    currentTime: '',
+    weather: {
+      temperature: '--',
+      description: '날씨 정보 로딩 중...',
+      location: '서울'
     },
-    loading: false,
-    cameras: [],
-    selectedCameraIndex: null,
-    videoKey: 0,
-    currentAlertLevel: '대기',
-    alertChart: null,
-    gaugeChart: null,
-    alertCount: 4,
+    timeInterval: null,
+    zones: [],
+    selectedZoneIdx: null,
+    selectedZone: null,
+    loading: true,
+    socketConnected: false,
     alertHistory: [],
-    env: process.env.NODE_ENV,
-    alertRefreshTimer: null,
-    autoRefreshAlertHistory: true
-  }),
+    gaugeChart: null,
+    location_info: '',
+    address: '',
+  };
+},
+computed: {
 
-  computed: {
-    selectedCamera() {
-      return this.selectedCameraIndex !== null && this.cameras.length > 0 
-        ? this.cameras[this.selectedCameraIndex] 
-        : null;
+  chartOption() {
+    console.log('=== chartOption Debug ===');
+    console.log('selectedZone:', this.selectedZone);
+    
+    if (!this.selectedZone) {
+      console.log('No selectedZone, returning empty options');
+      return {};
+    }
+    
+    const temps = this.selectedZone.temps || [];
+    console.log('Raw temps data:', temps);
+    
+    if (!temps.length) {
+      console.log('No temperature data available');
+      return {};
+    }
+
+    const times = temps.map(t => new Date(t.time).toLocaleString('ko-KR'));
+    const minTemps = temps.map(t => Number(t.min));
+    const maxTemps = temps.map(t => Number(t.max));
+    const avgTemps = temps.map(t => Number(t.avg));
+
+    console.log('Processed data:', {
+      times: times.length,
+      minTemps: minTemps.length,
+      maxTemps: maxTemps.length,
+      avgTemps: avgTemps.length,
+      sampleTime: times[0],
+      sampleMin: minTemps[0],
+      sampleMax: maxTemps[0],
+      sampleAvg: avgTemps[0]
+    });
+
+    const options = {
+      tooltip: { 
+        trigger: 'axis',
+        formatter: function (params) {
+          const time = params[0].axisValue;
+          let result = `${time}<br/>`;
+          params.forEach(param => {
+            result += `${param.seriesName}: ${param.value}°C<br/>`;
+          });
+          return result;
+        }
+      },
+      legend: {
+        data: ['최소온도', '최대온도', '평균온도'],
+        textStyle: {
+          color: '#fff'
+        }
+      },
+      xAxis: {
+        type: 'category',
+        data: times,
+        name: '시간',
+        boundaryGap: false,
+        axisLabel: {
+          color: '#fff',
+          rotate: 45
+        }
+      },
+      yAxis: {
+        type: 'value',
+        name: '온도(°C)',
+        min: Math.min(...minTemps) - 5,
+        max: Math.max(...maxTemps) + 5,
+        axisLabel: {
+          color: '#fff',
+          formatter: '{value}°C'
+        }
+      },
+      series: [
+        {
+          name: '최소온도',
+          data: minTemps,
+          type: 'line',
+          smooth: true,
+          lineStyle: {
+            width: 2,
+            color: '#52c41a'
+          },
+          itemStyle: {
+            color: '#52c41a'
+          }
+        },
+        {
+          name: '최대온도',
+          data: maxTemps,
+          type: 'line',
+          smooth: true,
+          lineStyle: {
+            width: 2,
+            color: '#ff4d4f'
+          },
+          itemStyle: {
+            color: '#ff4d4f'
+          }
+        },
+        {
+          name: '평균온도',
+          data: avgTemps,
+          type: 'line',
+          smooth: true,
+          lineStyle: {
+            width: 2,
+            color: '#1890ff'
+          },
+          itemStyle: {
+            color: '#1890ff'
+          }
+        }
+      ],
+      grid: { 
+        left: 40, 
+        right: 20, 
+        top: 60, 
+        bottom: 60,
+        containLabel: true
+      }
+    };
+
+    console.log('Generated chart options:', options);
+    return options;
+  }
+},
+mounted() {
+  this.updateTime();
+  this.timeInterval = setInterval(this.updateTime, 1000);
+  
+  // 소켓 연결 이벤트 리스너 등록
+  this.$socket.client.on('connect', this.handleSocketConnect);
+  this.$socket.client.on('disconnect', this.handleSocketDisconnect);
+  
+  // 소켓 연결 시작
+  if (!this.$socket.client.connected) {
+    this.$socket.client.connect();
+  }
+  this.initGaugeChart();
+  this.initializeData();
+  this.loadAlertHistory();
+  this.loadSiteName();
+},
+beforeDestroy() {
+  if (this.timeInterval) {
+    clearInterval(this.timeInterval);
+  }
+  // 소켓 이벤트 리스너 제거
+  this.$socket.client.off('connect', this.handleSocketConnect);
+  this.$socket.client.off('disconnect', this.handleSocketDisconnect);
+},
+methods: {
+  handleSocketConnect() {
+    console.log('Socket connected');
+    this.socketConnected = true;
+    this.initializeData();
+  },
+  handleSocketDisconnect() {
+    console.log('Socket disconnected');
+    this.socketConnected = false;
+  },
+  async initializeData() {
+    try {
+      await Promise.all([
+        this.fetchWeather(),
+        this.loadZones(),
+        this.loadCameras()
+      ]);
+    this.loading = false;
+    } catch (error) {
+      console.error('Error initializing data:', error);
+      this.loading = false;
     }
   },
+  updateTime() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const day = now.getDate();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    
+    this.currentTime = `${year}년 ${month}월 ${day}일 ${hours}:${minutes}:${seconds}`;
+  },
+  async fetchWeather() {
+    try {
+      // 1. 현장위치(address) 불러오기
+      const data = await getEventSetting();
+      let address = '';
+      if (data && data.system_json) {
+        const system = JSON.parse(data.system_json);
+        address = system.address || '';
+      }
 
-  watch: {
-    cameras: {
-      immediate: true,
-      handler(newCameras) {
-        console.log('Cameras changed:', {
-          length: newCameras.length,
-          cameras: newCameras
+      // 2. 주소가 있으면 날씨 API 호출
+      let weatherData = {
+        temperature: '--',
+        description: '날씨 정보 없음',
+        location: address || '위치 미설정'
+      };
+
+      if (address) {
+        const apiKey = '550d972c6e25316a8a59ad0f07c6c237';
+        const baseUrl = 'https://api.openweathermap.org/data/2.5/';
+        const response = await fetch(
+          `${baseUrl}weather?q=${encodeURIComponent(address)}&units=metric&appid=${apiKey}&lang=kr`
+        );
+        const owmInfo = await response.json();
+        if (owmInfo && owmInfo.main && owmInfo.weather && owmInfo.weather[0]) {
+          weatherData = {
+            temperature: Math.round(owmInfo.main.temp),
+            description: owmInfo.weather[0].description,
+            location: weatherData.location
+          };
+        }
+      }
+
+      this.weather = weatherData;
+    } catch (error) {
+      console.error('날씨 정보를 가져오는데 실패했습니다:', error);
+      this.weather = {
+        temperature: '--',
+        description: '날씨 정보 없음',
+        location: '위치 미설정'
+      };
+    }
+  },
+  async loadZones() {
+    try {
+      const res = await getRoiDataList();
+      this.zones = res.data.result || [];
+      if (this.zones.length > 0) {
+        this.selectedZoneIdx = 0;
+        this.selectedZone = this.zones[0];
+      }
+    } catch (e) {
+      console.error('영역 통계 정보를 불러오지 못했습니다:', e);
+    }
+  },
+  selectZone(idx) {
+    this.selectedZoneIdx = idx;
+    this.selectedZone = this.zones[idx];
+  },
+  async loadCameras() {
+    try {
+      const response = await getCameras();
+      for (const camera of response.data.result) {
+        const settings = await getCameraSettings(camera.name);
+        camera.settings = settings.data.settings;
+        camera.live = camera.settings.camview?.live || false;
+        camera.refreshTimer = camera.settings.camview?.refreshTimer || 60;
+        camera.url = camera.videoConfig.source.replace(/\u00A0/g, ' ').split('-i ')[1];
+      }
+      this.cameraList = response.data.result;
+      this.thermalCamera = this.cameraList[0] || null;
+      this.visibleCamera = this.cameraList[1] || null;
+      this.videoKeyThermal = this.thermalCamera ? this.thermalCamera.name + '_' + Date.now() : '';
+      this.videoKeyVisible = this.visibleCamera ? this.visibleCamera.name + '_' + Date.now() : '';
+    } catch (err) {
+      console.error('Error loading cameras:', err);
+      this.thermalCamera = null;
+      this.visibleCamera = null;
+    }
+  },
+  cameraStatus(data) {
+    if (!this.camStates.some((cam) => cam.name === data.name)) {
+      this.camStates.push(data);
+    }
+  },
+  downloadExcel(zone) {
+    try {
+      // Create worksheet data
+      const worksheetData = [];
+      
+      // Add headers
+      worksheetData.push(['시간', '최소온도 (°C)', '최대온도 (°C)', '평균온도 (°C)']);
+      
+      // Add data rows
+      if (zone.temps && Array.isArray(zone.temps)) {
+        zone.temps.forEach(temp => {
+          worksheetData.push([
+            new Date(temp.time).toLocaleString('ko-KR'),
+            temp.min,
+            temp.max,
+            temp.avg
+          ]);
         });
       }
-    }
-  },
 
-  async created() {
-    console.log('Component created');
-    await this.initializeData();
-    await this.loadAlertHistory();
-  },
+      // Create workbook and worksheet
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(worksheetData);
 
-  mounted() {
-    console.log('Component mounted, cameras:', this.cameras);
-    this.$socket.client.on('connect', this.handleSocketConnect);
-    this.$nextTick(() => {
-      this.initAlertChart();
-      this.initGaugeChart();
-      this.loadAlertChart();
-    });
-    //this.startAlertRefresh();
-  },
+      // Set column widths
+      const colWidths = [
+        { wch: 20 }, // Time column
+        { wch: 12 }, // Min temp column
+        { wch: 12 }, // Max temp column
+        { wch: 12 }  // Avg temp column
+      ];
+      ws['!cols'] = colWidths;
 
-  beforeDestroy() {
-    if (this.selectedCamera?.name) {
-      this.$refs[this.selectedCamera.name]?.[0]?.destroy();
-    }
-    if (this.alertChart) {
-      this.alertChart.dispose();
-    }
-    if (this.gaugeChart) {
-      this.gaugeChart.dispose();
-    }
-    window.removeEventListener('resize', this.handleChartResize);
-    this.$socket.client.off('connect', this.handleSocketConnect);
-    this.stopAlertRefresh();
-  },
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(wb, ws, 'Temperature Data');
 
-  methods: {
-    async initializeData() {
-      try {
-        await this.fetchCameras();
-        if (this.cameras.length > 0) {
-          this.selectCamera(0);
-        }
-      } catch (error) {
-        console.error('Error initializing data:', error);
-      }
-    },
-
-    async fetchCameras() {
-      console.log('Starting fetchCameras');
-      this.loading = true;
+      // Generate Excel file
+      const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       
-      try {
-        const response = await getCameras();
-        console.log('getCameras response:', response);
-
-        if (!response?.data?.result) {
-          console.warn('No camera data in response');
-          this.cameras = [];
-          return;
-        }
-
-        const rawCameras = response.data.result;
-        console.log('Raw cameras:', rawCameras);
-
-        if (!Array.isArray(rawCameras)) {
-          console.warn('Camera data is not an array');
-          this.cameras = [];
-          return;
-        }
-
-        const processedCameras = [];
-        for (const camera of rawCameras) {
-          try {
-            if (!camera?.name) {
-              console.warn('Skipping camera without name:', camera);
-              continue;
-            }
-
-            console.log('Processing camera:', camera.name);
-            
-            const settingsResponse = await getCameraSettings(camera.name);
-            console.log('Camera settings response:', settingsResponse);
-            
-            const processedCamera = {
-              ...camera,
-              settings: settingsResponse?.data || {}
-            };
-            
-            processedCameras.push(processedCamera);
-            console.log('Added processed camera:', processedCamera);
-          } catch (err) {
-            console.error(`Error processing camera ${camera?.name || 'unknown'}:`, err);
-          }
-        }
-
-        console.log('Setting cameras array:', processedCameras);
-        this.cameras = processedCameras;
-        
-      } catch (error) {
-        console.error('Error in fetchCameras:', error);
-        this.$toast.error('카메라 목록을 불러오는데 실패했습니다.');
-        this.cameras = [];
-      } finally {
-        this.loading = false;
-        console.log('fetchCameras completed. Current cameras:', this.cameras);
-      }
-    },
-
-    selectCamera(index) {
-      if (this.selectedCameraIndex === index) {
-        return;
-      }
-      
-      // 이전 선택된 카메라의 VideoCard 인스턴스 정리
-      if (this.selectedCamera) {
-        const prevRef = this.$refs[`main-${this.selectedCamera.name}`];
-        if (prevRef && prevRef[0]) {
-          prevRef[0].destroy();
-        }
-      }
-
-      this.selectedCameraIndex = index;
-      this.videoKey++; // 비디오 키 업데이트로 VideoCard 재생성
-
-      // 새로 선택된 카메라의 VideoCard 초기화
-      this.$nextTick(() => {
-        const newRef = this.$refs[`main-${this.selectedCamera.name}`];
-        if (newRef && newRef[0]) {
-          newRef[0].initialize();
-        }
-      });
-    },
-
-    async refreshCameras() {
-      await this.fetchCameras();
-    },
-
-    handleSocketConnect() {
-      if (this.selectedCamera?.name && this.$refs[this.selectedCamera.name]?.[0]) {
-        this.$refs[this.selectedCamera.name][0].refreshStream(true);
-      }
-    },
-
-    formatRtspUrl(camera) {
-      try {
-        if (!camera?.videoConfig?.source) return 'URL 없음';
-        const source = camera.videoConfig.source.replace(/\u00A0/g, ' ');
-        const parts = source.split('-i ');
-        return parts.length > 1 ? parts[1] : 'URL 없음';
-      } catch (error) {
-        console.error('Error formatting RTSP URL:', error);
-        return 'URL 없음';
-      }
-    },
-
-    initAlertChart() {
-      const chartDom = this.$refs.alertChart;
-      if (!chartDom) return;
-      if (this.alertChart) {
-        this.alertChart.dispose();
-      }
-      this.alertChart = echarts.init(chartDom);
-
-      // 빈 데이터로만 초기화
-      this.alertChart.setOption({
-        backgroundColor: 'transparent',
-        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
-        xAxis: { type: 'category', data: [], axisLine: { lineStyle: { color: '#ffffff' } }, axisLabel: { color: '#ffffff' } },
-        yAxis: { type: 'value', axisLine: { lineStyle: { color: '#ffffff' } }, axisLabel: { color: '#ffffff' }, splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.1)' } } },
-        series: [{
-          name: '경보건수',
-          type: 'bar',
-          data: [],
-          itemStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: '#83bff6' },
-              { offset: 0.5, color: '#188df0' },
-              { offset: 1, color: '#188df0' }
-            ])
-          }
-        }]
-      });
-    },
-
-    initGaugeChart() {
+      // Create download link
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${zone.zone_desc}_temperature_data.xlsx`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      console.error('Error downloading Excel:', error);
+      this.$toast.error('Excel 다운로드 중 오류가 발생했습니다.');
+    }
+  },
+  showChart(zone) {
+    console.log('Selected Zone Data:', zone);
+    this.selectedZone = zone;
+    const index = this.zones.findIndex(z => z.zone_desc === zone.zone_desc);
+    if (index !== -1) {
+      this.selectedZoneIdx = index;
+    }
+    console.log('Updated selectedZone:', this.selectedZone);
+  },
+  onChartReady(chartInstance) {
+    console.log('Chart is ready!', chartInstance);
+  },
+  initGaugeChart() {
       const chartDom = this.$refs.gaugeChart;
       this.gaugeChart = echarts.init(chartDom);
       
@@ -424,16 +579,6 @@ export default {
       this.gaugeChart.setOption(option);
       window.addEventListener('resize', this.handleChartResize);
     },
-
-    handleChartResize() {
-      if (this.alertChart) {
-        this.alertChart.resize();
-      }
-      if (this.gaugeChart) {
-        this.gaugeChart.resize();
-      }
-    },
-
     async loadAlertHistory() {
       try {
         const response = await getAlerts('');
@@ -483,22 +628,49 @@ export default {
         this.$toast?.error('알림 이력을 불러오는 중 오류가 발생했습니다.');
       }
     },
-
     formatDate(dateStr) {
       const date = new Date(dateStr);
-      return date.toLocaleString();
+      const now = new Date();
+      const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+      
+      // 오늘인 경우
+      if (diffDays === 0) {
+        return date.toLocaleTimeString('ko-KR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        });
+      }
+      
+      // 어제인 경우
+      if (diffDays === 1) {
+        return '어제 ' + date.toLocaleTimeString('ko-KR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        });
+      }
+      
+      // 이번 주인 경우
+      if (diffDays < 7) {
+        const days = ['일', '월', '화', '수', '목', '금', '토'];
+        return days[date.getDay()] + ' ' + date.toLocaleTimeString('ko-KR', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        });
+      }
+      
+      // 그 외의 경우
+      return date.toLocaleDateString('ko-KR', { 
+        month: '2-digit', 
+        day: '2-digit' 
+      }) + ' ' + date.toLocaleTimeString('ko-KR', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: false 
+      });
     },
-
-    getTypeText(type) {
-      const types = {
-        'A001': '누수 감지',
-        'A002': '움직임 감지',
-        'A003': '얼굴 인식',
-        'A004': '차량 감지'
-      };
-      return types[type] || type;
-    },
-
     getLevelText(level) {
       const levels = {
         '1': '주의',
@@ -509,477 +681,417 @@ export default {
       };
       return levels[level] || level;
     },
-
-    async loadAlertChart() {
+    async loadSiteName() {
       try {
-        const response = await getRecentAlertCounts();
-        const data = response.data.result;
-
-        // 최근 7일 날짜 배열 생성 (오늘 포함)
-        const today = new Date();
-        const categories = [];
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          categories.push(d.toISOString().slice(0, 10));
-        }
-        const dataMap = Object.fromEntries(data.map(d => [d.date, d.count]));
-        const counts = categories.map(date => dataMap[date] || 0);
-
-        if (this.alertChart) {
-          this.alertChart.setOption({
-            xAxis: { type: 'category', data: categories },
-            yAxis: { type: 'value' },
-            legend: { show: false },
-            tooltip: { trigger: 'axis' },
-            series: [{
-              name: '경보건수',
-              type: 'bar',
-              data: counts,
-              itemStyle: {
-                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: '#83bff6' },
-                  { offset: 0.5, color: '#188df0' },
-                  { offset: 1, color: '#188df0' }
-                ])
-              }
-            }]
-          }, true); // notMerge: true
+        const data = await getEventSetting();
+        if (data && data.system_json) {
+          const system = JSON.parse(data.system_json);
+          this.location_info = system.location_info || '';
+          this.address = system.address || '';
+          this.weather.location = system.address || '';
         }
       } catch (e) {
-        console.error('최근 7일 경보 차트 데이터 조회 실패:', e);
+        this.location_info = '';
+        this.address = '';
       }
     },
-
-    startAlertRefresh() {
-      this.stopAlertRefresh();
-      this.alertRefreshTimer = setInterval(() => {
-        this.loadAlertHistory();
-      }, 2000);
-    },
-
-    stopAlertRefresh() {
-      if (this.alertRefreshTimer) {
-        clearInterval(this.alertRefreshTimer);
-        this.alertRefreshTimer = null;
-      }
-    },
-
-    toggleAlertHistoryRefresh() {
-      this.autoRefreshAlertHistory = !this.autoRefreshAlertHistory;
-      if (this.autoRefreshAlertHistory) {
-        this.startAlertRefresh();
-      } else {
-        this.stopAlertRefresh();
-      }
-    }
-  }
+  },
 };
 </script>
 
 <style lang="scss" scoped>
-.notification-status {
-  height: 100vh;
-  background-color: #1e1e1e;
-  
-  .notification-card {
-    background-color: transparent !important;
-    height: 100%;
-    
-    .camera-status {
-      background-color: #2d2d2d;
-      border-radius: 8px;
-      margin-bottom: 10px;
-      padding: 2px;
-      
-      .status-header {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        margin-bottom: 10px;
-        
-        .status-title {
-          font-size: 1.25rem;
-          color: #ffffff;
-          margin-right: auto;
-        }
-      }
-
-      .camera-list-container {
-        width: 100%;
-        
-        .camera-grid {
-          display: flex;
-          flex-direction: row;
-          gap: 16px;
-          overflow-x: auto;
-          padding: 8px 0;
-          width: 100%;
-          
-          &::-webkit-scrollbar {
-            height: 8px;
-          }
-          
-          &::-webkit-scrollbar-track {
-            background: #1e1e1e;
-            border-radius: 4px;
-          }
-          
-          &::-webkit-scrollbar-thumb {
-            background: #3d3d3d;
-            border-radius: 4px;
-            
-            &:hover {
-              background: #4d4d4d;
-            }
-          }
-        }
-        
-        .camera-box {
-          min-width: 250px;
-          max-width: 350px;
-          flex: 0 0 auto;
-          background: #1e1e1e;
-          border: 1px solid #3d3d3d;
-          border-radius: 4px;
-          padding: 8px;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          
-          &:hover {
-            transform: scale(1.02);
-          }
-          
-          &.active {
-            background: #3d3d3d;
-            border-color: var(--cui-primary);
-          }
-          
-          .camera-thumbnail {
-            width: 100px;
-            height: 80px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            
-            :deep(.video-card) {
-              width: 100px;
-              height: 80px;
-              background: transparent;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              
-              .video-card-content {
-                border-radius: 4px;
-                width: 100px;
-                height: 80px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-
-                video, img {
-                  width: 100px;
-                  height: 80px;
-                  object-fit: contain;
-                }
-              }
-            }
-          }
-          
-          .camera-info {
-            width: 100%;
-            padding: 4px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
-            
-            &:hover {
-              background: #3d3d3d;
-              border-radius: 4px;
-            }
-            
-            .camera-name {
-              color: #ffffff;
-              font-size: 0.7rem;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              text-align: center;
-            }
-          }
-        }
-      }
-    }
-
-    .camera-display-area {
-      flex: 1;
-      display: flex;
-      gap: 16px;
-      margin-top: auto;
-      height: calc(100vh - 200px);
-      
-      .display-box {
-        background-color: #2d2d2d;
-        border: 1px solid #3d3d3d;
-        border-radius: 4px;
-        height: 100%;
-
-        &.left-box {
-          width: 15%;
-          
-          .alert-history {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            
-            .alert-history-title {
-              padding: 12px;
-              font-size: 0.95rem;
-              color: #ffffff;
-              border-bottom: 1px solid #3d3d3d;
-              flex-shrink: 0;
-            }
-            
-            .alert-history-table {
-              flex: 1;
-              overflow-y: auto;
-              padding: 8px;
-              min-height: 0;
-              
-              .table-row {
-                background: #1e1e1e;
-                border-radius: 4px;
-                margin-bottom: 8px;
-                
-                .table-item {
-                  display: flex;
-                  justify-content: space-between;
-                  padding: 6px 10px;
-                  border-bottom: 1px solid #2d2d2d;
-                  
-                  .item-label {
-                    color: #888888;
-                    font-size: 0.8rem;
-                  }
-                  
-                  .item-value {
-                    color: #ffffff;
-                    font-size: 0.8rem;
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        &.center-box {
-          width: 60%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          overflow: hidden;
-          padding: 8px;
-          
-          position: relative;
-          height: 100%;
-          min-height: 400px;
-          
-          :deep(.video-card) {
-            width: 100%;
-            height: 100%;
-            background: transparent;
-            
-            .video-card-content {
-              border-radius: 4px;
-              overflow: hidden;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            }
-          }
-          
-          .no-video {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: #666;
-          }
-        }
-
-        &.right-box {
-          width: 25%;
-          
-          .right-box-content {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            padding: 12px;
-
-            .top-box, .center-box, .bottom-box {
-              background: #1e1e1e;
-              border-radius: 4px;
-              padding: 12px;
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-            }
-
-            .gauge-title, .chart-title, .table-title {
-              color: #ffffff;
-              font-size: 0.45rem;
-              margin-bottom: 10px;
-              text-align: center;
-            }
-
-            .gauge-container {
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-
-              .gauge-meter {
-                width: 100%;
-                height: 240px;
-              }
-            }
-
-            .chart-container {
-              flex: 1;
-              position: relative;
-              height: 200px;
-            }
-
-            .alert-table {
-              flex: 1;
-              overflow-y: auto;
-              min-height: 0;
-              
-              .table-header {
-                display: flex;
-                background: #2d2d2d;
-                padding: 6px;
-                border-radius: 4px 4px 0 0;
-                margin-bottom: 1px;
-                
-                .header-cell {
-                  flex: 1;
-                  color: #ffffff;
-                  font-size: 0.7rem;
-                  text-align: center;
-                  font-weight: 600;
-                }
-              }
-
-              .table-body {
-                overflow-y: auto;
-                
-                .table-row {
-                  display: flex;
-                  padding: 6px;
-                  border-bottom: 1px solid #2d2d2d;
-                  transition: background-color 0.2s;
-                  
-                  &:hover {
-                    background: #2d2d2d;
-                  }
-                  
-                  &:last-child {
-                    border-bottom: none;
-                  }
-
-                  .table-cell {
-                    flex: 1;
-                    color: #ffffff;
-                    font-size: 0.7rem;
-                    text-align: center;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    padding: 0 4px;
-                    
-                    &:first-child {
-                      color: #888888;
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+.dashboard-2by2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 16px;
+  height: calc(100vh - 32px);
+  background: #222;
+  padding: 16px;
+  overflow: hidden;
 }
 
-.camera-box {
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    transform: scale(1.02);
-  }
-  
-  &.active {
-    border: 2px solid #4CAF50;
-  }
+.cell {
+  background: #333;
+  border: 2px solid #555;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.display-box.center-box {
-  position: relative;
+.cell-topleft {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.cell-topright {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.cell-bottomleft {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+}
+
+.cell-bottomright {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+}
+
+.topleft-inner-row {
+  display: flex;
+  flex: 1;
   height: 100%;
-  min-height: 400px;
-  
-  .no-video {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+  gap: 0;
+}
+
+.topleft-inner-left {
+  flex: 4;
+  border-right: 2px solid #555;
+  border-radius: 8px 0 0 8px;
+  background: transparent;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topleft-inner-right {
+  flex: 6;
+  border-radius: 0 8px 8px 0;
+  background: transparent;
+  min-width: 0;
+  min-height: 0;
+}
+
+.bottomleft-inner-col {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.bottomleft-inner-top {
+  flex: 1;
+  border-bottom: 2px solid #555;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.bottomleft-inner-bottom {
+  flex: 1;
+  border-radius: 0 0 8px 8px;
+  background: transparent;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.box-title {
+  background: #666;
+  color: #fff;
+  font-weight: bold;
+  padding: 8px 16px;
+  border-bottom: 2px solid #555;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+
+.video-container {
+  flex: 1;
+  position: relative;
+  background: #000;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-container .vue-aspect-ratio {
+  width: auto;
+  height: 80vw;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.video-container .video-card {
+  width: 100%;
+  height: 100%;
+}
+
+.time-display {
+  background: #0066cc;
+  color: white;
+  padding: 20px;
+  text-align: center;
+  border-radius: 8px 8px 0 0;
+  height: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.weather-widget {
+  background: #1a1a1a;
+  color: white;
+  padding: 20px;
+  text-align: center;
+  border-radius: 0 0 8px 8px;
+  height: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.weather-info {
+  width: 100%;
+}
+
+.temperature {
+  font-size: 2em;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+.weather-description {
+  font-size: 1.2em;
+  margin-bottom: 5px;
+}
+
+.location {
+  font-size: 1em;
+  color: #888;
+}
+
+.zone-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+
+  th, td {
+    padding: 8px;
     text-align: center;
-    color: #666;
+    border-bottom: 1px solid #555;
+  }
+
+  th {
+    background: #444;
+    color: #fff;
+  }
+
+  tr {
+    cursor: pointer;
+    transition: background-color 0.3s;
+
+    &:hover {
+      background-color: #333;
+    }
+
+    &.selected {
+      background-color: #2c2c2c;
+    }
+  }
+
+  .icon-chart, .icon-excel {
+    cursor: pointer;
+    font-size: 1.2em;
+    transition: transform 0.2s;
+
+    &:hover {
+      transform: scale(1.2);
+    }
   }
 }
 
-.alert-history-table {
-  .table-row {
-    &.alert-level-3 {
-      animation: blink-amber 1s infinite;
+.chart-container {
+  flex: 1;
+  min-height: 0;
+  padding: 20px;
+  background: var(--cui-bg-card);
+  border-radius: 0 0 8px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  .no-data {
+    color: #888;
+    font-size: 1.2em;
+  }
+}
+
+.no-data {
+  color: #bbb;
+  text-align: center;
+  padding: 30px 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  font-size: 14px;
+}
+
+.no-camera {
+  color: #666;
+  font-size: 14px;
+  text-align: center;
+  padding: 20px;
+}
+
+.current-time {
+  font-size: 24px;
+  color: #ccc;
+  line-height: 1.2;
+  text-align: left;
+  display: block;
+}
+
+.gauge-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.gauge-meter {
+  width: 100%;
+  height: 180px;
+  min-width: 180px;
+  min-height: 180px;
+}
+
+.bottom-box {
+  flex: 1;
+  padding: 20px;
+  background: #333;
+  border-radius: 0 0 8px 8px;
+}
+
+.table-title {
+  background: #666;
+  color: #fff;
+  font-weight: bold;
+  padding: 8px 16px;
+  border-bottom: 2px solid #555;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+
+.alert-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+
+  .table-header {
+    display: flex;
+    background: #222;
+    font-weight: bold;
+    .header-cell {
+      flex: 1;
+      text-align: center;
+      color: #fff;
+      padding: 8px 0;
     }
-    &.alert-level-4 {
-      animation: blink-orange 1s infinite;
-    }
-    &.alert-level-5 {
-      animation: blink-red 1s infinite;
+  }
+  .table-body {
+    max-height: 200px;
+    overflow-y: auto;
+    .table-row {
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #333;
+      transition: background 0.2s;
+      &:hover {
+        background: #333;
+      }
+      .table-cell {
+        flex: 1;
+        text-align: center;
+        color: #eee;
+        padding: 6px 0;
+        .level-icon {
+          margin-right: 4px;
+        }
+      }
+      &.level-4 { background: rgba(255,75,75,0.15);}
+      &.level-3 { background: rgba(255,138,0,0.10);}
+      &.level-2 { background: rgba(255,184,0,0.10);}
+      &.level-1 { background: rgba(75,123,229,0.10);}
     }
   }
 }
 
-@keyframes blink-amber {
-  0% { background-color: #1e1e1e; }
-  50% { background-color: rgba(255, 193, 7, 0.2); }
-  100% { background-color: #1e1e1e; }
+@media (max-width: 900px) {
+  .dashboard-2by2 {
+    display: flex;
+    flex-direction: column;
+    padding: 4px;
+    gap: 8px;
+    height: auto;
+  }
+  
+  .cell {
+    min-width: 0;
+    width: 100%;
+    height: 50vh;
+  }
 }
 
-@keyframes blink-orange {
-  0% { background-color: #1e1e1e; }
-  50% { background-color: rgba(255, 152, 0, 0.2); }
-  100% { background-color: #1e1e1e; }
+.site-time-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
-@keyframes blink-red {
-  0% { background-color: #1e1e1e; }
-  50% { background-color: rgba(244, 67, 54, 0.2); }
-  100% { background-color: #1e1e1e; }
+.site-name {
+  white-space: pre-line;
+  word-break: break-all;
+  max-width: 180px;
+  font-size: 22px;
+  color: #fff;
+  line-height: 1.3;
+  text-align: left;
+  display: block;
+}
+
+.current-time {
+  font-size: 22px;
+  color: #ccc;
+  line-height: 1.2;
+  text-align: left;
+  display: block;
 }
 </style>

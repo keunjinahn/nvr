@@ -8,7 +8,7 @@
     .tw-flex.tw-items-center.tw-justify-center.sidebar-nav-items(v-for="menu in additionalMenus" :key="menu.name")
       v-btn.tw-justify-center.sidebar-nav-item(
         @click="handleMenuClick(menu)"
-        :class="menu.route && $route.path === menu.route ? 'sidebar-nav-item-active v-btn--active' : ''"
+        :class="menu.route && $route.path.startsWith(menu.route) ? 'sidebar-nav-item-active v-btn--active' : ''"
         plain 
         block 
         tile

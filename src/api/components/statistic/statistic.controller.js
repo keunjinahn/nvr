@@ -1,5 +1,6 @@
 import VideoReceiveData from '../../../models/VideoReceiveData.js';
 import { Op, fn, col, literal } from 'sequelize';
+import { getAllDetectionZones } from '../events/events.model.js';
 
 export const getRealtimeTemp = async (req, res) => {
   try {
@@ -166,4 +167,97 @@ export const getDailyRoiMinChange = async (req, res) => {
     console.error('Error in getDailyRoiMinChange:', e);
     res.status(500).json({ error: e.message });
   }
-}; 
+};
+
+export const getRoiDataList = async (req, res) => {
+  try {
+    // Get detection zones from events model
+    const zones = await getAllDetectionZones();
+
+    // Get the latest 60 video receive data records
+    const latestData = await VideoReceiveData.findAll({
+      order: [['create_date', 'DESC']],
+      limit: 60
+    });
+
+    if (!latestData || latestData.length === 0) {
+      return res.json({
+        success: true,
+        result: zones.map(zone => ({
+          zone_desc: zone.zone_desc,
+          maxTemp: '--',
+          minTemp: '--',
+          avgTemp: '--',
+          temps: []
+        }))
+      });
+    }
+
+    // Process each zone
+    const roiData = zones.map(zone => {
+      // Calculate data field indices based on zone_type
+      const baseIndex = 22 + (zone.zone_type * 2);
+      const minDataField = `data_${baseIndex}`;
+      const maxDataField = `data_${baseIndex + 1}`;
+
+      // Collect all temperature values for this zone
+      const allMinTemps = [];
+      const allMaxTemps = [];
+      const allAvgTemps = [];
+      const temps = [];
+
+      latestData.forEach(data => {
+        const dataValue = data.getDataValue('data_value') || {};
+        const min = dataValue[minDataField];
+        const max = dataValue[maxDataField];
+
+        if (min !== undefined && max !== undefined) {
+          const minTemp = Number(min);
+          const maxTemp = Number(max);
+          const avgTemp = (maxTemp + minTemp) / 2;
+
+          allMinTemps.push(minTemp);
+          allMaxTemps.push(maxTemp);
+          allAvgTemps.push(avgTemp);
+
+          temps.push({
+            time: data.getDataValue('create_date'),
+            min: minTemp.toFixed(1),
+            max: maxTemp.toFixed(1),
+            avg: avgTemp.toFixed(1)
+          });
+        }
+      });
+
+      // Calculate overall statistics
+      let maxTemp = '--';
+      let minTemp = '--';
+      let avgTemp = '--';
+
+      if (allMinTemps.length > 0 && allMaxTemps.length > 0) {
+        maxTemp = Math.max(...allMaxTemps).toFixed(1);
+        minTemp = Math.min(...allMinTemps).toFixed(1);
+        avgTemp = (allAvgTemps.reduce((a, b) => a + b, 0) / allAvgTemps.length).toFixed(1);
+      }
+
+      return {
+        zone_desc: zone.zone_desc,
+        maxTemp,
+        minTemp,
+        avgTemp,
+        temps: temps.reverse() // Reverse to get chronological order
+      };
+    });
+
+    res.json({
+      success: true,
+      result: roiData
+    });
+  } catch (error) {
+    console.error('Error in getRoiDataList:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get ROI data list'
+    });
+  }
+};

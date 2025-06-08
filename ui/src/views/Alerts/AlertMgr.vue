@@ -17,6 +17,15 @@
                 v-icon.tw-mr-2(size="24") {{ icons['mdiHistory'] }}
                 span 경보이력
               v-btn.tab-btn(
+                :color="currentTab === 'status' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
+                @click="changeTab('status')"
+                text
+                height="75"
+                width="200"
+              )
+                v-icon.tw-mr-2(size="24") {{ icons['mdiAlert'] }}
+                span 경보현황
+              v-btn.tab-btn(
                 :color="currentTab === 'setting' ? 'var(--cui-primary)' : 'var(--cui-text-muted)'"
                 @click="changeTab('setting')"
                 text

@@ -108,20 +108,6 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted {{ icons['mdiAccountGroup'] }}
 
-                <!-- v-col(cols="12" md="6")
-                  label.form-input-label 최소 감지 크기
-                  v-text-field(
-                    v-model="settings.object.minSize"
-                    type="number"
-                    suffix="px"
-                    prepend-inner-icon="mdi-resize"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiResize'] }} -->
-
                 v-col(cols="12" md="6")
                   label.form-input-label 감지 정확도
                   v-select(
@@ -135,20 +121,6 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted {{ icons['mdiTarget'] }}
 
-                <!-- v-col(cols="12" md="6")
-                  label.form-input-label 추적 간격
-                  v-text-field(
-                    v-model="settings.object.trackingDuration"
-                    type="number"
-                    suffix="초"
-                    prepend-inner-icon="mdi-timer"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTimer'] }} -->
-
                 v-col(cols="12" md="6")
                   .tw-flex.tw-justify-between.tw-items-center
                     label.form-input-label 객체 추적 사용
@@ -157,70 +129,34 @@
                       color="var(--cui-primary)"
                     )
 
-            // 시스템 설정
+            // 현장정보 입력
             div(v-if="currentMenu === 'system'")
               v-row
                 v-col(cols="12" md="6")
-                  label.form-input-label 저장 방식
-                  v-select(
-                    v-model="settings.system.storageType"
-                    :items="storageTypes"
-                    prepend-inner-icon="mdi-database"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiDatabase'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 데이터 보관 기간
+                  label.form-input-label 현장명
                   v-text-field(
-                    v-model="settings.system.retentionPeriod"
-                    type="number"
-                    suffix="일"
-                    prepend-inner-icon="mdi-calendar"
+                    v-model="settings.system.location_info"
+                    placeholder="예: 수자원공사 광동댐"
+                    prepend-inner-icon="mdi-domain"
                     background-color="var(--cui-bg-card)"
                     color="var(--cui-text-default)"
                     solo
                   )
                     template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiCalendar'] }}
-
+                      v-icon.text-muted mdi-domain
                 v-col(cols="12" md="6")
-                  label.form-input-label 백업 주기
-                  v-select(
-                    v-model="settings.system.backupSchedule"
-                    :items="backupSchedules"
-                    prepend-inner-icon="mdi-backup-restore"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiBackupRestore'] }}
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 최대 저장 용량
+                  label.form-input-label 현장위치
                   v-text-field(
-                    v-model="settings.system.maxStorage"
-                    type="number"
-                    suffix="GB"
-                    prepend-inner-icon="mdi-harddisk"
+                    v-model="settings.system.address"
+                    placeholder="예: 강원특별자치도 강릉시 연곡면 삼산리 산1-1"
+                    prepend-inner-icon="mdi-map-marker"
                     background-color="var(--cui-bg-card)"
                     color="var(--cui-text-default)"
                     solo
                   )
                     template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiHarddisk'] }}
-
-                v-col(cols="12" md="6")
-                  .tw-flex.tw-justify-between.tw-items-center
-                    label.form-input-label 자동 업데이트
-                    v-switch(
-                      v-model="settings.system.autoUpdate"
-                      color="var(--cui-primary)"
-                    )
+                      v-icon.text-muted mdi-map-marker
+                
 </template>
 
 <script>
@@ -240,7 +176,11 @@ import {
   mdiDatabase,
   mdiCalendar,
   mdiBackupRestore,
-  mdiHarddisk
+  mdiHarddisk,
+  mdiDomain,
+  mdiMapMarker,
+  mdiPhone,
+  mdiAccount
 } from '@mdi/js'
 import { getEventSetting, updateEventSetting, createEventSetting } from '@/api/eventSetting.api.js'
 
@@ -264,7 +204,11 @@ export default {
       mdiDatabase,
       mdiCalendar,
       mdiBackupRestore,
-      mdiHarddisk
+      mdiHarddisk,
+      mdiDomain,
+      mdiMapMarker,
+      mdiPhone,
+      mdiAccount
     },
     currentMenu: 'object',
     menus: [
@@ -280,12 +224,12 @@ export default {
         subtitle: '객체 감지 설정',
         icon: mdiAccountGroup
       },
-      // {
-      //   id: 'system',
-      //   title: '시스템 설정',
-      //   subtitle: '시스템 환경 설정',
-      //   icon: mdiCog
-      // },
+      {
+        id: 'system',
+        title: '현장정보',
+        subtitle: '현장 기본 정보 입력',
+        icon: mdiCog
+      },
       {
         id: 'empty1',
         title: '',
@@ -340,11 +284,14 @@ export default {
         enableTracking: true
       },
       system: {
-        storageType: 'local',
-        retentionPeriod: 30,
-        backupSchedule: '매일',
-        maxStorage: 1000,
-        autoUpdate: true
+        location_info: '',
+        address: ''
+      },
+      site: {
+        name: '',
+        location: '',
+        manager: '',
+        contact: ''
       }
     },
     // 드롭다운 옵션들
@@ -396,11 +343,14 @@ export default {
           enableTracking: object.enableTracking ?? true
         },
         system: {
-          storageType: system.storageType ?? 'local',
-          retentionPeriod: system.retentionPeriod ?? 30,
-          backupSchedule: system.backupSchedule ?? '매일',
-          maxStorage: system.maxStorage ?? 1000,
-          autoUpdate: system.autoUpdate ?? true
+          location_info: system.location_info ?? '',
+          address: system.address ?? ''
+        },
+        site: {
+          name: '',
+          location: '',
+          manager: '',
+          contact: ''
         }
       }
     } catch (e) {
@@ -428,11 +378,14 @@ export default {
           enableTracking: true
         },
         system: {
-          storageType: 'local',
-          retentionPeriod: 30,
-          backupSchedule: '매일',
-          maxStorage: 1000,
-          autoUpdate: true
+          location_info: '',
+          address: ''
+        },
+        site: {
+          name: '',
+          location: '',
+          manager: '',
+          contact: ''
         }
       }
     }

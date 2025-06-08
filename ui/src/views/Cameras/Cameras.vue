@@ -942,3 +942,4 @@ div >>> .v-data-table-header__icon {
   }
 }
 </style>
+

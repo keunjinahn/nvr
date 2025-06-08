@@ -56,6 +56,11 @@ export const routesConfig = (app) => {
     StatisticController.getDailyRoiMinChange,
   ]);
 
+  app.get('/api/statistic/roi-data-list', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('statistic:access'),
+    StatisticController.getRoiDataList,
+  ]);
 
   const routes = app._router.stack
     .filter(r => r.route)

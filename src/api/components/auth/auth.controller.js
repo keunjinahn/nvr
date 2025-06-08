@@ -107,7 +107,8 @@ export const check = (req, res) => {
 
 export const login = async (req, res) => {
   try {
-    let sessionTimer = req.body.sessionTimer || 14400;
+    // 기본 세션 타이머를 8시간으로 설정 (28800초)
+    let sessionTimer = req.body.sessionTimer || 28800;
     let salt = crypto.randomBytes(16).toString('base64');
 
     req.body.salt = salt;
@@ -131,11 +132,12 @@ export const login = async (req, res) => {
       create_date: new Date()
     });
 
+    // 토큰 만료 5분 전에 자동으로 갱신
     if (sessionTimer / 3600 <= 25) {
       setTimeout(() => {
         AuthModel.invalidateByToken(token);
         Socket.io.emit('invalidToken', token);
-      }, (sessionTimer - 5) * 1000);
+      }, (sessionTimer - 300) * 1000); // 5분(300초) 전에 만료 처리
     }
 
     res.status(201).send({
@@ -143,11 +145,14 @@ export const login = async (req, res) => {
       token_type: 'Bearer',
       expires_in: sessionTimer,
       expires_at: new Date((Date.now() / 1000 + sessionTimer) * 1000),
+      refresh_token: crypto.randomBytes(40).toString('hex') // 리프레시 토큰 추가
     });
   } catch (error) {
+    console.error('[LOGIN ERROR]', error);
     res.status(500).send({
       statusCode: 500,
-      message: error.message,
+      message: '로그인 처리 중 오류가 발생했습니다.',
+      error: error.message
     });
   }
 };
