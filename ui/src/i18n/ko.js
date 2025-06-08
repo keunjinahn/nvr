@@ -66,7 +66,6 @@ export default {
       description: '이벤트의 상세 설정을 관리합니다.',
       type: '이벤트 유형',
       name: '이벤트 이름',
-      description: '이벤트 설명',
       status: '이벤트 상태',
       priority: '이벤트 우선순위',
       threshold: '이벤트 임계값',
