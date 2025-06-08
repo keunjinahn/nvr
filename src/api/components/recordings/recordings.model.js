@@ -4,6 +4,7 @@ import fs from 'fs-extra';
 import moment from 'moment';
 import { customAlphabet } from 'nanoid/async';
 import path from 'path';
+import { Op } from 'sequelize';
 
 import Cleartimer from '../../../common/cleartimer.js';
 import Socket from '../../socket.js';
@@ -87,16 +88,20 @@ const deleteRecordingHistory = async (id) => {
 
 // 기간별 녹화 기록 조회
 const getRecordingHistoryByDateRange = async (startDate, endDate, cameraId = null) => {
+  console.log("====> getRecordingHistoryByDateRange startDate :", startDate);
+  console.log("====> getRecordingHistoryByDateRange endDate :", endDate);
+  console.log("====> getRecordingHistoryByDateRange cameraId :", cameraId);
+
   const whereClause = {
     start_time: {
-      [sequelize.Op.between]: [startDate, endDate]
+      [Op.between]: [startDate, endDate]
     }
   };
 
   if (cameraId) {
     whereClause.fk_camera_id = cameraId;
   }
-
+  console.log("====> whereClause :", whereClause);
   return await RecordingHistory.findAll({
     where: whereClause,
     order: [['start_time', 'DESC']]

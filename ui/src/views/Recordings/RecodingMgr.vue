@@ -8,24 +8,17 @@
         .tw-flex.tw-justify-between.tw-items-center
           .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-800.tw-p-1
             .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
-              :class="currentTab === 'search' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
-              @click="changeTab('search')"
+              :class="currentTab === 'compare' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
+              @click="changeTab('compare')"
             )
               v-icon.tw-mr-2(size="24") {{ icons['mdiPlayCircle'] }}
-              span 녹화영상조회
+              span 녹화비교
             .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
               :class="currentTab === 'schedule' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
               @click="changeTab('schedule')"
             )
               v-icon.tw-mr-2(size="24") {{ icons['mdiFormatListBulleted'] }}
               span 녹화스케줄관리
-            .tab-item.tw-px-4.tw-py-2.tw-cursor-not-allowed.tw-flex.tw-items-center.tw-transition-all.tw-opacity-50(
-              :class="currentTab === 'compare' ? 'tw-bg-gray-700 tw-shadow-sm tw-text-gray-200' : 'tw-text-gray-400'"
-              :disabled="true"
-              @click="changeTab('compare')"
-            )
-              v-icon.tw-mr-2(size="24") {{ icons['mdiCompareHorizontal'] }}
-              span 녹화비교
         component(:is="currentComponent")
 </template>
 
@@ -49,7 +42,7 @@ export default {
       mdiFormatListBulleted,
       mdiCompareHorizontal
     },
-    currentTab: 'search'
+    currentTab: 'compare'
   }),
 
   async mounted() {

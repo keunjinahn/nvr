@@ -188,7 +188,7 @@ export const routesConfig = (app) => {
         logger.warn(`[${requestId}] Recording not found in history: ${id}`);
         return res.status(404).json({ error: 'Recording not found' });
       }
-      // logger.debug(`[${requestId}] Recording: ${JSON.stringify(recording)}`);
+
       // 녹화 파일 경로 생성
       let datePart = '';
       if (recording.startTime instanceof Date) {
@@ -198,25 +198,19 @@ export const routesConfig = (app) => {
       } else if (typeof recording.startTime === 'string' && recording.startTime.length >= 10) {
         // 혹시 '2025-05-21 09:41:21' 같은 형식일 때
         datePart = recording.startTime.substring(0, 10);
-      } else {
-        // fallback: 오늘 날짜
-        datePart = moment().format('YYYY-MM-DD');
       }
-      const recordingPath = path.join(
-        ConfigService.recordingsPath,
-        recording.cameraName,
-        datePart,
-        recording.filename
-      );
 
-      // logger.debug(`[${requestId}] Streaming video: ${recordingPath}`);
+      // 녹화 파일 경로 생성
+      const videoPath = getVideoPath(recording.cameraName, datePart);
+      const videoFile = await findVideoFileByFilename(videoPath, recording.filename);
 
-      if (!fs.existsSync(recordingPath)) {
-        logger.warn(`[${requestId}] Video file not found: ${recordingPath}`);
+      if (!videoFile) {
+        logger.warn(`[${requestId}] Video file not found: ${recording.filename}`);
         return res.status(404).json({ error: 'Video file not found' });
       }
 
-      const stat = fs.statSync(recordingPath);
+      // 비디오 스트리밍 처리
+      const stat = fs.statSync(videoFile);
       const fileSize = stat.size;
       const range = req.headers.range;
 
@@ -224,14 +218,15 @@ export const routesConfig = (app) => {
         const parts = range.replace(/bytes=/, '').split('-');
         const start = parseInt(parts[0], 10);
         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-        const chunksize = (end - start) + 1;
-        const file = fs.createReadStream(recordingPath, { start, end });
+        const chunksize = end - start + 1;
+        const file = fs.createReadStream(videoFile, { start, end });
         const head = {
           'Content-Range': `bytes ${start}-${end}/${fileSize}`,
           'Accept-Ranges': 'bytes',
           'Content-Length': chunksize,
           'Content-Type': 'video/mp4',
         };
+
         res.writeHead(206, head);
         file.pipe(res);
       } else {
@@ -240,20 +235,11 @@ export const routesConfig = (app) => {
           'Content-Type': 'video/mp4',
         };
         res.writeHead(200, head);
-        fs.createReadStream(recordingPath).pipe(res);
+        fs.createReadStream(videoFile).pipe(res);
       }
-
-      const duration = Date.now() - startTime;
-      logger.info(`[${requestId}] Streaming completed in ${duration}ms`);
-
     } catch (error) {
-      logger.error(`[${requestId}] Error streaming video:`, error);
-      if (!res.headersSent) {
-        res.status(500).json({
-          error: 'Error streaming video',
-          message: error.message
-        });
-      }
+      logger.error(`[${requestId}] Error streaming video: ${error.message}`);
+      res.status(500).json({ error: 'Error streaming video' });
     }
   });
 
@@ -341,81 +327,56 @@ export const routesConfig = (app) => {
     PaginationMiddleware.pages,
   ]);
 
-  /**
-   * @swagger
-   * /api/recordings/history:
-   *   get:
-   *     tags: [Recordings]
-   *     security:
-   *       - bearerAuth: []
-   *     summary: Get recording history
-   *     responses:
-   *       200:
-   *         description: Successfull
-   *       401:
-   *         description: Unauthorized
-   *       500:
-   *         description: Internal server error
-   */
-  app.get('/api/recordings/history', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.minimumPermissionLevelRequired('recordings:access'),
-    async (req, res) => {
-      const startTime = Date.now();
-      const requestId = Math.random().toString(36).substring(7);
-
-      try {
-        const recordings = await RecordingsModel.getAllRecordingHistory();
-
-        // 응답 데이터 준비
-        const responseData = recordings.map(record => ({
-          ...record,
-        }));
-
-        // 최신 기록이 먼저 오도록 정렬
-        recordings.sort((a, b) => b.id - a.id);
-
-        // ETag 생성 (데이터의 해시값)
-        const etag = createHash('md5')
-          .update(JSON.stringify(responseData))
-          .digest('hex');
-
-        // 클라이언트의 ETag와 비교
-        if (req.headers['if-none-match'] === etag) {
-          return res.status(304).end();
+  // 녹화 기록 조회 라우트
+  app.get('/api/recordings/history', async (req, res) => {
+    try {
+      let recordings;
+      console.log("====> history req.query :", req.query);
+      if (req.query.startDate && req.query.endDate) {
+        // 기간별 녹화 기록 조회
+        const startDate = new Date(req.query.startDate);
+        const endDate = new Date(req.query.endDate);
+        console.log("====> history :", req.query.cameraIds);
+        if (req.query.cameraIds) {
+          // 여러 카메라 ID 처리
+          const cameraIds = Array.isArray(req.query.cameraIds)
+            ? req.query.cameraIds
+            : req.query.cameraIds.split(',');
+          console.log("====> history cameraIds :", cameraIds);
+          recordings = await Promise.all(
+            cameraIds.map(cameraId =>
+              RecordingsModel.getRecordingHistoryByDateRange(startDate, endDate, cameraId)
+            )
+          );
+          // 결과 병합 및 중복 제거
+          recordings = recordings.flat().filter((record, index, self) =>
+            index === self.findIndex(r => r.id === record.id)
+          );
+        } else {
+          // 단일 카메라 ID 또는 전체 카메라
+          recordings = await RecordingsModel.getRecordingHistoryByDateRange(
+            startDate,
+            endDate,
+            req.query.cameraId
+          );
         }
-
-        // 캐시 컨트롤 및 ETag 헤더 설정
-        res.set({
-          'ETag': etag,
-          'Cache-Control': 'private, must-revalidate',
-          'Last-Modified': new Date().toUTCString()
-        });
-
-        const duration = Date.now() - startTime;
-        logger.info('Recording history fetched successfully', {
-          requestId,
-          count: responseData.length,
-          duration: `${duration}ms`
-        });
-
-        return res.json(responseData);
-      } catch (error) {
-        const duration = Date.now() - startTime;
-        logger.error('Error fetching recording history', {
-          requestId,
-          error: error.message,
-          duration: `${duration}ms`
-        });
-
-        return res.status(500).json({
-          error: 'Failed to fetch recording history',
-          message: error.message,
-          requestId
-        });
+      } else if (req.query.cameraId) {
+        // 특정 카메라의 녹화 기록 조회
+        recordings = await RecordingsModel.getRecordingHistoryByCameraId(req.query.cameraId);
+      } else {
+        // 전체 녹화 기록 조회
+        recordings = await RecordingsModel.getAllRecordingHistory();
       }
+
+      res.status(200).send(recordings);
+    } catch (error) {
+      logger.error(`Error fetching recording history: ${error.message}`);
+      res.status(500).send({
+        statusCode: 500,
+        message: error.message,
+      });
     }
-  ]);
+  });
 
   /**
    * @swagger

@@ -4,20 +4,7 @@
 .tw-py-2.tw-px-2(v-else)
   .pl-safe.pr-safe
     .tw-flex.tw-justify-between.tw-items-center.tw-mb-2
-      .tab-bar-container.tw-flex.tw-rounded-lg.tw-bg-gray-800.tw-p-1(v-if="showListOptions")
-        .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
-          :class="listMode ? 'tw-bg-gray-700 tw-shadow-sm tw-text-primary' : 'tw-text-gray-400'"
-          @click="goToVideoView"
-        )
-          v-icon.tw-mr-2(size="50") {{ icons['mdiViewModule'] }}
-          span 영상조회        
-        .tab-item.tw-px-4.tw-py-2.tw-cursor-pointer.tw-flex.tw-items-center.tw-transition-all(
-          :class="!listMode ? 'tw-bg-gray-700 tw-shadow-sm tw-text-primary' : 'tw-text-gray-400'"
-          @click="goToMonitoring"
-        )
-          v-icon.tw-mr-2(size="50") {{ icons['mdiFormatListBulleted'] }}
-          span 영상모니터링
-      
+     
       v-btn.add-video-btn(
         elevation="1"
         @click="showAddVideoDialog"
@@ -61,9 +48,9 @@
         template(v-slot:item.liveFeed="{ item }")
           v-chip(color="var(--cui-primary)" dark small) {{ camStates.some((cam) => cam.name === item.name && cam.status === 'ONLINE') ? $t('live') : $t('offline') }}
         template(v-slot:item.actions="{ item }")
-          .tw-flex.tw-items-center.tw-gap-2
+          .tw-flex.tw-items-center.tw-justify-end.tw-gap-2
             v-btn.edit-btn(
-              color="error"
+              color="primary"
               @click.stop="showEditVideoDialog(item)"
               outlined
             )
@@ -390,7 +377,8 @@ export default {
     localStorage.setItem('listModeCameras', '2');
     const response = await getSetting('general');
     this.rooms = response.data.rooms;
-    this.listMode = this.oldSelected = localStorage.getItem('listModeCameras') === '1';
+    //this.listMode = this.oldSelected = localStorage.getItem('listModeCameras') === '1';
+    this.listMode = 1;
     this.backupHeaders = [...this.headers];
 
     this.loading = false;

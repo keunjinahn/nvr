@@ -63,6 +63,8 @@ class ScheduleChecker {
       const currentCameras = new Set(recordingSchedules.map(s => s.cameraName));
 
       // 이전에 녹화 중이었지만 현재는 녹화 중이 아닌 카메라들 확인
+      console.log('checkSchedules lastCheck', this.lastCheck);
+      console.log('checkSchedules currentCameras', currentCameras);
       for (const [cameraName, wasRecording] of this.lastCheck.entries()) {
         if (wasRecording && !currentCameras.has(cameraName)) {
           // 녹화 중지

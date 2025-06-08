@@ -82,7 +82,7 @@ export class RecordingService {
 
       // 한국 시간 기준으로 시간 정보 생성
       const nowMoment = moment().tz('Asia/Seoul');
-      const timestamp = nowMoment.format('YYYY-MM-DDTHH-mm-ss');
+      const timestamp = nowMoment.format('YYYY-MM-DD HH-mm-ss');
       const filename = `${cameraName}_${timestamp}.mp4`;
       const recordingPath = path.join(this.recordingsPath, cameraName, filename);
 
