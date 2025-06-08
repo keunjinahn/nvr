@@ -1,13 +1,11 @@
-const fs = require('fs-extra');
 const path = require('path');
 const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
 
 let configJson = {};
-
 try {
-  configJson = require('../test/camera.ui/config.json');
-} catch {
-  // ignore
+  configJson = require('./config.json');
+} catch (e) {
+  console.log('config.json not found, using default config');
 }
 
 process.env.VUE_APP_SERVER_PORT = configJson.port || 3600;
@@ -15,29 +13,27 @@ process.env.VUE_APP_SERVER_PORT = configJson.port || 3600;
 module.exports = {
   transpileDependencies: ['vuetify'],
   devServer: {
-    https:
-      configJson.ssl?.active && configJson.ssl?.key && configJson.ssl?.cert
-        ? {
-          key: fs.readFileSync(configJson.ssl.key),
-          cert: fs.readFileSync(configJson.ssl.cert),
-        }
-        : false,
     port: 9092,
     proxy: {
       '/api': {
-        target: 'http://localhost:9092',
-        changeOrigin: true
+        target: 'http://20.41.121.184:9091',
+        changeOrigin: true,
+        pathRewrite: {
+          '^/api': '/api'
+        }
       }
     }
   },
-  outputDir: path.resolve(__dirname, '../interface'),
+  outputDir: path.resolve(__dirname, 'dist'),
+  assetsDir: 'static',
+  indexPath: 'index.html',
   productionSourceMap: false,
   pwa: {
-    name: 'camera.ui',
-    themeColor: '#f1f1f1',
-    msTileColor: '#f1f1f1',
+    name: 'NVR',
+    themeColor: '#4DBA87',
+    msTileColor: '#000000',
     appleMobileWebAppCapable: 'yes',
-    appleMobileWebAppStatusBarStyle: 'black-translucent',
+    appleMobileWebAppStatusBarStyle: 'black',
     assetsVersion: Date.now(),
     manifestPath: 'manifest.json',
     manifestOptions: {
@@ -135,10 +131,11 @@ module.exports = {
       maskIcon: 'img/icons/safari-pinned-tab.svg',
       msTileImage: 'img/icons/msapplication-icon-144x144.png',
     },
-    workboxPluginMode: 'InjectManifest',
+    workboxPluginMode: 'GenerateSW',
     workboxOptions: {
-      swSrc: 'src/service-worker.js',
-    },
+      skipWaiting: true,
+      clientsClaim: true
+    }
   },
   chainWebpack: (config) => {
     config.performance.maxEntrypointSize(500000).maxAssetSize(500000);
@@ -187,12 +184,9 @@ module.exports = {
     },
     plugins: [
       new BundleAnalyzerPlugin({
-        analyzerMode: 'static',
-        reportFilename: '../dist/bundle-report.html',
-        openAnalyzer: false,
-        generateStatsFile: false
-      }),
-    ],
+        analyzerMode: process.env.ANALYZE ? 'server' : 'disabled'
+      })
+    ]
   },
   css: {
     extract:
