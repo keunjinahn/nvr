@@ -124,7 +124,7 @@
         .tw-mt-4
           .nle-timeline-box.tw-bg-gray-800.tw-p-4.tw-rounded-lg.tw-flex.tw-items-center.tw-relative
             // NLE 슬라이더
-            .timeline-slider.tw-flex-1.tw-relative
+            .timeline-slider.tw-flex-1.tw-relative(@click="handleTimelineClick")
               .timeline-hours.tw-flex.tw-justify-between.tw-text-xs.tw-text-gray-400.tw-mb-1
                 span(v-for="h in 13" :key="h") {{ (h-1)*2 }}
               .timeline-videos
@@ -315,6 +315,8 @@ export default {
     //this.fetchRecordingHistory();
     document.addEventListener('mousemove', this.onDrag);
     document.addEventListener('mouseup', this.stopDrag);
+    // 키보드 이벤트 리스너 추가
+    document.addEventListener('keydown', this.handleKeyDown);
     // 중앙에 위치
     this.verticalBarPercent = 50;
   },
@@ -340,6 +342,8 @@ export default {
     });
     document.removeEventListener('mousemove', this.onDrag);
     document.removeEventListener('mouseup', this.stopDrag);
+    // 키보드 이벤트 리스너 제거
+    document.removeEventListener('keydown', this.handleKeyDown);
   },
 
   methods: {
@@ -647,11 +651,11 @@ export default {
       const startSeconds = start.getUTCHours() * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
       const endSeconds = end.getUTCHours() * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
 
-      const startPercent = (startSeconds / (24 * 60 * 60)) * 100;
+      const startPercent = (startSeconds / (24 * 60 * 60)) * 100  - 1.2;
       const duration = endSeconds - startSeconds;
       const widthPercent = (duration / (24 * 60 * 60)) * 100;
 
-      console.log('segment:', segment, 'left:', startPercent, 'width:', widthPercent);
+      // console.log('segment:', segment, 'left:', startPercent, 'width:', widthPercent);
 
       return {
         left: `${startPercent}%`,
@@ -669,7 +673,7 @@ export default {
     },
 
     onDrag(e) {
-      console.log('onDrag :',e);
+      // console.log('onDrag :',e);
       if (!this.dragging) return;
       const slider = this.$el.querySelector('.timeline-slider');
       if (!slider) return;
@@ -681,16 +685,17 @@ export default {
     },
 
     stopDrag() {
-      console.log('stopDrag :');
+      // console.log('stopDrag :');
       this.dragging = false;
       document.removeEventListener('mousemove', this.onDrag);
       document.removeEventListener('mouseup', this.stopDrag);
     },
 
-    syncVideosToPlayhead() {
-      // const seconds = this.playhead * 86400; // 사용하지 않으므로 제거
+    syncVideosToPlayhead() {  
+      const seconds = this.playhead * 86400; // 사용하지 않으므로 제거
       // 실제 영상 컨트롤러와 연동 필요
       // 예: this.$refs.videoPlayer1.currentTime = seconds;
+      console.log('syncVideosToPlayhead :',seconds);
     },
 
     onExportRecording() {
@@ -786,41 +791,64 @@ export default {
     },
 
     onVerticalBarDrag(e) {
-      console.log('onVerticalBarDrag :',e);
-      // if (!this.draggingVerticalBar) return;
+      if (!this.draggingVerticalBar) return;
       const timeline = this.$el.querySelector('.timeline-slider');
       const rect = timeline.getBoundingClientRect();
       let percent = ((e.clientX - rect.left) / rect.width) * 100;
       percent = Math.max(0, Math.min(100, percent));
       this.verticalBarPercent = percent;
-      console.log('verticalBarPercent :',this.verticalBarPercent);
-      // 수직바 위치에 맞는 초 계산
-      const barSeconds = Math.round((this.verticalBarPercent / 100) * 86400);
-      this.setVideosCurrentTime(barSeconds);
+
+      // 각 비디오의 시간 업데이트
+      this.updateVideosTime(percent);
     },
 
-    setVideosCurrentTime(seconds) {
-      // videoPlayer1
-      console.log('setVideosCurrentTime :',seconds);
-      let video1 = this.$refs.videoPlayer1;
-      if (Array.isArray(video1)) video1 = video1[0];
-      if (video1) {
-        try { video1.currentTime = seconds; } catch (e) { /* ignore */ }
-      }
-      // videoPlayer2
-      let video2 = this.$refs.videoPlayer2;
-      if (Array.isArray(video2)) video2 = video2[0];
-      if (video2) {
-        try { video2.currentTime = seconds; } catch (e) { /* ignore */ }
-      }
-      console.log('video current time :',video1.currentTime,video2.currentTime);
+    updateVideosTime(barPercent) {
+      // 24시간(86400초)을 기준으로 현재 시간 계산
+      const totalSeconds = 86400; // 24시간을 초로 변환
+      const currentTimeSeconds = (barPercent / 100) * totalSeconds;
+
+      // 각 비디오에 대해
+      this.selectedVideos.forEach((video, index) => {
+        if (!video.startTime || !video.endTime) return;
+
+        // 시작 시간을 초 단위로 변환
+        const startDate = new Date(video.startTime);
+        const startSeconds = startDate.getUTCHours() * 3600 + 
+                           startDate.getUTCMinutes() * 60 + 
+                           startDate.getUTCSeconds();
+
+        // 종료 시간을 초 단위로 변환
+        const endDate = new Date(video.endTime);
+        const endSeconds = endDate.getUTCHours() * 3600 + 
+                         endDate.getUTCMinutes() * 60 + 
+                         endDate.getUTCSeconds();
+
+        // 비디오의 총 길이(초)
+        const videoDuration = endSeconds - startSeconds;
+
+        // 현재 타임라인 위치에서 시작 시간을 뺀 값이 비디오의 현재 위치
+        let videoTime = currentTimeSeconds - startSeconds;
+
+        // 비디오 시간이 범위를 벗어나면 조정
+        if (videoTime < 0) videoTime = 0;
+        if (videoTime > videoDuration) videoTime = videoDuration;
+
+        // 비디오 요소 찾기
+        const videoRef = this.$refs[`videoPlayer${index + 1}`];
+        if (!videoRef) return;
+
+        const videoElement = Array.isArray(videoRef) ? videoRef[0] : videoRef;
+        if (!videoElement) return;
+
+        // 비디오 시간 설정
+        videoElement.currentTime = videoTime;
+      });
     },
 
-    stopVerticalBarDrag() {
-      console.log('stopVerticalBarDrag :');
-      this.draggingVerticalBar = false;
-      document.removeEventListener('mousemove', this.onVerticalBarDrag);
-      document.removeEventListener('mouseup', this.stopVerticalBarDrag);
+    timeToSeconds(timeStr) {
+      if (!timeStr) return 0;
+      const date = new Date(timeStr);
+      return date.getUTCHours() * 3600 + date.getUTCMinutes() * 60 + date.getUTCSeconds();
     },
 
     secondsToTime(seconds) {
@@ -830,6 +858,55 @@ export default {
       return `${hours.toString().padStart(2, '0')}:${minutes
         .toString()
         .padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    },
+
+    stopVerticalBarDrag() {
+      this.draggingVerticalBar = false;
+      document.removeEventListener('mousemove', this.onVerticalBarDrag);
+      document.removeEventListener('mouseup', this.stopVerticalBarDrag);
+    },
+
+    handleKeyDown(event) {
+      // 스페이스바 처리
+      if (event.key === ' ') {
+        event.preventDefault(); // 페이지 스크롤 방지
+        this.togglePauseAllVideos();
+        return;
+      }
+
+      // 왼쪽/오른쪽 화살표 키만 처리
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+      // 1초를 퍼센트로 변환 (24시간 = 86400초)
+      const oneSecondPercent = (1 / 86400) * 100;
+
+      // 현재 위치에서 1초만큼 이동
+      if (event.key === 'ArrowLeft') {
+        this.verticalBarPercent = Math.max(0, this.verticalBarPercent - oneSecondPercent);
+      } else {
+        this.verticalBarPercent = Math.min(100, this.verticalBarPercent + oneSecondPercent);
+      }
+
+      // 비디오 시간 업데이트
+      this.updateVideosTime(this.verticalBarPercent);
+    },
+
+    handleTimelineClick(event) {
+      // 이미 드래그 중이면 클릭 무시
+      if (this.draggingVerticalBar) return;
+
+      const timeline = this.$el.querySelector('.timeline-slider');
+      const rect = timeline.getBoundingClientRect();
+      
+      // 클릭 위치를 퍼센트로 변환
+      let percent = ((event.clientX - rect.left) / rect.width) * 100;
+      percent = Math.max(0, Math.min(100, percent));
+      
+      // 수직바 위치 업데이트
+      this.verticalBarPercent = percent;
+      
+      // 비디오 시간 업데이트
+      this.updateVideosTime(percent);
     },
   }
 };
