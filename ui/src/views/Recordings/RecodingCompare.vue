@@ -123,22 +123,22 @@
         // 하단 전체 너비 NLE 타임라인 박스
         .tw-mt-4
           .nle-timeline-box.tw-bg-gray-800.tw-p-4.tw-rounded-lg.tw-flex.tw-items-center.tw-relative
-            // 썸네일
-            img.timeline-thumbnail(:src="thumbnailUrl" alt="thumbnail" class="tw-w-24 tw-h-16 tw-mr-4 tw-object-cover")
             // NLE 슬라이더
             .timeline-slider.tw-flex-1.tw-relative
               .timeline-hours.tw-flex.tw-justify-between.tw-text-xs.tw-text-gray-400.tw-mb-1
                 span(v-for="h in 13" :key="h") {{ (h-1)*2 }}
               .timeline-videos
                 .timeline-row(v-for="(video, idx) in selectedVideos || []" :key="video.id")
-                  .timeline-label.tw-w-10.tw-text-xs.tw-text-gray-300 {{ video.name }}
+                  .timeline-label.tw-w-10.tw-text-xs.tw-text-white {{ video.cameraName || 'Unknown Camera' }}
                   .timeline-bar.tw-relative.tw-h-2.tw-bg-gray-700.tw-rounded.tw-ml-2
-                    // 저장된 구간 표시
-                    .timeline-segment.tw-bg-red-400.tw-absolute.tw-h-full.tw-rounded(
+                    // 비디오별 구간 표시
+                    .timeline-segment.tw-absolute.tw-h-full.tw-rounded(
                       v-for="segment in video.segments || []"
-                      :key="segment.start"
+                      :key="segment.startTime + '-' + segment.endTime"
                       :style="segmentStyle(segment)"
                     )
+              // 수직 스크롤 바
+              .vertical-bar(:style="verticalBarStyle" @mousedown="startVerticalBarDrag")
             // 현재 시간 표시
             .current-time.tw-absolute.tw-top-2.tw-right-4.tw-text-white.tw-text-lg
               | {{ formattedPlayheadTime }}
@@ -230,6 +230,8 @@ export default {
     dragging: false,
     selectedVideos: [],
     thumbnailUrl: '',
+    verticalBarPercent: 50, // 0~100, 디폴트 중앙
+    draggingVerticalBar: false,
   }),
 
   computed: {
@@ -267,13 +269,25 @@ export default {
       return formattedData;
     },
     formattedPlayheadTime() {
-      const hour = Math.floor(this.playhead * 24);
-      const min = Math.floor((this.playhead * 24 - hour) * 60);
-      return `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+      // verticalBarPercent를 기준으로 계산
+      const seconds = Math.round((this.verticalBarPercent / 100) * 86400);
+      return this.secondsToTime(seconds);
     },
     playheadStyle() {
       return {
         left: `calc(${this.playhead * 100}% - 1px)`
+      };
+    },
+    verticalBarStyle() {
+      return {
+        left: `calc(${this.verticalBarPercent}% - 2px)`, // 2px은 바의 절반
+        width: '4px',
+        background: 'red',
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        zIndex: 10,
+        cursor: 'ew-resize'
       };
     }
   },
@@ -301,6 +315,8 @@ export default {
     //this.fetchRecordingHistory();
     document.addEventListener('mousemove', this.onDrag);
     document.addEventListener('mouseup', this.stopDrag);
+    // 중앙에 위치
+    this.verticalBarPercent = 50;
   },
 
   beforeDestroy() {
@@ -517,7 +533,7 @@ export default {
         if (response && response.data && response.data.result) {
           this.cameras = response.data.result.map(camera => ({
             ...camera,
-            selected: false
+            selected: true
           }));
         }
       } catch (error) {
@@ -550,6 +566,7 @@ export default {
       this.loading = true;
       try {
         // 선택된 카메라의 ID 목록
+        this.selectedVideos = [];
         const cameraIds = selectedCameras.map(cam => cam.id);
         // 날짜 범위 설정 (선택된 날짜의 시작부터 끝까지)
         const startDate = new Date(date);
@@ -591,6 +608,10 @@ export default {
           if(this.recordingHistory.length > 0) {
             this.recordingHistory.forEach(item => {
               item.selected = true;
+              this.selectedVideos.push({
+                ...item,
+                segments: [{ startTime: item.startTime, endTime: item.endTime }]
+              });
               this.handleSelectionChange(item);
             });
           }else{
@@ -616,13 +637,27 @@ export default {
       }
     },
 
+    // 타임라인에 표시할 segment 스타일 계산
     segmentStyle(segment) {
-      if (!segment || typeof segment.start !== 'number' || typeof segment.end !== 'number') return {};
-      const left = (segment.start / 86400) * 100;
-      const width = ((segment.end - segment.start) / 86400) * 100;
+      // ISO 문자열을 Date 객체로 변환
+      const start = new Date(segment.startTime);
+      const end = new Date(segment.endTime);
+
+      // 0시 기준 초 단위로 변환 (UTC 기준)
+      const startSeconds = start.getUTCHours() * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
+      const endSeconds = end.getUTCHours() * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
+
+      const startPercent = (startSeconds / (24 * 60 * 60)) * 100;
+      const duration = endSeconds - startSeconds;
+      const widthPercent = (duration / (24 * 60 * 60)) * 100;
+
+      console.log('segment:', segment, 'left:', startPercent, 'width:', widthPercent);
+
       return {
-        left: `${left}%`,
-        width: `${width}%`
+        left: `${startPercent}%`,
+        width: `${widthPercent}%`,
+        backgroundColor: 'yellow',
+        zIndex: 1
       };
     },
 
@@ -634,6 +669,7 @@ export default {
     },
 
     onDrag(e) {
+      console.log('onDrag :',e);
       if (!this.dragging) return;
       const slider = this.$el.querySelector('.timeline-slider');
       if (!slider) return;
@@ -645,6 +681,7 @@ export default {
     },
 
     stopDrag() {
+      console.log('stopDrag :');
       this.dragging = false;
       document.removeEventListener('mousemove', this.onDrag);
       document.removeEventListener('mouseup', this.stopDrag);
@@ -739,6 +776,60 @@ export default {
       } finally {
         this.loading = false;
       }
+    },
+
+    startVerticalBarDrag(e) {
+      console.log('startVerticalBarDrag :',e);
+      this.draggingVerticalBar = true;
+      document.addEventListener('mousemove', this.onVerticalBarDrag);
+      document.addEventListener('mouseup', this.stopVerticalBarDrag);
+    },
+
+    onVerticalBarDrag(e) {
+      console.log('onVerticalBarDrag :',e);
+      // if (!this.draggingVerticalBar) return;
+      const timeline = this.$el.querySelector('.timeline-slider');
+      const rect = timeline.getBoundingClientRect();
+      let percent = ((e.clientX - rect.left) / rect.width) * 100;
+      percent = Math.max(0, Math.min(100, percent));
+      this.verticalBarPercent = percent;
+      console.log('verticalBarPercent :',this.verticalBarPercent);
+      // 수직바 위치에 맞는 초 계산
+      const barSeconds = Math.round((this.verticalBarPercent / 100) * 86400);
+      this.setVideosCurrentTime(barSeconds);
+    },
+
+    setVideosCurrentTime(seconds) {
+      // videoPlayer1
+      console.log('setVideosCurrentTime :',seconds);
+      let video1 = this.$refs.videoPlayer1;
+      if (Array.isArray(video1)) video1 = video1[0];
+      if (video1) {
+        try { video1.currentTime = seconds; } catch (e) { /* ignore */ }
+      }
+      // videoPlayer2
+      let video2 = this.$refs.videoPlayer2;
+      if (Array.isArray(video2)) video2 = video2[0];
+      if (video2) {
+        try { video2.currentTime = seconds; } catch (e) { /* ignore */ }
+      }
+      console.log('video current time :',video1.currentTime,video2.currentTime);
+    },
+
+    stopVerticalBarDrag() {
+      console.log('stopVerticalBarDrag :');
+      this.draggingVerticalBar = false;
+      document.removeEventListener('mousemove', this.onVerticalBarDrag);
+      document.removeEventListener('mouseup', this.stopVerticalBarDrag);
+    },
+
+    secondsToTime(seconds) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      return `${hours.toString().padStart(2, '0')}:${minutes
+        .toString()
+        .padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     },
   }
 };
@@ -1067,4 +1158,14 @@ export default {
 .timeline-bar { flex: 1; position: relative; height: 8px; background: #222; border-radius: 4px; margin-left: 8px; }
 .timeline-segment { border-radius: 4px; }
 .playhead-bar { }
+
+.vertical-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: red;
+  cursor: ew-resize;
+  z-index: 10;
+}
 </style> 

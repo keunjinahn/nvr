@@ -8,7 +8,7 @@ try {
   console.log('config.json not found, using default config');
 }
 
-process.env.VUE_APP_SERVER_PORT = configJson.port || 3600;
+process.env.VUE_APP_SERVER_PORT = configJson.port || 9091;
 
 module.exports = {
   transpileDependencies: ['vuetify'],
