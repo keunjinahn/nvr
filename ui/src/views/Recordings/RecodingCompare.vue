@@ -100,10 +100,10 @@
               )
             
             template(#item.formattedStartTime="{ item }")
-              span {{ formatTime(item.formattedStartTime) }}
+              span {{ formatTime2(item.formattedStartTime) }}
             
             template(#item.formattedEndTime="{ item }")
-              span {{ formatTime(item.formattedEndTime) }}
+              span {{ formatTime2(item.formattedEndTime) }}
             
             template(#item.filename="{ item }")
               span {{ item.filename }}
@@ -125,12 +125,17 @@
           .nle-timeline-box.tw-bg-gray-800.tw-p-4.tw-rounded-lg.tw-flex.tw-items-center.tw-relative
             // NLE 슬라이더
             .timeline-slider.tw-flex-1.tw-relative(@click="handleTimelineClick")
-              .timeline-hours.tw-flex.tw-justify-between.tw-text-xs.tw-text-gray-400.tw-mb-1
-                span(v-for="h in 13" :key="h") {{ (h-1)*2 }}
+              .timeline-hours.tw-relative.tw-h-4
+                span(
+                  v-for="h in 13"
+                  :key="h"
+                  :style="{ position: 'absolute', left: `calc(${(h-1)/12*100}% - 10px)` }"
+                  class="tw-text-xs tw-text-gray-400"
+                ) {{ (h-1)*2 }}
               .timeline-videos
                 .timeline-row(v-for="(video, idx) in selectedVideos || []" :key="video.id")
-                  .timeline-label.tw-w-10.tw-text-xs.tw-text-white {{ video.cameraName || 'Unknown Camera' }}
-                  .timeline-bar.tw-relative.tw-h-2.tw-bg-gray-700.tw-rounded.tw-ml-2
+                  <!-- .timeline-label.tw-w-10.tw-text-xs.tw-text-white {{ video.cameraName || 'Unknown Camera' }} -->
+                  .timeline-bar.tw-relative.tw-h-2.tw-bg-gray-700.tw-rounded.tw-ml-0
                     // 비디오별 구간 표시
                     .timeline-segment.tw-absolute.tw-h-full.tw-rounded(
                       v-for="segment in video.segments || []"
@@ -463,13 +468,21 @@ export default {
     formatTime(date) {
       if (!date) return '';
       try {
-        return moment(date).tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss');
+        return moment(date).format('YYYY-MM-DD HH:mm:ss');
       } catch (error) {
         console.error('Error formatting date:', error);
         return date;
       }
     },
-
+    formatTime2(date) {
+      if (!date) return '';
+      try {
+        return moment(date).subtract(9, 'hours').format('YYYY-MM-DD HH:mm:ss');
+      } catch (error) {
+        console.error('Error formatting date:', error);
+        return date;
+      }
+    },
     getStatusColor(status) {
       const statusMap = {
         recording: 'blue',
@@ -651,7 +664,7 @@ export default {
       const startSeconds = start.getUTCHours() * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
       const endSeconds = end.getUTCHours() * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
 
-      const startPercent = (startSeconds / (24 * 60 * 60)) * 100  - 1.2;
+      const startPercent = (startSeconds / (24 * 60 * 60)) * 100;
       const duration = endSeconds - startSeconds;
       const widthPercent = (duration / (24 * 60 * 60)) * 100;
 
