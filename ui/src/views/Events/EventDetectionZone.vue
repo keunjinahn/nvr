@@ -259,8 +259,8 @@ export default {
       tableHeaders: [
         { text: 'No', value: 'no', sortable: false },
         { text: '카메라', value: 'cameraName' },
-        { text: 'Description', value: 'description' },
-        { text: 'Type', value: 'type' },
+        { text: '설명', value: 'description' },
+        { text: '영역번호', value: 'type' },
         { text: '작업', value: 'actions', sortable: false, align: 'center' }
       ],
       deleteDialog: false,
@@ -520,10 +520,11 @@ export default {
         this.$toast.error('설명을 입력해주세요.');
         return;
       }
-
+      
+      // console.log('this.detectionZoneType :',this.detectionZoneType?.value,', this.eventDetectionZoneList :', JSON.stringify(this.eventDetectionZoneList));
      // 중복 영역 번호 체크
       const isDuplicateType = this.eventDetectionZoneList.some(
-        zone => zone.type === this.detectionZoneType?.value
+        zone => Number(zone.type) === Number(this.detectionZoneType?.value)
       );
       if (isDuplicateType) {
         this.$toast.error('동일한 영역 번호가 이미 존재합니다.');

@@ -83,7 +83,7 @@
       .bottomleft-inner-bottom
         .box-title Time Series Temperature
         .chart-container
-          v-chart(:options="chartOption" autoresize height="400" ref="trendChart" style="width:100%;height:400px;background:var(--cui-bg-card);")
+          v-chart(:options="chartOption" autoresize height="300" ref="trendChart" style="width:100%;height:218px;background:var(--cui-bg-card);")
   .cell.cell-bottomright
     .box-title 실화상 영상
     .video-container
@@ -178,7 +178,14 @@ computed: {
       return {};
     }
 
-    const times = temps.map(t => new Date(t.time).toLocaleString('ko-KR'));
+    const times = temps.map(t => {
+      const date = new Date(t.time);
+      return date.toLocaleTimeString('ko-KR', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: false 
+      });
+    });
     const minTemps = temps.map(t => Number(t.min));
     const maxTemps = temps.map(t => Number(t.max));
     const avgTemps = temps.map(t => Number(t.avg));
@@ -219,7 +226,8 @@ computed: {
         boundaryGap: false,
         axisLabel: {
           color: '#fff',
-          rotate: 45
+          rotate: 45,
+          formatter: '{value}'
         }
       },
       yAxis: {

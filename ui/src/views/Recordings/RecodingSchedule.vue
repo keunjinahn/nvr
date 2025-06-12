@@ -110,6 +110,7 @@
               v-model="editedItem.recordingType"
               :items="recordingTypes"
               label="녹화 유형"
+              disabled
               :rules="[v => !!v || '녹화 유형을 선택해주세요']"
               required
             )

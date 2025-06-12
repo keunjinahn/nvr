@@ -14,6 +14,10 @@ const sequelize = new Sequelize(
     dialect: 'mariadb',
     port: config.config.port,
     logging: false,
+    timezone: '+09:00',  // 한국 시간대 설정
+    dialectOptions: {
+      timezone: '+09:00'  // MariaDB 시간대 설정
+    }
   }
 );
 

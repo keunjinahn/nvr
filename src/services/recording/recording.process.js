@@ -112,8 +112,8 @@ class RecordingProcess {
         logger.info(`Marking existing recording as stopped: ${existing.id}`);
         await existing.update({
           status: 'stopped',
-          endTime: timeInfo.formattedForFile,
-          updatedAt: timeInfo.formattedForFile
+          endTime: timeInfo.formattedForDB,
+          updatedAt: timeInfo.formattedForDB
         });
       }
 
@@ -309,7 +309,7 @@ class RecordingProcess {
             // 녹화 히스토리 업데이트 - 에러 상태로
             if (recordingId) {
               await this.updateRecordingHistory(recordingId, {
-                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
+                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss'),
                 status: 'error',
                 errorMessage: 'Empty recording file'
               });
@@ -318,7 +318,7 @@ class RecordingProcess {
             // 정상 종료 시 녹화 히스토리 업데이트
             if (recordingId) {
               await this.updateRecordingHistory(recordingId, {
-                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
+                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss'),
                 status: hasError ? 'error' : 'completed',
                 errorMessage: hasError ? errorMessage : undefined
               });
@@ -328,7 +328,7 @@ class RecordingProcess {
           logger.error(`Error checking recording file: ${err.message}`);
           if (recordingId) {
             await this.updateRecordingHistory(recordingId, {
-              endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
+              endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss'),
               status: 'error',
               errorMessage: err.message
             });
@@ -399,7 +399,7 @@ class RecordingProcess {
       // 시작 실패 시 히스토리 업데이트
       if (recordingId) {
         await this.updateRecordingHistory(recordingId, {
-          endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss'),
+          endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss'),
           status: 'error',
           errorMessage: error.message
         });
@@ -437,7 +437,7 @@ class RecordingProcess {
 
       // recordingHistory 업데이트
       if (recordingInfo.recordingId) {
-        const endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss');
+        const endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss');
         await this.updateRecordingHistory(recordingInfo.recordingId, {
           endTime,
           status: recordingInfo.hasError ? 'error' : 'stopped'
@@ -448,7 +448,7 @@ class RecordingProcess {
       const metadataPath = `${recordingInfo.outputPath}.json`;
       if (await fs.pathExists(metadataPath)) {
         const metadata = await fs.readJson(metadataPath);
-        metadata.endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DD HH:mm:ss');
+        metadata.endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss');
         metadata.status = recordingInfo.hasError ? 'error' : 'stopped';
         await fs.writeJson(metadataPath, metadata);
       }

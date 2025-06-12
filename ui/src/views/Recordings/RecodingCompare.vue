@@ -274,9 +274,10 @@ export default {
       return formattedData;
     },
     formattedPlayheadTime() {
-      // verticalBarPercent를 기준으로 계산
+      // verticalBarPercent를 기준으로 계산 (9시간 추가)
       const seconds = Math.round((this.verticalBarPercent / 100) * 86400);
-      return this.secondsToTime(seconds);
+      const totalSeconds = seconds + (9 * 3600); // 9시간 추가
+      return this.secondsToTime(totalSeconds);
     },
     playheadStyle() {
       return {
@@ -477,7 +478,7 @@ export default {
     formatTime2(date) {
       if (!date) return '';
       try {
-        return moment(date).subtract(9, 'hours').format('YYYY-MM-DD HH:mm:ss');
+        return moment(date).format('YYYY-MM-DD HH:mm:ss');
       } catch (error) {
         console.error('Error formatting date:', error);
         return date;
@@ -607,9 +608,17 @@ export default {
           endDate: endDate.toISOString(),
           cameraIds: cameraIds
         });
-
+        
         if (Array.isArray(response)) {
-          this.recordingHistory = response.map(record => {
+          // startTime 기준으로 정렬하고 최근 두 개의 녹화만 사용
+          const sortedRecordings = response.sort((a, b) => {
+            const timeA = new Date(a.startTime || a.start_time).getTime();
+            const timeB = new Date(b.startTime || b.start_time).getTime();
+            return timeB - timeA; // 내림차순 정렬 (최신순)
+          });
+          const recentRecordings = sortedRecordings.slice(0, 2);
+          
+          this.recordingHistory = recentRecordings.map(record => {
             const data = record.dataValues || record;
             return {
               ...data,
@@ -631,7 +640,7 @@ export default {
               });
               this.handleSelectionChange(item);
             });
-          }else{
+          } else {
             this.selectedVideo1 = null;
             this.selectedVideo2 = null;
             const videoElements = document.querySelectorAll('video');
@@ -650,7 +659,6 @@ export default {
         this.recordingHistory = [];
       } finally {
         this.loading = false;
-
       }
     },
 
@@ -660,15 +668,13 @@ export default {
       const start = new Date(segment.startTime);
       const end = new Date(segment.endTime);
 
-      // 0시 기준 초 단위로 변환 (UTC 기준)
-      const startSeconds = start.getUTCHours() * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
-      const endSeconds = end.getUTCHours() * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
+      // 0시 기준 초 단위로 변환 (UTC 기준, 9시간 추가)
+      const startSeconds = (start.getUTCHours() + 9) * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
+      const endSeconds = (end.getUTCHours() + 9) * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
 
       const startPercent = (startSeconds / (24 * 60 * 60)) * 100;
       const duration = endSeconds - startSeconds;
       const widthPercent = (duration / (24 * 60 * 60)) * 100;
-
-      // console.log('segment:', segment, 'left:', startPercent, 'width:', widthPercent);
 
       return {
         left: `${startPercent}%`,
@@ -712,87 +718,94 @@ export default {
     },
 
     onExportRecording() {
-      // 녹화 내보내기 로직 구현
-      alert('녹화 내보내기 기능');
-    },
-
-    onSaveSnapshot() {
-      // 정지이미지 저장 로직 구현
-      alert('정지이미지 저장 기능');
-    },
-
-    async fetchRecordings() {
-      if (!this.startDate || !this.endDate) {
-        this.$toast.error('시작일과 종료일을 선택해주세요.');
+      // 선택된 영상이 있는지 확인
+      if (!this.selectedVideo1 && !this.selectedVideo2) {
+        this.$toast.warning('다운로드할 영상을 선택해주세요.');
         return;
       }
 
-      this.loading = true;
-      try {
-        // 비디오 화면 완전 초기화
-        this.selectedVideo1 = null;
-        this.selectedVideo2 = null;
-        this.recordingHistory = [];
-        
-        // 비디오 요소 직접 초기화
-        this.$nextTick(() => {
-          const videoElements = document.querySelectorAll('video');
-          videoElements.forEach(video => {
-            video.src = '';
-            video.load();
-            video.poster = '';
-          });
-
-          // 비디오 플레이어 컴포넌트 초기화
-          if (this.$refs.videoPlayer1) {
-            this.$refs.videoPlayer1.reset();
-          }
-          if (this.$refs.videoPlayer2) {
-            this.$refs.videoPlayer2.reset();
-          }
-        });
-
-        const date = this.startDate;
-        const startDate = new Date(date);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(date);
-        endDate.setHours(23, 59, 59, 999);
-
-        // 녹화 기록 조회
-        const response = await getRecordingHistory({
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
-          cameraIds: this.selectedCameras
-        });
-
-        if (response && response.data) {
-          this.recordingHistory = response.data.map(record => {
-            return {
-              ...record,
-              formattedStartTime: this.formatTime(record.startTime),
-              formattedEndTime: this.formatTime(record.endTime),
-              selected: false
-            };
-          });
-
-          // 데이터가 있으면 자동으로 첫 번째 항목 선택
-          if (this.recordingHistory.length > 0) {
-            this.$nextTick(() => {
-              this.recordingHistory.forEach(item => {
-                item.selected = true;
-                this.handleSelectionChange(item);
-              });
-            });
-          }
-        } else {
-          this.recordingHistory = [];
+      // 선택된 영상 다운로드
+      const downloadVideo = async (videoUrl, filename) => {
+        try {
+          const response = await fetch(videoUrl);
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        } catch (error) {
+          console.error('Error downloading video:', error);
+          this.$toast.error('영상 다운로드 중 오류가 발생했습니다.');
         }
-      } catch (error) {
-        console.error('Error fetching recordings:', error);
-        this.$toast.error('녹화 기록을 불러오는데 실패했습니다.');
-        this.recordingHistory = [];
-      } finally {
-        this.loading = false;
+      };
+
+      // 선택된 영상들 다운로드
+      if (this.selectedVideo1) {
+        const video1 = this.recordingHistory.find(r => r.selected && this.selectedVideo1.includes(r.id));
+        if (video1) {
+          downloadVideo(this.selectedVideo1, `${video1.cameraName}_${video1.startTime}.mp4`);
+        }
+      }
+      if (this.selectedVideo2) {
+        const video2 = this.recordingHistory.find(r => r.selected && this.selectedVideo2.includes(r.id));
+        if (video2) {
+          downloadVideo(this.selectedVideo2, `${video2.cameraName}_${video2.startTime}.mp4`);
+        }
+      }
+    },
+
+    onSaveSnapshot() {
+      // 선택된 영상이 있는지 확인
+      if (!this.selectedVideo1 && !this.selectedVideo2) {
+        this.$toast.warning('스냅샷을 저장할 영상을 선택해주세요.');
+        return;
+      }
+
+      // 스냅샷 저장 함수
+      const saveSnapshot = (videoElement, filename) => {
+        try {
+          // 캔버스 생성
+          const canvas = document.createElement('canvas');
+          canvas.width = videoElement.videoWidth;
+          canvas.height = videoElement.videoHeight;
+          
+          // 현재 프레임을 캔버스에 그리기
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+          
+          // 캔버스를 이미지로 변환
+          canvas.toBlob((blob) => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+          }, 'image/jpeg', 0.95);
+        } catch (error) {
+          console.error('Error saving snapshot:', error);
+          this.$toast.error('스냅샷 저장 중 오류가 발생했습니다.');
+        }
+      };
+
+      // 선택된 영상들의 스냅샷 저장
+      if (this.selectedVideo1 && this.$refs.videoPlayer1) {
+        const video1 = this.recordingHistory.find(r => r.selected && this.selectedVideo1.includes(r.id));
+        if (video1) {
+          saveSnapshot(this.$refs.videoPlayer1, `${video1.cameraName}_${video1.startTime}_snapshot.jpg`);
+        }
+      }
+      if (this.selectedVideo2 && this.$refs.videoPlayer2) {
+        const video2 = this.recordingHistory.find(r => r.selected && this.selectedVideo2.includes(r.id));
+        if (video2) {
+          saveSnapshot(this.$refs.videoPlayer2, `${video2.cameraName}_${video2.startTime}_snapshot.jpg`);
+        }
       }
     },
 
@@ -824,15 +837,15 @@ export default {
       this.selectedVideos.forEach((video, index) => {
         if (!video.startTime || !video.endTime) return;
 
-        // 시작 시간을 초 단위로 변환
+        // 시작 시간을 초 단위로 변환 (9시간 추가)
         const startDate = new Date(video.startTime);
-        const startSeconds = startDate.getUTCHours() * 3600 + 
+        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                            startDate.getUTCMinutes() * 60 + 
                            startDate.getUTCSeconds();
 
-        // 종료 시간을 초 단위로 변환
+        // 종료 시간을 초 단위로 변환 (9시간 추가)
         const endDate = new Date(video.endTime);
-        const endSeconds = endDate.getUTCHours() * 3600 + 
+        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
                          endDate.getUTCMinutes() * 60 + 
                          endDate.getUTCSeconds();
 
