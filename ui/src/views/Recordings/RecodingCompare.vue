@@ -169,7 +169,9 @@ import {
 import moment from 'moment';
 import { getRecordingHistory} from '@/api/recordingService.api.js';
 import { getCameras } from '@/api/cameras.api';
-
+const API_BASE_URL = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:9091' 
+  : 'http://20.41.121.184:9091';
 export default {
   name: 'RecodingCompare',
 
@@ -416,20 +418,19 @@ export default {
     },
 
     handleSelectionChange(item) {
-      const host = process.env.VUE_APP_STREAM_HOST;
       if (item.selected) {
         if (!this.selectedVideo1) {
-          this.selectedVideo1 = `http://${host}:9091/api/recordings/stream/${item.id}`;
+          this.selectedVideo1 = `${API_BASE_URL}/api/recordings/stream/${item.id}`;
         } else if (!this.selectedVideo2) {
-          this.selectedVideo2 = `http://${host}:9091/api/recordings/stream/${item.id}`;
+          this.selectedVideo2 = `${API_BASE_URL}/api/recordings/stream/${item.id}`;
         } else {
           item.selected = false;
           this.$toast.warning('최대 2개의 영상만 선택할 수 있습니다.');
         }
       } else {
-        if (this.selectedVideo1 === `http://${host}:9091/api/recordings/stream/${item.id}`) {
+        if (this.selectedVideo1 === `${API_BASE_URL}/api/recordings/stream/${item.id}`) {
           this.selectedVideo1 = null;
-        } else if (this.selectedVideo2 === `http://${host}:9091/api/recordings/stream/${item.id}`) {
+        } else if (this.selectedVideo2 === `${API_BASE_URL}/api/recordings/stream/${item.id}`) {
           this.selectedVideo2 = null;
         }
       }
