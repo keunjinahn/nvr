@@ -13,7 +13,7 @@
               :src="selectedVideo1"
               @error="handleVideoError"
               crossorigin="anonymous"
-              preload="metadata"
+              preload="none"
               controlsList="nodownload"
               :style="expandedVideo === 1 ? 'width: 1280px; height: 720px;' : 'width: 640px; height: 480px;'"
             )
@@ -26,7 +26,7 @@
               :src="selectedVideo2"
               @error="handleVideoError"
               crossorigin="anonymous"
-              preload="metadata"
+              preload="none"
               controlsList="nodownload"
               :style="expandedVideo === 2 ? 'width: 1280px; height: 720px;' : 'width: 640px; height: 480px;'"
             )

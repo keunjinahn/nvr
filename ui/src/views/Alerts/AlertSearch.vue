@@ -71,13 +71,16 @@
     
     v-data-table(
       :headers="headers"
-      :items="filteredAlerts"
-      :items-per-page="10"
+      :items="alerts"
+      :server-items-length="totalItems"
       :page.sync="page"
+      :items-per-page.sync="pageSize"
       :loading="loading"
       loading-text="데이터를 불러오는 중..."
       no-data-text="데이터가 없습니다"
       class="elevation-1"
+      @update:page="val => { page = val; }"
+      @update:items-per-page="val => { pageSize = val; page = 1; }"
     )
       template(v-slot:item="{ item }")
         tr(:class="{'alert-level-3': Number(item.alert_level) >= 3, 'alert-level-4': Number(item.alert_level) >= 4, 'alert-level-5': Number(item.alert_level) >= 5}")
@@ -120,8 +123,10 @@ export default {
     dateMenu: false,
     dates: [],
     page: 1,
+    pageSize: 10,
     loading: false,
     alerts: [],
+    totalItems: 0,
     headers: [
       { text: 'ID', value: 'id', align: 'center', width: '80px' },
       { text: '카메라 ID', value: 'fk_camera_id', align: 'center' },
@@ -178,19 +183,33 @@ export default {
     await this.loadAlerts()
   },
 
+  watch: {
+    page() {
+      this.loadAlerts();
+    },
+    pageSize() {
+      this.page = 1;
+      this.loadAlerts();
+    }
+  },
+
   methods: {
     async loadAlerts() {
-      this.loading = true
+      this.loading = true;
       try {
-        const response = await getAlerts('')
-        console.log('API Response:', response)
-        
-        // result 배열에서 데이터 추출
+        // Build query string for pagination and filters
+        let params = `?page=${this.page}&pageSize=${this.pageSize}`;
+        if (this.statusFilter) params += `&status=${this.statusFilter}`;
+        if (this.levelFilter) params += `&level=${this.levelFilter}`;
+        if (this.search) params += `&search=${encodeURIComponent(this.search)}`;
+        if (this.dates.length === 2) params += `&startDate=${this.dates[0]}&endDate=${this.dates[1]}`;
+        const response = await getAlerts(params);
         this.alerts = response.data.result.map(alert => ({
           ...alert,
           alert_accur_time: this.formatDate(alert.alert_accur_time),
           alert_process_time: alert.alert_process_time ? this.formatDate(alert.alert_process_time) : '-'
-        }))
+        }));
+        this.totalItems = response.data.pagination?.totalItems || 0;
       } catch (error) {
         console.error('알림 조회 실패:', error)
         this.$toast?.error('알림을 불러오는 중 오류가 발생했습니다.')

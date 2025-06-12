@@ -28,19 +28,6 @@ export const mqttDefault = {
   port: 1883,
 };
 
-// MariaDB 기본 설정 추가
-export const mariadbDefaults = {
-  enabled: false,
-  sync: true,
-  host: 'localhost',
-  port: 3306,
-  user: 'dbadmin',
-  password: 'p#ssw0rd',
-  database: 'nvrdb',
-  connectionLimit: 10,
-  connectTimeout: 10000
-};
-
 export const permissionLevels = [
   'admin',
   //API
@@ -96,7 +83,6 @@ export class ConfigSetup {
       ftp: ConfigSetup.setupFtp(config?.ftp),
       mqtt: ConfigSetup.setupMqtt(config?.mqtt),
       cameras: ConfigSetup.setupCameras(config?.cameras),
-      mariadb: ConfigSetup.setupMariaDB(config?.mariadb), // MariaDB 설정 추가
     };
   }
 
@@ -154,21 +140,6 @@ export class ConfigSetup {
       active: ftp?.active || false,
       useFile: ftp?.useFile || ftpDefaults.useFile,
       port: !isNaN(ftp?.port) ? ftp.port : ftpDefaults.port,
-    };
-  }
-
-  // MariaDB 설정 메서드 추가
-  static setupMariaDB(mariadb = {}) {
-    return {
-      enabled: mariadb?.enabled || mariadbDefaults.enabled,
-      sync: mariadb?.sync ?? mariadbDefaults.sync,
-      host: mariadb?.host || mariadbDefaults.host,
-      port: !isNaN(mariadb?.port) ? mariadb.port : mariadbDefaults.port,
-      user: mariadb?.user || mariadbDefaults.user,
-      password: mariadb?.password || mariadbDefaults.password,
-      database: mariadb?.database || mariadbDefaults.database,
-      connectionLimit: mariadb?.connectionLimit || mariadbDefaults.connectionLimit,
-      connectTimeout: mariadb?.connectTimeout || mariadbDefaults.connectTimeout
     };
   }
 

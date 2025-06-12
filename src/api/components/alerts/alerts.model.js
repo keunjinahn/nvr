@@ -4,7 +4,7 @@ import AlertHistory from '../../../models/AlertHistory.js';
 import AlertSetting from '../../../models/AlertSetting.js';
 
 export const list = async (options = {}) => {
-  return await AlertHistory.findAll({
+  return await AlertHistory.findAndCountAll({
     order: [['alert_accur_time', 'DESC']],
     ...options
   });

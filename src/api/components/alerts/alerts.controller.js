@@ -24,10 +24,25 @@ export const insert = async (req, res) => {
 
 export const list = async (req, res, next) => {
   try {
-    console.log('----------> list');
-    const result = await AlertModel.list();
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 10;
+    const offset = (page - 1) * pageSize;
+    const limit = pageSize;
 
-    res.locals.items = result;
+    // 필터 처리
+    const where = {};
+    if (req.query.status) where.alert_status = req.query.status;
+    if (req.query.level) where.alert_level = req.query.level;
+    if (req.query.startDate && req.query.endDate) {
+      where.alert_accur_time = { [Op.between]: [req.query.startDate, req.query.endDate] };
+    }
+    if (req.query.search) {
+      where.alert_description = { [Op.like]: `%${req.query.search}%` };
+    }
+
+    const { count, rows } = await AlertModel.list({ where, offset, limit });
+    res.locals.items = rows;
+    res.locals.totalItems = count;
     return next();
   } catch (error) {
     res.status(500).send({

@@ -1,15 +1,15 @@
 import { Sequelize } from 'sequelize';
-import dotenv from 'dotenv';
+import mariadbConfig from '../services/database/mariadb.config.js';
 
-dotenv.config();
+const { database, user, password, host, port } = mariadbConfig.config;
 
 const sequelize = new Sequelize(
-  process.env.DB_NAME || 'nvrdb',
-  process.env.DB_USER || 'dbadmin',
-  process.env.DB_PASSWORD || '',
+  database,
+  user,
+  password,
   {
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: process.env.DB_PORT || '3306',
+    host,
+    port,
     dialect: 'mariadb',
     logging: false,
     pool: {

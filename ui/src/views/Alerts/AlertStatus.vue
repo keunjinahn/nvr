@@ -436,7 +436,8 @@ export default {
 
     async loadAlertHistory() {
       try {
-        const response = await getAlerts('');
+        // 1페이지 20개만 요청
+        const response = await getAlerts('?page=1&pageSize=20');
         this.alertHistory = response.data.result.map(alert => {
           let minTemp = '-';
           let maxTemp = '-';
@@ -861,58 +862,90 @@ export default {
               height: 200px;
             }
 
-            .alert-table {
+            .bottom-box {
+              background: #1e1e1e;
+              border-radius: 4px;
+              padding: 12px;
               flex: 1;
-              overflow-y: auto;
+              display: flex;
+              flex-direction: column;
               min-height: 0;
-              
-              .table-header {
-                display: flex;
-                background: #2d2d2d;
-                padding: 6px;
-                border-radius: 4px 4px 0 0;
-                margin-bottom: 1px;
-                
-                .header-cell {
-                  flex: 1;
-                  color: #ffffff;
-                  font-size: 0.7rem;
-                  text-align: center;
-                  font-weight: 600;
-                }
+              height: 260px; /* 고정 높이 예시 */
+              max-height: 260px;
+
+              .table-title {
+                color: #ffffff;
+                font-size: 20px;
+                margin-bottom: 10px;
+                text-align: center;
               }
 
-              .table-body {
-                overflow-y: auto;
-                
-                .table-row {
-                  display: flex;
-                  padding: 6px;
-                  border-bottom: 1px solid #2d2d2d;
-                  transition: background-color 0.2s;
-                  
-                  &:hover {
-                    background: #2d2d2d;
-                  }
-                  
-                  &:last-child {
-                    border-bottom: none;
-                  }
+              .alert-table {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+                height: 100%;
+                overflow: hidden;
 
-                  .table-cell {
+                .table-header {
+                  display: flex;
+                  background: #2d2d2d;
+                  padding: 6px;
+                  border-radius: 4px 4px 0 0;
+                  margin-bottom: 1px;
+                  flex-shrink: 0;
+                  .header-cell {
                     flex: 1;
+                    min-width: 60px;
+                    max-width: 120px;
                     color: #ffffff;
-                    font-size: 0.7rem;
+                    font-size: 14px;
                     text-align: center;
+                    font-weight: 600;
                     white-space: nowrap;
                     overflow: hidden;
                     text-overflow: ellipsis;
-                    padding: 0 4px;
-                    
-                    &:first-child {
-                      color: #888888;
+                  }
+                }
+
+                .table-body {
+                  overflow-y: auto;
+                  flex: 1;
+                  min-height: 0;
+                  .table-row {
+                    display: flex;
+                    padding: 6px;
+                    border-bottom: 1px solid #2d2d2d;
+                    transition: background-color 0.2s;
+                    &:hover {
+                      background: #2d2d2d;
+                    }
+                    &:last-child {
+                      border-bottom: none;
+                    }
+                    .table-cell {
+                      flex: 1;
+                      min-width: 60px;
+                      max-width: 120px;
+                      color: #ffffff;
+                      font-size: 14px;
+                      text-align: center;
+                      white-space: nowrap;
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      padding: 0 4px;
+                      &:first-child {
+                        color: #888888;
+                      }
                     }
                   }
+                }
+
+                .table-header .header-cell:nth-child(2),
+                .table-body .table-row .table-cell:nth-child(2) {
+                  min-width: 140px;
+                  max-width: 220px;
                 }
               }
             }

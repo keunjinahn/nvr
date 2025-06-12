@@ -7,7 +7,7 @@ const { log } = LoggerService;
 
 // 기본 데이터베이스 설정
 const dbConfig = {
-  host: 'localhost',
+  host: '20.41.121.184',
   port: 3306,
   user: 'dbadmin',
   password: 'p#ssw0rd',
@@ -46,5 +46,5 @@ const config = {
   }
 };
 
-// 설정과 연결 풀을 함께 내보내기
-export default { pool, config };
+// config 객체만 export 하도록 수정
+export default { config };

@@ -96,12 +96,6 @@
                   :style="'width: 100%; height: 100%; min-height: 0;'"
                 )
 
-    infinite-loading(:identifier="infiniteId", @infinite="infiniteHandler")
-      div(slot="spinner")
-        v-progress-circular(indeterminate color="var(--cui-primary)")
-      .tw-mt-10.tw-text-sm.text-muted(slot="no-more") {{ $t("no_more_cameras") }}
-      .tw-mt-10.tw-text-sm.text-muted(slot="no-results") {{ $t("no_cameras") }} :(
-
   LightBox(
     ref="lightboxBanner"
     :media="notImages"
@@ -256,8 +250,6 @@ export default {
 
     cameras: [],
     loading: false,
-    infiniteId: Date.now(),
-    page: 1,
     query: '',
 
     rooms: [],
@@ -377,11 +369,44 @@ export default {
     localStorage.setItem('listModeCameras', '2');
     const response = await getSetting('general');
     this.rooms = response.data.rooms;
-    //this.listMode = this.oldSelected = localStorage.getItem('listModeCameras') === '1';
     this.listMode = 1;
     this.backupHeaders = [...this.headers];
 
-    this.loading = false;
+    this.loading = true;
+    try {
+      const response = await getCameras();
+      if (response?.data?.result) {
+        const rawCameras = response.data.result;
+        const processedCameras = [];
+        
+        for (const camera of rawCameras) {
+          try {
+            if (!camera?.name) {
+              console.warn('Skipping camera without name:', camera);
+              continue;
+            }
+
+            const settingsResponse = await getCameraSettings(camera.name);
+            const processedCamera = {
+              ...camera,
+              settings: settingsResponse?.data.settings || {},
+              url: camera.videoConfig?.source?.replace(/\u00A0/g, ' ').split('-i ')[1] || ''
+            };
+            
+            processedCameras.push(processedCamera);
+          } catch (err) {
+            console.error(`Error processing camera ${camera?.name || 'unknown'}:`, err);
+          }
+        }
+
+        this.cameras = processedCameras;
+      }
+    } catch (err) {
+      console.error('Error loading cameras:', err);
+      this.$toast.error(err.message || '카메라 목록을 불러오는데 실패했습니다.');
+    } finally {
+      this.loading = false;
+    }
 
     ['resize', 'orientationchange'].forEach((event) => {
       window.addEventListener(event, this.onResize);
@@ -411,54 +436,8 @@ export default {
     filter(filterQuery) {
       this.loading = true;
       this.cameras = [];
-      this.page = 1;
       this.query = filterQuery;
-      this.infiniteId = Date.now();
       this.loading = false;
-    },
-    async infiniteHandler($state) {
-      try {
-        const response = await getCameras(`?pageSize=20&page=${this.page || 1}` + this.query);
-        
-        if (response?.data?.result) {
-          const rawCameras = response.data.result;
-          const processedCameras = [];
-          
-          for (const camera of rawCameras) {
-            try {
-              if (!camera?.name) {
-                console.warn('Skipping camera without name:', camera);
-                continue;
-              }
-
-              const settingsResponse = await getCameraSettings(camera.name);
-              const processedCamera = {
-                ...camera,
-                settings: settingsResponse?.data.settings || {},
-                url: camera.videoConfig?.source?.replace(/\u00A0/g, ' ').split('-i ')[1] || ''
-              };
-              
-              processedCameras.push(processedCamera);
-            } catch (err) {
-              console.error(`Error processing camera ${camera?.name || 'unknown'}:`, err);
-            }
-          }
-
-          if (processedCameras.length > 0) {
-            this.page += 1;
-            this.cameras.push(...processedCameras);
-            $state.loaded();
-          } else {
-            $state.complete();
-          }
-        } else {
-          $state.complete();
-        }
-      } catch (err) {
-        console.error('Error in infiniteHandler:', err);
-        this.$toast.error(err.message || '카메라 목록을 불러오는데 실패했습니다.');
-        $state.complete();
-      }
     },
     onResize() {
       const removeHeaders = [];
@@ -529,9 +508,8 @@ export default {
     async addVideo() {
       if (this.valid && this.$refs.form.validate()) {
         try {
-          this.isProcessing = true;  // 로딩 시작
+          this.isProcessing = true;
           
-          // 입력값 검증
           if (!this.videoTitle || !this.videoTitle.trim()) {
             throw new Error('영상 제목을 입력해주세요');
           }
@@ -568,22 +546,38 @@ export default {
             // 기존 카메라 삭제 후 새로운 정보로 추가
             await removeCamera(this.originalName);
             await addCamera(camera);
+            
+            // 수정된 카메라 정보로 기존 카메라 업데이트
+            const index = this.cameras.findIndex(c => c.name === this.originalName);
+            if (index !== -1) {
+              const settingsResponse = await getCameraSettings(camera.name);
+              this.cameras[index] = {
+                ...camera,
+                settings: settingsResponse?.data.settings || {},
+                url: camera.videoConfig.source.split('-i ')[1]
+              };
+            }
+            
             this.$toast.success('카메라가 성공적으로 수정되었습니다.');
           } else {
             await addCamera(camera);
+            
+            // 새 카메라 정보 가져와서 목록에 추가
+            const settingsResponse = await getCameraSettings(camera.name);
+            this.cameras.unshift({
+              ...camera,
+              settings: settingsResponse?.data.settings || {},
+              url: camera.videoConfig.source.split('-i ')[1]
+            });
+            
             this.$toast.success('카메라가 성공적으로 추가되었습니다.');
           }
-          
-          // 카메라 리스트 새로고침
-          this.cameras = [];
-          this.page = 1;
-          this.infiniteId = Date.now();
         } catch (err) {
           console.log(err);
           this.$toast.error(err.message || (this.isEditMode ? '카메라 수정 중 오류가 발생했습니다.' : '카메라 추가 중 오류가 발생했습니다.'));
         } finally {
-          this.isProcessing = false;  // 로딩 종료
-          this.closeAddVideoDialog();  // 로딩이 끝난 후 다이얼로그 닫기
+          this.isProcessing = false;
+          this.closeAddVideoDialog();
         }
       }
     },
@@ -607,18 +601,20 @@ export default {
       try {
         this.isProcessing = true;
         await removeCamera(this.selectedCamera.name);
-        this.$toast.success('카메라가 성공적으로 삭제되었습니다.');
         
-        // 카메라 리스트 새로고침
-        this.cameras = [];
-        this.page = 1;
-        this.infiniteId = Date.now();
+        // 삭제된 카메라를 목록에서 제거
+        const index = this.cameras.findIndex(c => c.name === this.selectedCamera.name);
+        if (index !== -1) {
+          this.cameras.splice(index, 1);
+        }
+        
+        this.$toast.success('카메라가 성공적으로 삭제되었습니다.');
       } catch (err) {
         console.log(err);
         this.$toast.error(err.message || '카메라 삭제 중 오류가 발생했습니다.');
       } finally {
-        this.isProcessing = false;  // 먼저 로딩 상태 해제
-        this.closeDeleteVideoDialog(); // 그 다음 다이얼로그 닫기
+        this.isProcessing = false;
+        this.closeDeleteVideoDialog();
       }
     },
   },

@@ -98,14 +98,31 @@ async function sendRoiSetting(roiIndex, startX, startY, endX, endY, cameraIp, ca
 
 export const getAllEventHistory = async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 10;
+    const offset = (page - 1) * pageSize;
+    const limit = pageSize;
+
     const { startDate, endDate, label } = req.query;
     const filters = {
       startDate: startDate ? new Date(startDate) : null,
       endDate: endDate ? new Date(endDate) : null,
-      label
+      label,
+      offset,
+      limit
     };
-    const data = await EventsModel.getAllEventHistory(filters);
-    res.json(data);
+    const { count, rows } = await EventsModel.getAllEventHistory(filters);
+    const totalItems = count;
+    const totalPages = Math.ceil(totalItems / pageSize);
+    const pagination = {
+      currentPage: page,
+      pageSize: pageSize,
+      totalPages: totalPages,
+      totalItems: totalItems,
+      nextPage: page < totalPages ? `${req.path}?page=${page + 1}` : null,
+      prevPage: page > 1 ? `${req.path}?page=${page - 1}` : null,
+    };
+    res.json({ pagination, result: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

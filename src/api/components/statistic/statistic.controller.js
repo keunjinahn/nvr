@@ -173,11 +173,12 @@ export const getRoiDataList = async (req, res) => {
   try {
     // Get detection zones from events model
     const zones = await getAllDetectionZones();
+    // console.log('======>  zones', zones);
 
-    // Get the latest 60 video receive data records
+    // Get the latest 2 video receive data records
     const latestData = await VideoReceiveData.findAll({
       order: [['create_date', 'DESC']],
-      limit: 60
+      limit: 2
     });
 
     if (!latestData || latestData.length === 0) {
@@ -196,7 +197,8 @@ export const getRoiDataList = async (req, res) => {
     // Process each zone
     const roiData = zones.map(zone => {
       // Calculate data field indices based on zone_type
-      const baseIndex = 22 + (zone.zone_type * 2);
+      const zoneType = parseInt(zone.zone_type.replace('Z', ''));
+      const baseIndex = 22 + (zoneType * 2);
       const minDataField = `data_${baseIndex}`;
       const maxDataField = `data_${baseIndex + 1}`;
 
@@ -207,14 +209,25 @@ export const getRoiDataList = async (req, res) => {
       const temps = [];
 
       latestData.forEach(data => {
-        const dataValue = data.getDataValue('data_value') || {};
-        const min = dataValue[minDataField];
-        const max = dataValue[maxDataField];
+        // JSON 문자열을 파싱하여 객체로 변환
+        const dataValueStr = data.getDataValue('data_value');
+        const dataValue = dataValueStr ? JSON.parse(dataValueStr) : {};
 
-        if (min !== undefined && max !== undefined) {
-          const minTemp = Number(min);
-          const maxTemp = Number(max);
+        // console.log('======>  dataValue', dataValue);
+        // console.log('======>  minDataField', minDataField);
+        // console.log('======>  maxDataField', maxDataField);
+        // console.log('======>  dataValue[minDataField]', dataValue[minDataField]);
+        // console.log('======>  dataValue[maxDataField]', dataValue[maxDataField]);
+
+        // 데이터 필드가 존재하는지 확인
+        if (dataValue[minDataField] !== undefined && dataValue[maxDataField] !== undefined) {
+          const minTemp = Number(dataValue[minDataField]);
+          const maxTemp = Number(dataValue[maxDataField]);
           const avgTemp = (maxTemp + minTemp) / 2;
+
+          // console.log('======>  minTemp', minTemp);
+          // console.log('======>  maxTemp', maxTemp);
+          // console.log('======>  avgTemp', avgTemp);
 
           allMinTemps.push(minTemp);
           allMaxTemps.push(maxTemp);

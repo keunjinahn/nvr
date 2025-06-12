@@ -15,9 +15,6 @@ import Cleartimer from '../common/cleartimer.js';
 
 import ConfigService from '../services/config/config.service.js';
 import LoggerService from '../services/logger/logger.service.js';
-import { MariaDBService } from '../services/database/mariadb.service.js';
-import MariadbConfig from '../services/database/mariadb.config.js';
-import { MariaDBInit } from '../services/database/mariadb.init.js';
 
 import dotenv from 'dotenv';
 dotenv.config();

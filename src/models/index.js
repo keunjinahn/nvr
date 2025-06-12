@@ -1,18 +1,21 @@
 'use strict';
 
 import { Sequelize } from 'sequelize';
-import config from '../services/database/mariadb.config.js';
+import mariadbConfig from '../services/database/mariadb.config.js';
 import Camera from './Camera.js';
 import ScheduleModel from './schedule.js';
 
+// mariadbConfig.config에서 정보 추출
+const { database, user, password, host, port } = mariadbConfig.config;
+
 const sequelize = new Sequelize(
-  config.config.database,
-  config.config.user,
-  config.config.password,
+  database,
+  user,
+  password,
   {
-    host: config.config.host,
+    host,
     dialect: 'mariadb',
-    port: config.config.port,
+    port,
     logging: false,
     timezone: '+09:00',  // 한국 시간대 설정
     dialectOptions: {

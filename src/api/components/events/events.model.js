@@ -9,7 +9,7 @@ const EventSetting = EventSettingModel(sequelize);
 const EventDetectionZone = EventDetectionZoneModel(sequelize);
 
 const getAllEventHistory = async (filters = {}) => {
-  const { startDate, endDate, label } = filters;
+  const { startDate, endDate, label, offset = 0, limit = 10 } = filters;
 
   let whereClause = {};
 
@@ -27,9 +27,11 @@ const getAllEventHistory = async (filters = {}) => {
     };
   }
 
-  return await EventHistory.findAll({
+  return await EventHistory.findAndCountAll({
     where: whereClause,
-    order: [['event_accur_time', 'DESC']]
+    order: [['event_accur_time', 'DESC']],
+    offset,
+    limit
   });
 };
 

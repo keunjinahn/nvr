@@ -92,9 +92,15 @@
           v-data-table(
             :headers="headers"
             :items="events"
+            :server-items-length="totalItems"
+            :page.sync="page"
+            :items-per-page.sync="pageSize"
             :loading="loading"
-            :items-per-page="10"
+            loading-text="데이터를 불러오는 중..."
+            no-data-text="데이터가 없습니다"
             class="elevation-1"
+            @update:page="val => { page = val; }"
+            @update:items-per-page="val => { pageSize = val; page = 1; }"
           )
             template(#item.status="{ item }")
               v-chip(
@@ -333,6 +339,9 @@ export default {
     events: [],
     imageDialog: false,
     imageDialogUrl: null,
+    page: 1,
+    pageSize: 10,
+    totalItems: 0,
   }),
 
   computed: {
@@ -375,7 +384,13 @@ export default {
   },
 
   watch: {
-
+    page() {
+      this.loadEvents();
+    },
+    pageSize() {
+      this.page = 1;
+      this.loadEvents();
+    }
   },
 
   created() {
@@ -386,7 +401,7 @@ export default {
   },
 
   mounted() {
-    this.fetchEventHistory();
+    this.loadEvents();
   },
 
   beforeDestroy() {
@@ -411,28 +426,24 @@ export default {
   },
 
   methods: {
-    async fetchEventHistory() {
+    async loadEvents() {
       this.loading = true;
       try {
-        const filters = {};
-        
-        // 날짜 범위 필터 적용
+        const filters = {
+          page: this.page,
+          pageSize: this.pageSize
+        };
+        if (this.searchFilters.eventType) filters.label = this.searchFilters.eventType;
         if (this.searchFilters.dateRange.length === 2) {
           filters.startDate = this.searchFilters.dateRange[0];
           filters.endDate = this.searchFilters.dateRange[1];
         }
-        
-        // 이벤트 타입 필터 적용
-        if (this.searchFilters.eventType) {
-          filters.label = this.searchFilters.eventType;
-        }
-        
         const response = await getEventHistory(filters);
-        this.eventHistory = response;
-        this.events = response;
+        this.events = response.result;
+        this.totalItems = response.pagination?.totalItems || 0;
       } catch (error) {
-        this.eventHistory = [];
-        this.events = [];
+        console.error('이벤트 이력 조회 실패:', error);
+        this.$toast?.error('이벤트 이력을 불러오는 중 오류가 발생했습니다.');
       } finally {
         this.loading = false;
       }
@@ -441,7 +452,7 @@ export default {
     async handleSearch() {
       // 검색 조건이 변경될 때마다 필터링된 결과가 자동으로 업데이트됩니다
       // computed 속성인 filteredEventHistory가 처리합니다
-      await this.fetchEventHistory();
+      await this.loadEvents();
       console.log('handleSearch', this.searchFilters)
     },
 
@@ -450,7 +461,7 @@ export default {
         this.dateMenu = false;
         this.searchFilters.dateRange = range;
         this.searchFilters.dateRangeText = `${this.formatDateTime(range[0])} ~ ${this.formatDateTime(range[1])}`;
-        await this.fetchEventHistory();
+        await this.loadEvents();
       }
     },
 
@@ -614,7 +625,7 @@ export default {
           throw new Error(errorData.message || '녹화 삭제에 실패했습니다.');
         }
 
-        await this.fetchEventHistory();
+        await this.loadEvents();
         this.$toast.success('녹화가 성공적으로 삭제되었습니다.');
         this.deleteDialog = false;
       } catch (error) {
