@@ -26,7 +26,7 @@ const parseJsonFields = (data) => {
 // 모든 카메라 조회 (기존 list 함수와의 호환성을 위해)
 const list = async () => {
   const cameras = await Camera.findAll({
-    order: [['id', 'ASC']]
+    order: [['name', 'ASC']]
   });
   return cameras.map(camera => parseJsonFields(camera.toJSON()));
 };
@@ -34,7 +34,7 @@ const list = async () => {
 // 모든 카메라 조회
 const getAllCameras = async () => {
   const cameras = await Camera.findAll({
-    order: [['id', 'ASC']]
+    order: [['name', 'ASC']]
   });
   return cameras.map(camera => parseJsonFields(camera.toJSON()));
 };
