@@ -238,6 +238,26 @@ export const updateEventSetting = async (req, res) => {
   }
 };
 
+export const updateInPageZone = async (req, res) => {
+  try {
+    const { in_page_zone } = req.body;
+
+    if (in_page_zone === undefined || in_page_zone === null) {
+      return res.status(400).json({ error: 'in_page_zone is required' });
+    }
+
+    // in_page_zone 값이 0 또는 1인지 확인
+    if (![0, 1].includes(in_page_zone)) {
+      return res.status(400).json({ error: 'in_page_zone must be 0 or 1' });
+    }
+
+    const result = await EventsModel.updateInPageZone(in_page_zone);
+    res.json({ success: true, in_page_zone: result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
 export const createEventSetting = async (req, res) => {
   try {
     const result = await EventsModel.createEventSetting(req.body);

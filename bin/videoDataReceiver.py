@@ -81,6 +81,8 @@ class VideoDataReceiver:
     def __init__(self, debug_mode=False):
         self.debug_mode = debug_mode
         self.config = config
+        self.data_reception_enabled = True  # 데이터 수신 상태 플래그
+        self.last_check_time = 0  # 마지막 상태 확인 시간
 
     def connect_to_db(self):
         global nvrdb
@@ -164,6 +166,12 @@ class VideoDataReceiver:
         packet = self.build_packet(cmd, data)
 
         while True:
+            # 카메라 연결 전에 데이터 수신 여부 확인
+            if not self.should_receive_data():
+                print("[!] 데이터 수신 중지 상태 - 5초 대기 후 재확인")
+                time.sleep(5)
+                continue
+            
             print(f"\n[*] 카메라에 연결 시도: {CAMERA_IP}:{CAMERA_PORT}")
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -177,6 +185,11 @@ class VideoDataReceiver:
 
                     while True:
                         try:
+                            # 데이터 수신 여부 확인 (연결 중에도 상태 변경 감지)
+                            if not self.should_receive_data():
+                                print("[!] 데이터 수신 중지 상태 - 연결 종료")
+                                break  # 연결 종료하고 재연결 시도
+                            
                             recv_data = sock.recv(1024)
                             if recv_data:
                                 print(f"[RECV {len(recv_data)} bytes] {recv_data.hex()}")
@@ -281,8 +294,71 @@ class VideoDataReceiver:
             logger.error(traceback.format_exc())
             return False
         
- 
+    def check_in_page_zone_status(self):
+        """
+        tb_event_setting 테이블의 in_page_zone 값을 확인하여 데이터 수신 상태를 결정
+        """
+        try:
+            cursor = self.get_db_cursor()
+            if not cursor:
+                logger.error("DB 커서 획득 실패 - in_page_zone 상태 확인 불가")
+                return True  # DB 연결 실패 시 기본적으로 수신 허용
+            
+            sql = """
+                SELECT in_page_zone 
+                FROM tb_event_setting 
+                ORDER BY id DESC 
+                LIMIT 1
+            """
+            cursor.execute(sql)
+            result = cursor.fetchone()
+            
+            if result and result['in_page_zone'] is not None:
+                in_page_zone = result['in_page_zone']
+                new_status = in_page_zone == 0  # 0이면 수신 허용, 1이면 수신 중지
+                
+                if new_status != self.data_reception_enabled:
+                    if new_status:
+                        logger.info("in_page_zone=0 감지 - 데이터 수신 재개")
+                    else:
+                        logger.info("in_page_zone=1 감지 - 데이터 수신 중지")
+                    self.data_reception_enabled = new_status
+                
+                return self.data_reception_enabled
+            else:
+                # 레코드가 없거나 in_page_zone이 NULL인 경우 기본적으로 수신 허용
+                if not self.data_reception_enabled:
+                    logger.info("in_page_zone 레코드 없음 - 데이터 수신 재개")
+                    self.data_reception_enabled = True
+                return True
+                
+        except Exception as e:
+            logger.error(f"in_page_zone 상태 확인 실패: {e}")
+            return self.data_reception_enabled  # 오류 발생 시 현재 상태 유지
+
+    def should_receive_data(self):
+        """
+        3초마다 in_page_zone 상태를 확인하고 데이터 수신 여부를 결정
+        """
+        current_time = time.time()
+        
+        # 3초마다 상태 확인
+        if current_time - self.last_check_time >= 3:
+            self.last_check_time = current_time
+            return self.check_in_page_zone_status()
+        
+        return self.data_reception_enabled
+
     def run(self):
+        logger.info("VideoDataReceiver 시작")
+        
+        # 초기 in_page_zone 상태 확인
+        initial_status = self.check_in_page_zone_status()
+        if initial_status:
+            logger.info("초기 상태: 데이터 수신 허용")
+        else:
+            logger.info("초기 상태: 데이터 수신 중지")
+        
         cmd_input = "2304"
         data_input = "0001"
 

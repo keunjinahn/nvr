@@ -469,6 +469,84 @@ export default {
       }
     }
   }
+
+  .v-btn {
+    color: var(--cui-text-default) !important;
+    
+    &.v-btn--icon {
+      background-color: var(--cui-bg-gray-700);
+      border-radius: 4px;
+      padding: 8px;
+    }
+  }
+
+  // 아이콘 색상 설정
+  .v-icon {
+    color: white !important;
+    
+    .v-icon__svg {
+      color: white !important;
+      fill: white !important;
+    }
+  }
+
+  // 페이지네이션 아이콘 특별 처리
+  .v-data-table ::v-deep {
+    .v-data-footer {
+      .v-icon {
+        color: white !important;
+        
+        .v-icon__svg {
+          color: white !important;
+          fill: white !important;
+        }
+      }
+    }
+  }
+
+  // 모든 아이콘에 대한 전역 설정
+  ::v-deep .v-icon {
+    color: white !important;
+    
+    .v-icon__svg {
+      color: white !important;
+      fill: white !important;
+    }
+  }
+
+  // 비활성화된 버튼의 아이콘은 어두운색으로 유지
+  .v-btn--disabled .v-icon {
+    color: var(--cui-text-muted) !important;
+    
+    .v-icon__svg {
+      color: var(--cui-text-muted) !important;
+      fill: var(--cui-text-muted) !important;
+    }
+  }
+
+  // 페이지네이션에서 비활성화된 버튼의 아이콘
+  .v-data-table ::v-deep {
+    .v-data-footer {
+      .v-btn--disabled .v-icon {
+        color: var(--cui-text-muted) !important;
+        
+        .v-icon__svg {
+          color: var(--cui-text-muted) !important;
+          fill: var(--cui-text-muted) !important;
+        }
+      }
+    }
+  }
+
+  // 전역적으로 비활성화된 버튼의 아이콘
+  ::v-deep .v-btn--disabled .v-icon {
+    color: var(--cui-text-muted) !important;
+    
+    .v-icon__svg {
+      color: var(--cui-text-muted) !important;
+      fill: var(--cui-text-muted) !important;
+    }
+  }
 }
 
 @keyframes blink-amber {

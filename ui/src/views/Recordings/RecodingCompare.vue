@@ -6,12 +6,13 @@
       v-col(cols="12")
         .tw-flex.tw-gap-4
           // 첫 번째 비디오 플레이어
-          .video-player.tw-flex-1(:class="{ expanded: expandedVideo === 1 }" @click="expandVideo(1)")
+          .video-player.tw-flex-1(:class="{ expanded: expandedVideo === 1 }")
             video(
               ref="videoPlayer1"
               controls
               :src="selectedVideo1"
               @error="handleVideoError"
+              @loadeddata="handleVideoLoaded"
               crossorigin="anonymous"
               preload="none"
               controlsList="nodownload"
@@ -19,12 +20,13 @@
             )
           
           // 두 번째 비디오 플레이어
-          .video-player.tw-flex-1(:class="{ expanded: expandedVideo === 2 }" @click="expandVideo(2)")
+          .video-player.tw-flex-1(:class="{ expanded: expandedVideo === 2 }")
             video(
               ref="videoPlayer2"
               controls
               :src="selectedVideo2"
               @error="handleVideoError"
+              @loadeddata="handleVideoLoaded"
               crossorigin="anonymous"
               preload="none"
               controlsList="nodownload"
@@ -62,7 +64,6 @@
                   template(#item.selected="{ item }")
                     v-checkbox(
                       v-model="item.selected"
-                      @change="handleCameraSelectionChange(item)"
                     )
                   template(#item.name="{ item }")
                     span {{ item.name }}
@@ -96,7 +97,6 @@
             template(#item.selected="{ item }")
               v-checkbox(
                 v-model="item.selected"
-                @change="handleSelectionChange(item)"
               )
             
             template(#item.formattedStartTime="{ item }")
@@ -169,6 +169,7 @@ import {
 import moment from 'moment';
 import { getRecordingHistory} from '@/api/recordingService.api.js';
 import { getCameras } from '@/api/cameras.api';
+import JSMpeg from '@seydx/jsmpeg/lib/index.js';
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
   ? 'http://localhost:9091' 
   : 'http://20.41.121.184:9091';
@@ -226,7 +227,7 @@ export default {
       status: null
     },
     expandedVideo: 0,
-    isPaused: false,
+    isPaused: true,
     cameraHeaders: [
       { text: '선택', value: 'selected', sortable: false, width: '80px' },
       { text: '카메라', value: 'name', sortable: true }
@@ -239,6 +240,9 @@ export default {
     thumbnailUrl: '',
     verticalBarPercent: 50, // 0~100, 디폴트 중앙
     draggingVerticalBar: false,
+    jsmpegPlayer2: null,
+    timelineUpdateTimer: null, // 타임라인 업데이트 타이머
+    isTimelineUpdating: false, // 타임라인 업데이트 중 플래그
   }),
 
   computed: {
@@ -276,10 +280,9 @@ export default {
       return formattedData;
     },
     formattedPlayheadTime() {
-      // verticalBarPercent를 기준으로 계산 (9시간 추가)
+      // verticalBarPercent를 기준으로 계산 (0-24시간)
       const seconds = Math.round((this.verticalBarPercent / 100) * 86400);
-      const totalSeconds = seconds + (9 * 3600); // 9시간 추가
-      return this.secondsToTime(totalSeconds);
+      return this.secondsToTime(seconds);
     },
     playheadStyle() {
       return {
@@ -311,6 +314,9 @@ export default {
         }
       },
       deep: true
+    },
+    selectedVideo2() {
+      this.createJSMpegPlayer2();
     }
   },
 
@@ -327,6 +333,7 @@ export default {
     document.addEventListener('keydown', this.handleKeyDown);
     // 중앙에 위치
     this.verticalBarPercent = 50;
+    this.createJSMpegPlayer2();
   },
 
   beforeDestroy() {
@@ -352,6 +359,12 @@ export default {
     document.removeEventListener('mouseup', this.stopDrag);
     // 키보드 이벤트 리스너 제거
     document.removeEventListener('keydown', this.handleKeyDown);
+    if (this.jsmpegPlayer2) {
+      this.jsmpegPlayer2.destroy();
+      this.jsmpegPlayer2 = null;
+    }
+    // 타임라인 업데이트 타이머 정리
+    this.stopTimelineUpdate();
   },
 
   methods: {
@@ -418,11 +431,24 @@ export default {
     },
 
     handleSelectionChange(item) {
+      console.log('===> handleSelectionChange :',item.id);
       if (item.selected) {
         if (!this.selectedVideo1) {
           this.selectedVideo1 = `${API_BASE_URL}/api/recordings/stream/${item.id}`;
+          // 비디오 소스가 설정된 후 로드
+          this.$nextTick(() => {
+            if (this.$refs.videoPlayer1) {
+              this.$refs.videoPlayer1.load();
+            }
+          });
         } else if (!this.selectedVideo2) {
           this.selectedVideo2 = `${API_BASE_URL}/api/recordings/stream/${item.id}`;
+          // 비디오 소스가 설정된 후 로드
+          this.$nextTick(() => {
+            if (this.$refs.videoPlayer2) {
+              this.$refs.videoPlayer2.load();
+            }
+          });
         } else {
           item.selected = false;
           this.$toast.warning('최대 2개의 영상만 선택할 수 있습니다.');
@@ -437,21 +463,84 @@ export default {
     },
 
     playAllVideos() {
-      if (this.$refs.videoPlayer1) {
-        this.$refs.videoPlayer1.play();
+      // 재생 전에 수직바 위치를 기준으로 비디오 시간 설정
+      if (!this.syncVideosToTimelinePosition()) {
+        return; // 범위 밖에 있으면 재생하지 않음
       }
-      if (this.$refs.videoPlayer2) {
-        this.$refs.videoPlayer2.play();
+      
+      // 각 비디오별로 개별적으로 재생 가능 여부 확인
+      this.selectedVideos.forEach((video, index) => {
+        if (!video.startTime || !video.endTime) return;
+        
+        const totalSeconds = 86400;
+        const currentTimeSeconds = (this.verticalBarPercent / 100) * totalSeconds;
+        
+        const startDate = new Date(video.startTime);
+        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                           startDate.getUTCMinutes() * 60 + 
+                           startDate.getUTCSeconds();
+        
+        const endDate = new Date(video.endTime);
+        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+                         endDate.getUTCMinutes() * 60 + 
+                         endDate.getUTCSeconds();
+        
+        // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
+        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+          const videoRef = this.$refs[`videoPlayer${index + 1}`];
+          if (videoRef) {
+            const videoElement = Array.isArray(videoRef) ? videoRef[0] : videoRef;
+            if (videoElement) {
+              videoElement.play();
       }
+          }
+        }
+      });
+      
+      this.startTimelineUpdate();
     },
 
     togglePauseAllVideos() {
       if (this.isPaused) {
-        if (this.$refs.videoPlayer1) this.$refs.videoPlayer1.play();
-        if (this.$refs.videoPlayer2) this.$refs.videoPlayer2.play();
+        // 재생 전에 수직바 위치를 기준으로 비디오 시간 설정
+        if (!this.syncVideosToTimelinePosition()) {
+          return; // 범위 밖에 있으면 재생하지 않음
+        }
+        
+        // 각 비디오별로 개별적으로 재생 가능 여부 확인
+        this.selectedVideos.forEach((video, index) => {
+          if (!video.startTime || !video.endTime) return;
+          
+          const totalSeconds = 86400;
+          const currentTimeSeconds = (this.verticalBarPercent / 100) * totalSeconds;
+          
+          const startDate = new Date(video.startTime);
+          const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                             startDate.getUTCMinutes() * 60 + 
+                             startDate.getUTCSeconds();
+          
+          const endDate = new Date(video.endTime);
+          const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+                           endDate.getUTCMinutes() * 60 + 
+                           endDate.getUTCSeconds();
+          
+          // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
+          if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+            const videoRef = this.$refs[`videoPlayer${index + 1}`];
+            if (videoRef) {
+              const videoElement = Array.isArray(videoRef) ? videoRef[0] : videoRef;
+              if (videoElement) {
+                videoElement.play();
+              }
+            }
+          }
+        });
+        
+        this.startTimelineUpdate();
       } else {
         if (this.$refs.videoPlayer1) this.$refs.videoPlayer1.pause();
         if (this.$refs.videoPlayer2) this.$refs.videoPlayer2.pause();
+        this.stopTimelineUpdate();
       }
       this.isPaused = !this.isPaused;
     },
@@ -465,6 +554,9 @@ export default {
         this.$refs.videoPlayer2.pause();
         this.$refs.videoPlayer2.currentTime = 0;
       }
+      this.stopTimelineUpdate();
+      // 타임라인을 가장 빠른 비디오의 시작 위치로 리셋
+      this.resetTimelineToEarliestVideo();
     },
 
     formatTime(date) {
@@ -503,6 +595,12 @@ export default {
     handleVideoError(event) {
       console.error('Video error:', event);
       this.$toast.error('비디오를 재생할 수 없습니다.');
+    },
+
+    handleVideoLoaded(event) {
+      // 비디오가 로드되면 첫 프레임으로 이동
+      const video = event.target;
+      video.currentTime = 0;
     },
 
     handleThumbnailError(item) {
@@ -640,6 +738,10 @@ export default {
                 segments: [{ startTime: item.startTime, endTime: item.endTime }]
               });
               this.handleSelectionChange(item);
+            });
+            // 비디오 선택 후 타임라인을 가장 빠른 비디오의 시작 위치로 설정
+            this.$nextTick(() => {
+              this.resetTimelineToEarliestVideo();
             });
           } else {
             this.selectedVideo1 = null;
@@ -813,6 +915,8 @@ export default {
     startVerticalBarDrag(e) {
       console.log('startVerticalBarDrag :',e);
       this.draggingVerticalBar = true;
+      // 타임라인 업데이트 일시 중지
+      this.stopTimelineUpdate();
       document.addEventListener('mousemove', this.onVerticalBarDrag);
       document.addEventListener('mouseup', this.stopVerticalBarDrag);
     },
@@ -823,18 +927,198 @@ export default {
       const rect = timeline.getBoundingClientRect();
       let percent = ((e.clientX - rect.left) / rect.width) * 100;
       percent = Math.max(0, Math.min(100, percent));
-      this.verticalBarPercent = percent;
 
+      // 드래그한 위치가 비디오 범위 내에 있는지 확인
+      if (this.isPositionWithinVideoRange(percent)) {
+        this.verticalBarPercent = percent;
       // 각 비디오의 시간 업데이트
       this.updateVideosTime(percent);
+      }
+    },
+
+    stopVerticalBarDrag() {
+      this.draggingVerticalBar = false;
+      document.removeEventListener('mousemove', this.onVerticalBarDrag);
+      document.removeEventListener('mouseup', this.stopVerticalBarDrag);
+      // 드래그 종료 후 타임라인 업데이트 재시작
+      setTimeout(() => {
+        if (!this.isPaused) {
+          this.startTimelineUpdate();
+        }
+      }, 100);
+    },
+
+    handleKeyDown(event) {
+      // 스페이스바 처리
+      if (event.key === ' ') {
+        event.preventDefault(); // 페이지 스크롤 방지
+        this.togglePauseAllVideos();
+        return;
+      }
+
+      // 왼쪽/오른쪽 화살표 키만 처리
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+      // 타임라인 업데이트 일시 중지
+      this.stopTimelineUpdate();
+
+      // 1초를 퍼센트로 변환 (24시간 = 86400초)
+      const oneSecondPercent = (1 / 86400) * 100;
+
+      // 현재 위치에서 1초만큼 이동
+      let newPercent;
+      if (event.key === 'ArrowLeft') {
+        newPercent = Math.max(0, this.verticalBarPercent - oneSecondPercent);
+      } else {
+        newPercent = Math.min(100, this.verticalBarPercent + oneSecondPercent);
+      }
+
+      // 새로운 위치가 비디오 범위 내에 있는지 확인
+      if (this.isPositionWithinVideoRange(newPercent)) {
+        this.verticalBarPercent = newPercent;
+        // 비디오 시간 업데이트
+        this.updateVideosTime(this.verticalBarPercent);
+      } 
+      // 1초 후 타임라인 업데이트 재시작
+      setTimeout(() => {
+        if (!this.isPaused) {
+          this.startTimelineUpdate();
+        }
+      }, 1000);
+    },
+
+    handleTimelineClick(event) {
+      // 이미 드래그 중이면 클릭 무시
+      if (this.draggingVerticalBar) return;
+
+      // 타임라인 업데이트 일시 중지
+      this.stopTimelineUpdate();
+
+      const timeline = this.$el.querySelector('.timeline-slider');
+      const rect = timeline.getBoundingClientRect();
+      
+      // 클릭 위치를 퍼센트로 변환
+      let percent = ((event.clientX - rect.left) / rect.width) * 100;
+      percent = Math.max(0, Math.min(100, percent));
+      
+      // 수직바 위치 업데이트 (클릭한 위치로 무조건 이동)
+      this.verticalBarPercent = percent;
+      
+      // 클릭 시 영상이 즉시 이동하도록 플래그 설정
+      this.isTimelineUpdating = false;
+      
+      // 비디오 시간 업데이트
+      this.updateVideosTime(percent);
+
+      // 1초 후 타임라인 업데이트 재시작
+      setTimeout(() => {
+        if (!this.isPaused) {
+          this.startTimelineUpdate();
+        }
+      }, 1000);
+    },
+
+    createJSMpegPlayer2() {
+      if (this.jsmpegPlayer2) {
+        this.jsmpegPlayer2.destroy();
+        this.jsmpegPlayer2 = null;
+      }
+      if (this.selectedVideo2 && this.$refs.jsmpegPlayer2) {
+        this.jsmpegPlayer2 = new JSMpeg.Player(this.selectedVideo2, {
+          canvas: this.$refs.jsmpegPlayer2,
+          autoplay: true,
+          audio: false, // 필요시 true
+          loop: false,
+        });
+      }
+    },
+
+    startTimelineUpdate() {
+      if (this.timelineUpdateTimer) {
+        clearInterval(this.timelineUpdateTimer);
+      }
+      this.timelineUpdateTimer = setInterval(() => {
+        this.updateTimelineFromVideos();
+      }, 100);
+    },
+
+    stopTimelineUpdate() {
+      clearInterval(this.timelineUpdateTimer);
+    },
+
+    updateTimelineFromVideos() {
+      // 비디오의 현재 시간을 기반으로 타임라인 위치 계산
+      if (this.isTimelineUpdating || this.draggingVerticalBar) return;
+      
+      this.isTimelineUpdating = true;
+      
+      try {
+        // 활성 비디오 찾기 (재생 중이고 타임라인 위치가 범위 내에 있는 비디오)
+        let activeVideo = null;
+        let videoElement = null;
+        
+        const totalSeconds = 86400;
+        const currentTimeSeconds = (this.verticalBarPercent / 100) * totalSeconds;
+        
+        // 각 비디오에 대해 재생 중이고 범위 내에 있는지 확인
+        this.selectedVideos.forEach((video, index) => {
+          if (!video.startTime || !video.endTime) return;
+          
+          const startDate = new Date(video.startTime);
+          const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                             startDate.getUTCMinutes() * 60 + 
+                             startDate.getUTCSeconds();
+          
+          const endDate = new Date(video.endTime);
+          const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+                           endDate.getUTCMinutes() * 60 + 
+                           endDate.getUTCSeconds();
+          
+          const videoRef = this.$refs[`videoPlayer${index + 1}`];
+          if (!videoRef) return;
+          
+          const element = Array.isArray(videoRef) ? videoRef[0] : videoRef;
+          if (!element) return;
+          
+          // 재생 중이고 타임라인 위치가 범위 내에 있는 비디오 찾기
+          if (!element.paused && currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+            activeVideo = video;
+            videoElement = element;
+          }
+        });
+        
+        if (activeVideo && videoElement) {
+          // 비디오의 현재 시간을 24시간 기준 퍼센트로 변환
+          const currentVideoTime = videoElement.currentTime;
+          const startDate = new Date(activeVideo.startTime);
+          const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                             startDate.getUTCMinutes() * 60 + 
+                             startDate.getUTCSeconds();
+          
+          const timelinePosition = startSeconds + currentVideoTime;
+          const percent = (timelinePosition / totalSeconds) * 100;
+          
+          // 타임라인 위치 업데이트 (드래그 중이 아닐 때만)
+          if (!this.draggingVerticalBar) {
+            this.verticalBarPercent = Math.max(0, Math.min(100, percent));
+          }
+        }
+      } catch (error) {
+        console.error('Error updating timeline from videos:', error);
+      } finally {
+        this.isTimelineUpdating = false;
+      }
     },
 
     updateVideosTime(barPercent) {
+      // 타임라인 업데이트 중이거나 드래그 중이 아닐 때는 실행하지 않음
+      if (this.isTimelineUpdating && !this.draggingVerticalBar) return;
+      
       // 24시간(86400초)을 기준으로 현재 시간 계산
       const totalSeconds = 86400; // 24시간을 초로 변환
-      const currentTimeSeconds = (barPercent / 100) * totalSeconds;
+      let currentTimeSeconds = (barPercent / 100) * totalSeconds;
 
-      // 각 비디오에 대해
+      // 각 비디오에 대해 개별적으로 시간 설정
       this.selectedVideos.forEach((video, index) => {
         if (!video.startTime || !video.endTime) return;
 
@@ -850,16 +1134,6 @@ export default {
                          endDate.getUTCMinutes() * 60 + 
                          endDate.getUTCSeconds();
 
-        // 비디오의 총 길이(초)
-        const videoDuration = endSeconds - startSeconds;
-
-        // 현재 타임라인 위치에서 시작 시간을 뺀 값이 비디오의 현재 위치
-        let videoTime = currentTimeSeconds - startSeconds;
-
-        // 비디오 시간이 범위를 벗어나면 조정
-        if (videoTime < 0) videoTime = 0;
-        if (videoTime > videoDuration) videoTime = videoDuration;
-
         // 비디오 요소 찾기
         const videoRef = this.$refs[`videoPlayer${index + 1}`];
         if (!videoRef) return;
@@ -867,8 +1141,25 @@ export default {
         const videoElement = Array.isArray(videoRef) ? videoRef[0] : videoRef;
         if (!videoElement) return;
 
-        // 비디오 시간 설정
-        videoElement.currentTime = videoTime;
+        // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
+        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+          // 범위 내에 있으면 해당 위치에서 재생
+          const videoTime = currentTimeSeconds - startSeconds;
+          const videoDuration = endSeconds - startSeconds;
+          
+          // 비디오 시간이 범위를 벗어나면 조정
+          let adjustedVideoTime = Math.max(0, Math.min(videoDuration, videoTime));
+          
+          // 비디오 시간 설정 (드래그 중이거나 재생 중이거나 클릭 시)
+          if (this.draggingVerticalBar || !this.isPaused || this.isTimelineUpdating === false) {
+            videoElement.currentTime = adjustedVideoTime;
+          }
+        } else {
+          // 범위 밖에 있으면 시작 위치로 설정 (재생하지 않음)
+          if (this.draggingVerticalBar || !this.isPaused || this.isTimelineUpdating === false) {
+            videoElement.currentTime = 0;
+          }
+        }
       });
     },
 
@@ -887,53 +1178,99 @@ export default {
         .padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     },
 
-    stopVerticalBarDrag() {
-      this.draggingVerticalBar = false;
-      document.removeEventListener('mousemove', this.onVerticalBarDrag);
-      document.removeEventListener('mouseup', this.stopVerticalBarDrag);
-    },
+    syncVideosToTimelinePosition() {
+      // 수직바 위치가 비디오 범위 내에 있는지 확인
+      const totalSeconds = 86400; // 24시간
+      const currentTimeSeconds = (this.verticalBarPercent / 100) * totalSeconds;
+      
+      let isWithinVideoRange = false;
+      
+      // 각 비디오에 대해 범위 확인
+      this.selectedVideos.forEach((video) => {
+        if (!video.startTime || !video.endTime) return;
+        
+        const startDate = new Date(video.startTime);
+        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                           startDate.getUTCMinutes() * 60 + 
+                           startDate.getUTCSeconds();
+        
+        const endDate = new Date(video.endTime);
+        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+                         endDate.getUTCMinutes() * 60 + 
+                         endDate.getUTCSeconds();
 
-    handleKeyDown(event) {
-      // 스페이스바 처리
-      if (event.key === ' ') {
-        event.preventDefault(); // 페이지 스크롤 방지
-        this.togglePauseAllVideos();
-        return;
+        // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
+        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+          isWithinVideoRange = true;
       }
+      });
 
-      // 왼쪽/오른쪽 화살표 키만 처리
-      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-
-      // 1초를 퍼센트로 변환 (24시간 = 86400초)
-      const oneSecondPercent = (1 / 86400) * 100;
-
-      // 현재 위치에서 1초만큼 이동
-      if (event.key === 'ArrowLeft') {
-        this.verticalBarPercent = Math.max(0, this.verticalBarPercent - oneSecondPercent);
-      } else {
-        this.verticalBarPercent = Math.min(100, this.verticalBarPercent + oneSecondPercent);
-      }
-
-      // 비디오 시간 업데이트
+      // 범위 내에 있을 때만 비디오 시간 설정
+      if (isWithinVideoRange) {
       this.updateVideosTime(this.verticalBarPercent);
+      } else {
+        return false;
+      }
+      
+      return true;
     },
 
-    handleTimelineClick(event) {
-      // 이미 드래그 중이면 클릭 무시
-      if (this.draggingVerticalBar) return;
+    resetTimelineToEarliestVideo() {
+      // 가장 빠른 비디오의 시작 위치 찾기
+      let earliestVideoStart = Infinity;
+      
+      this.selectedVideos.forEach((video) => {
+        if (!video.startTime) return;
 
-      const timeline = this.$el.querySelector('.timeline-slider');
-      const rect = timeline.getBoundingClientRect();
+        const startDate = new Date(video.startTime);
+        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                           startDate.getUTCMinutes() * 60 + 
+                           startDate.getUTCSeconds();
+        
+        if (startSeconds < earliestVideoStart) {
+          earliestVideoStart = startSeconds;
+        }
+      });
       
-      // 클릭 위치를 퍼센트로 변환
-      let percent = ((event.clientX - rect.left) / rect.width) * 100;
-      percent = Math.max(0, Math.min(100, percent));
+      // 타임라인을 가장 빠른 비디오의 시작 위치로 설정
+      if (earliestVideoStart !== Infinity) {
+        const totalSeconds = 86400; // 24시간
+        this.verticalBarPercent = (earliestVideoStart / totalSeconds) * 100;
+        this.updateVideosTime(this.verticalBarPercent);
+      }
+    },
+
+    isPositionWithinVideoRange(percent) {
+      // 타임라인 업데이트 중이거나 드래그 중이 아닐 때는 실행하지 않음
+      if (this.isTimelineUpdating && !this.draggingVerticalBar) return true;
       
-      // 수직바 위치 업데이트
-      this.verticalBarPercent = percent;
+      // 수직바 위치가 비디오 범위 내에 있는지 확인
+      const totalSeconds = 86400; // 24시간을 초로 변환
+      const currentTimeSeconds = (percent / 100) * totalSeconds;
       
-      // 비디오 시간 업데이트
-      this.updateVideosTime(percent);
+      let isWithinVideoRange = false;
+      
+      // 각 비디오에 대해 범위 확인
+      this.selectedVideos.forEach((video) => {
+        if (!video.startTime || !video.endTime) return;
+        
+        const startDate = new Date(video.startTime);
+        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                           startDate.getUTCMinutes() * 60 + 
+                           startDate.getUTCSeconds();
+        
+        const endDate = new Date(video.endTime);
+        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+                         endDate.getUTCMinutes() * 60 + 
+                         endDate.getUTCSeconds();
+        
+        // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
+        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+          isWithinVideoRange = true;
+        }
+      });
+      
+      return isWithinVideoRange;
     },
   }
 };

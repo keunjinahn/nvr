@@ -7,7 +7,7 @@ const { log } = LoggerService;
 
 // 기본 데이터베이스 설정
 const dbConfig = {
-  host: '20.41.121.184',
+  host: 'localhost',
   port: 3306,
   user: 'dbadmin',
   password: 'p#ssw0rd',

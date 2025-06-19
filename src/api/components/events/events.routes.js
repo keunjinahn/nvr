@@ -23,7 +23,9 @@ router.get('/eventSetting', EventsController.getEventSetting);
 router.post('/eventSetting', EventsController.createEventSetting);
 router.put('/eventSetting/:id', EventsController.updateEventSetting);
 
+
 // EventDetectionZone API
+router.put('/detectionZone/inPageZone', EventsController.updateInPageZone);
 router.get('/detectionZone', EventsController.getAllDetectionZones);
 router.get('/detectionZone/:id', EventsController.getDetectionZoneById);
 router.get('/detectionZone/camera/:cameraId', EventsController.getDetectionZonesByCameraId);

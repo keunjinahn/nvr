@@ -209,9 +209,8 @@ export const getRoiDataList = async (req, res) => {
       const temps = [];
 
       latestData.forEach(data => {
-        // JSON 문자열을 파싱하여 객체로 변환
-        const dataValueStr = data.getDataValue('data_value');
-        const dataValue = dataValueStr ? JSON.parse(dataValueStr) : {};
+        // data_value는 이미 파싱된 객체 (모델의 get() 메서드에서 처리됨)
+        const dataValue = data.getDataValue('data_value') || {};
 
         // console.log('======>  dataValue', dataValue);
         // console.log('======>  minDataField', minDataField);

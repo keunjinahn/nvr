@@ -10,7 +10,7 @@ const EventDetectionZone = EventDetectionZoneModel(sequelize);
 
 const getAllEventHistory = async (filters = {}) => {
   const { startDate, endDate, label, offset = 0, limit = 10 } = filters;
-
+  console.log('===> getAllEventHistory start', filters);
   let whereClause = {};
 
   // 날짜 범위 필터
@@ -71,6 +71,25 @@ const updateEventSetting = async (id, update) => {
   const setting = await EventSetting.findByPk(id);
   if (!setting) return null;
   await setting.update(update);
+  return setting;
+};
+
+const updateInPageZone = async (in_page_zone) => {
+  // 가장 최근 EventSetting 레코드를 찾아서 in_page_zone을 업데이트
+  const setting = await EventSetting.findOne({ order: [['id', 'DESC']] });
+  if (!setting) {
+    // 레코드가 없으면 새로 생성
+    return await EventSetting.create({
+      in_page_zone: in_page_zone,
+      create_date: new Date(),
+      update_date: new Date()
+    });
+  }
+
+  await setting.update({
+    in_page_zone: in_page_zone,
+    update_date: new Date()
+  });
   return setting;
 };
 
@@ -140,6 +159,7 @@ export {
   deleteEventHistory,
   getEventSetting,
   updateEventSetting,
+  updateInPageZone,
   createEventSetting,
   getAllDetectionZones,
   getDetectionZoneById,

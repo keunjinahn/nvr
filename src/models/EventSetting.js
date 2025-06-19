@@ -27,6 +27,11 @@ export default (sequelize) => {
       allowNull: true,
       defaultValue: null
     },
+    in_page_zone: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: null
+    },
     create_date: {
       type: DataTypes.DATE,
       allowNull: true

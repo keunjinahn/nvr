@@ -176,10 +176,10 @@ export const routesConfig = (app) => {
 
   // 스트리밍 ID 기반 라우트
   app.get('/api/recordings/stream/:id', async (req, res) => {
-    const requestId = req.headers['x-request-id'] || 'unknown';
+    const requestId = req.headers['x-request-id'] || 'unaknown';
     const startTime = Date.now();
     const id = req.params.id;
-
+    console.log("====> stream :", id);
     try {
       // recordingHistory에서 녹화 정보 찾기
       const recording = await RecordingsModel.getRecordingHistoryById(id);
