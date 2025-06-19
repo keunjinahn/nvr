@@ -5,7 +5,7 @@
     "src"
   ],
   "ext": "ts,js,json",
-  "exec": "node --trace-warnings bin/camera.ui.js -L 2 -S ./test/camera.ui",
+  "exec": "node --trace-warnings bin/camera.ui.js -L 2 -S ./outputs/nvr",
   "delay": "5000",
   "signal": "SIGTERM"
 }

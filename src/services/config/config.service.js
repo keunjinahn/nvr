@@ -16,6 +16,8 @@ import {
   ConfigSetup,
 } from './config.defaults.js';
 
+import Camera from '../../models/Camera.js';
+
 export default class ConfigService {
   static #secretPath;
 
@@ -115,7 +117,11 @@ export default class ConfigService {
     const config = new ConfigSetup(configJson);
     ConfigService.configJson = { ...config };
 
-    ConfigService.parseConfig(config);
+    // Note: parseConfig is now async, but constructor cannot be async
+    // We'll call it synchronously for now, but it should be called async in the main startup
+    ConfigService.parseConfig(config).catch(error => {
+      console.error('Error parsing config:', error);
+    });
 
     fs.ensureFileSync(ConfigService.configPath);
     fs.writeJSONSync(ConfigService.configPath, config, { spaces: 2 });
@@ -126,13 +132,12 @@ export default class ConfigService {
     };
   }
 
-  static parseConfig(config = {}) {
+  static async parseConfig(config = {}) {
     ConfigService.#config(config);
     ConfigService.#configInterface();
 
-    if (Array.isArray(config.cameras)) {
-      ConfigService.#configCameras(config.cameras);
-    }
+    // Load cameras from database instead of config
+    await ConfigService.#configCamerasFromDB();
 
     if (config.options) {
       ConfigService.#configOptions(config.options);
@@ -159,7 +164,79 @@ export default class ConfigService {
     }
   }
 
-  static writeToConfig(target, configJson) {
+  static async #configCamerasFromDB() {
+    try {
+      ConfigService.ui.topics.clear();
+
+      // Load cameras from database
+      const dbCameras = await Camera.findAll({
+        order: [['create_date', 'ASC']]
+      });
+
+      ConfigService.ui.cameras = dbCameras.map((dbCamera) => {
+        // Parse JSON fields from database
+        const camera = {
+          name: dbCamera.name,
+          motionTimeout: dbCamera.motionTimeout,
+          recordOnMovement: dbCamera.recordOnMovement,
+          prebuffering: dbCamera.prebuffering,
+          prebufferLength: dbCamera.prebufferLength,
+          videoConfig: dbCamera.videoConfig ? JSON.parse(dbCamera.videoConfig) : {},
+          mqtt: dbCamera.mqtt ? JSON.parse(dbCamera.mqtt) : {},
+          smtp: dbCamera.smtp ? JSON.parse(dbCamera.smtp) : {},
+          videoanalysis: dbCamera.videoanalysis ? JSON.parse(dbCamera.videoanalysis) : {},
+          settings: dbCamera.settings ? JSON.parse(dbCamera.settings) : {}
+        };
+
+        // Configure MQTT topics
+        if (camera.mqtt.motionTopic) {
+          const mqttOptions = {
+            motionTopic: camera.mqtt.motionTopic,
+            motionMessage: camera.mqtt.motionMessage !== undefined ? camera.mqtt.motionMessage : 'ON',
+            motionResetMessage: camera.mqtt.motionResetMessage !== undefined ? camera.mqtt.motionResetMessage : 'OFF',
+            camera: camera.name,
+            motion: true,
+          };
+
+          ConfigService.ui.topics.set(mqttOptions.motionTopic, mqttOptions);
+        }
+
+        if (camera.mqtt.motionResetTopic && camera.mqtt.motionResetTopic !== camera.mqtt.motionTopic) {
+          const mqttOptions = {
+            motionResetTopic: camera.mqtt.motionResetTopic,
+            motionResetMessage: camera.mqtt.motionResetMessage !== undefined ? camera.mqtt.motionResetMessage : 'OFF',
+            camera: camera.name,
+            motion: true,
+            reset: true,
+          };
+
+          ConfigService.ui.topics.set(mqttOptions.motionResetTopic, mqttOptions);
+        }
+
+        if (
+          camera.mqtt.doorbellTopic &&
+          camera.mqtt.doorbellTopic !== camera.mqtt.motionTopic &&
+          camera.mqtt.doorbellTopic !== camera.mqtt.motionResetTopic
+        ) {
+          const mqttOptions = {
+            doorbellTopic: camera.mqtt.doorbellTopic,
+            doorbellMessage: camera.mqtt.doorbellMessage !== undefined ? camera.mqtt.doorbellMessage : 'ON',
+            camera: camera.name,
+            doorbell: true,
+          };
+
+          ConfigService.ui.topics.set(mqttOptions.doorbellTopic, mqttOptions);
+        }
+
+        return camera;
+      });
+    } catch (error) {
+      console.error('Error loading cameras from database:', error);
+      ConfigService.ui.cameras = [];
+    }
+  }
+
+  static async writeToConfig(target, configJson) {
     let config = ConfigService.configJson;
 
     if (configJson) {
@@ -179,7 +256,7 @@ export default class ConfigService {
 
     fs.writeJSONSync(ConfigService.configPath, config, { spaces: 2 });
 
-    ConfigService.parseConfig(config);
+    await ConfigService.parseConfig(config);
   }
 
   static #config(config = {}) {
@@ -283,7 +360,9 @@ export default class ConfigService {
     };
   }
 
+  // Keep the original method for backward compatibility but mark as deprecated
   static #configCameras(cameras = []) {
+    console.warn('configCameras method is deprecated. Use configCamerasFromDB instead.');
     ConfigService.ui.topics.clear();
 
     ConfigService.ui.cameras = cameras.map((camera) => {
@@ -328,5 +407,10 @@ export default class ConfigService {
 
       return camera;
     });
+  }
+
+  // Public method to reload cameras from database
+  static async reloadCameras() {
+    await ConfigService.#configCamerasFromDB();
   }
 }

@@ -539,6 +539,50 @@ export default {
             },
             videoanalysis: {
               active: false
+            },
+            settings: {
+              name: this.videoTitle.trim(),
+              room: 'Standard',
+              resolution: '1280x720',
+              pingTimeout: 1,
+              streamTimeout: 60,
+              audio: false,
+              telegramType: 'Snapshot',
+              alexa: false,
+              webhookUrl: '',
+              mqttTopic: 'camera.ui/motion',
+              privacyMode: false,
+              camview: {
+                favourite: true,
+                live: true,
+                snapshotTimer: 60
+              },
+              dashboard: {
+                live: true,
+                snapshotTimer: 60
+              },
+              rekognition: {
+                active: false,
+                confidence: 90,
+                labels: []
+              },
+              videoanalysis: {
+                forceCloseTimer: 3,
+                dwellTimer: 60,
+                sensitivity: 75,
+                difference: 5,
+                regions: [
+                  {
+                    finished: true,
+                    coords: [
+                      [0, 100],
+                      [0, 0],
+                      [100, 0],
+                      [100, 100]
+                    ]
+                  }
+                ]
+              }
             }
           };
 
@@ -553,7 +597,7 @@ export default {
               const settingsResponse = await getCameraSettings(camera.name);
               this.cameras[index] = {
                 ...camera,
-                settings: settingsResponse?.data.settings || {},
+                settings: settingsResponse?.data.settings || camera.settings,
                 url: camera.videoConfig.source.split('-i ')[1]
               };
             }
@@ -566,7 +610,7 @@ export default {
             const settingsResponse = await getCameraSettings(camera.name);
             this.cameras.unshift({
               ...camera,
-              settings: settingsResponse?.data.settings || {},
+              settings: settingsResponse?.data.settings || camera.settings,
               url: camera.videoConfig.source.split('-i ')[1]
             });
             

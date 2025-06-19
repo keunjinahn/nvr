@@ -87,6 +87,7 @@ const addCamera = async (cameraData) => {
     smtp: typeof cameraData.smtp === 'object' ? JSON.stringify(cameraData.smtp) : (cameraData.smtp || null),
     videoanalysis: typeof cameraData.videoanalysis === 'object' ? JSON.stringify(cameraData.videoanalysis) : (cameraData.videoanalysis || null),
     prebufferLength: cameraData.prebufferLength || 4,
+    settings: typeof cameraData.settings === 'object' ? JSON.stringify(cameraData.settings) : cameraData.settings,
     create_date: new Date(),
     update_dt: new Date()
   };
@@ -108,7 +109,7 @@ const updateCamera = async (id, updateData) => {
   };
 
   // JSON 필드 처리
-  const jsonFields = ['videoConfig', 'mqtt', 'smtp', 'videoanalysis'];
+  const jsonFields = ['videoConfig', 'mqtt', 'smtp', 'videoanalysis', 'settings'];
   jsonFields.forEach(field => {
     if (data[field] && typeof data[field] === 'object') {
       data[field] = JSON.stringify(data[field]);

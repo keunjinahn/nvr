@@ -65,7 +65,7 @@ export const show = async (user, target) => {
 
 export const patchConfig = async (configJson) => {
   Database.controller.emit('config', configJson);
-  ConfigService.writeToConfig(false, configJson);
+  await ConfigService.writeToConfig(false, configJson);
   await Database.writeConfigCamerasToDB();
 
   if (ConfigService.ui.cameras) {

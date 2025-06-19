@@ -14,13 +14,13 @@ import ConfigService from '../src/services/config/config.service.js';
 
 import Interface from '../src/main.js';
 
-let moduleName = 'camera.ui';
+let moduleName = 'nvr';
 let globalInstalled = '1';
 let sudoEnabled = '1';
 let logLevel = '1';
 let logTimestamps = '1';
 let logColourful = '1';
-let storagePath = path.resolve(os.homedir(), '.camera.ui');
+let storagePath = path.resolve(os.homedir(), '.nvr');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageJson = fs.readJsonSync(path.resolve(__dirname, '../package.json'));
