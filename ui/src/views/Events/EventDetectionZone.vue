@@ -205,7 +205,7 @@ import { getCameras, getCameraSettings } from '@/api/cameras.api';
 import VideoCard from '@/components/camera-card.vue';
 import { mdiRefresh, mdiMapMarkerRadius, mdiCheckboxMarkedCircle, mdiUndo, mdiPlus, mdiPencil, mdiDelete } from '@mdi/js';
 import Playground from '@/components/playground.vue';
-import { addEventDetectionZone, getEventDetectionZone, updateEventDetectionZone, deleteEventDetectionZone, updateInPageZone } from '@/api/eventDetectionZone.api';
+import { addEventDetectionZone, getEventDetectionZone, updateEventDetectionZone, deleteEventDetectionZone } from '@/api/eventDetectionZone.api';
 
 export default {
   name: 'EventDetectionZone',
@@ -791,9 +791,6 @@ export default {
   },
   async mounted() {
     try {
-      // 페이지 진입 시 in_page_zone을 1로 설정
-      await updateInPageZone(1);
-      
       const response = await getCameras();
       for (const camera of response.data.result) {
         const settings = await getCameraSettings(camera.name);
@@ -828,11 +825,6 @@ export default {
     window.addEventListener('resize', this.updateVideoContainerSize);
   },
   beforeDestroy() {
-    // 페이지 벗어날 때 in_page_zone을 0으로 설정
-    updateInPageZone(0).catch(err => {
-      console.error('Error updating in_page_zone on destroy:', err);
-    });
-    
     window.removeEventListener('resize', this.updateVideoContainerSize);
   }
 };

@@ -185,26 +185,6 @@ class EventDetecter:
         except Exception as e:
             logger.error(f'Error getting cursor: {str(e)}')
             return None
-    
-    def get_rtsp_url_from_json(self,camera_name, json_path='../test/camera.ui/database/database.json'):
-        try:
-            with open(json_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            cameras = data.get('cameras', [])
-            for cam in cameras:
-                if cam.get('name') == camera_name:
-                    # videoConfig.source 또는 rtsp_url 키에서 추출
-                    if 'videoConfig' in cam and 'source' in cam['videoConfig']:
-                        src = cam['videoConfig']['source']
-                        if 'rtsp://' in src:
-                            return src[src.find('rtsp://'):].strip('"')
-                    if 'rtsp_url' in cam:
-                        return cam['rtsp_url']
-            logger.error(f"Camera with name '{camera_name}' not found in JSON.")
-            return None
-        except Exception as e:
-            logger.error(f"Error reading JSON: {e}")
-            return None
 
     def draw_detections(self, image, results):
         annotated = image.copy()

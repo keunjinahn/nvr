@@ -472,7 +472,22 @@ export default {
 
     formatDateTime(dateString) {
       if (!dateString) return '-';
-      return dateString.replace('T', ' ').replace(/\.\d{3}Z?$/, '');
+      
+      // UTC 시간을 한국 시간(KST)으로 변환
+      const date = new Date(dateString)
+      
+      // UTC에 9시간(KST 오프셋)을 더함
+      const kstTime = new Date(date.getTime())
+      
+      return kstTime.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      })
     },
 
     getStatusColor(status) {

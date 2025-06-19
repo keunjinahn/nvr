@@ -220,8 +220,15 @@ export default {
 
     formatDate(dateString) {
       if (!dateString) return '-'
+      
+      // UTC 시간을 로컬 시간으로 변환
       const date = new Date(dateString)
-      return date.toLocaleString('ko-KR', {
+      
+      // 시간대 오프셋을 고려하여 올바른 시간 계산
+      const utcTime = date.getTime() + (date.getTimezoneOffset() * 60000)
+      const localDate = new Date(utcTime)
+      
+      return localDate.toLocaleString('ko-KR', {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',

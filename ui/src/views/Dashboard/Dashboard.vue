@@ -60,8 +60,8 @@
             thead
               tr
                 th ROI
-                th Max Temp
                 th Min Temp
+                th Max Temp
                 th Avg Temp
                 th Graph
                 th Download

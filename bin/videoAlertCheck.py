@@ -81,6 +81,7 @@ class VideoAlertChecker:
         self.debug_mode = debug_mode
         self.config = config
         self.alert_settings = None
+        self.zone_list = None
         self.last_settings_check = 0
         self.last_data_check = 0
         self.settings_check_interval = 30  # 30 seconds
@@ -338,9 +339,26 @@ class VideoAlertChecker:
                 logger.info("No data found for scenario1_judge")
                 return False, None
 
-            # 2. ROI 값 추출 및 반복 (data_22~data_40: 최소, data_23~data_41: 최대)
+            # 2. zone_type 리스트 가져오기
+            if not self.zone_list:
+                logger.warning("No active zone types found for scenario1_judge")
+                return False, None
+
+            # 3. ROI 값 추출 및 반복 (zone_type 기반)
             current_info = json.loads(current['data_value'])
-            roi_pairs = [(i, i+1) for i in range(22, 41, 2)]  # (22,23), (24,25), ..., (40,41)
+            
+            # zone_type을 기반으로 ROI 쌍 생성
+            roi_pairs = []
+            for zone_type in self.zone_list:
+                try:
+                    # zone_type을 숫자로 변환하여 ROI 인덱스 계산
+                    zone_num = int(zone_type)
+                    min_idx = 22 + (zone_num - 1) * 2  # zone1: 22,23, zone2: 24,25, ...
+                    max_idx = min_idx + 1
+                    roi_pairs.append((min_idx, max_idx, zone_type))
+                except ValueError:
+                    logger.warning(f"Invalid zone_type format: {zone_type}")
+                    continue
 
             # scenario1의 4단계 기준값 가져오기
             print("self.alert_settings : ", self.alert_settings)
@@ -348,7 +366,7 @@ class VideoAlertChecker:
             print("levels : ", levels)
             # 4단계 기준값: [2, 5, 8, 10]
 
-            for idx, (min_idx, max_idx) in enumerate(roi_pairs):
+            for idx, (min_idx, max_idx, zone_type) in enumerate(roi_pairs):
                 min_key = f'data_{min_idx}'
                 max_key = f'data_{max_idx}'
                 min_val = current_info.get(min_key)
@@ -356,7 +374,7 @@ class VideoAlertChecker:
                 if min_val is not None and max_val is not None:
                     try:
                         diff = abs(float(max_val) - float(min_val))
-                        logger.info(f"ROI {min_key}/{max_key} 최대-최소값 차이: {diff}℃ (최대: {max_val}, 최소: {min_val})")
+                        logger.info(f"Zone {zone_type} ROI {min_key}/{max_key} 최대-최소값 차이: {diff}℃ (최대: {max_val}, 최소: {min_val})")
                         
                         # 4단계 기준값과 비교하여 alert_level 결정
                         if diff >= levels[3]:  # 10℃ 이상
@@ -368,7 +386,7 @@ class VideoAlertChecker:
                         elif diff >= levels[0]:  # 2℃ 이상
                             self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff)
                     except Exception as e:
-                        logger.error(f"ROI 값 비교 오류: {e}")
+                        logger.error(f"Zone {zone_type} ROI 값 비교 오류: {e}")
 
             return False, None
 
@@ -420,13 +438,29 @@ class VideoAlertChecker:
                 logger.error(f"base 온도 변환 오류: data_19={base_min}, data_20={base_max}")
                 return False, None
 
+            # 3. 각 ROI 지점의 최고-최저 온도차와 base 온도차 비교
+            if not self.zone_list:
+                logger.warning("No active zone types found for scenario2_judge")
+                return False, None
+
+            # zone_type을 기반으로 ROI 쌍 생성
+            roi_pairs = []
+            for zone_type in self.zone_list:
+                try:
+                    # zone_type을 숫자로 변환하여 ROI 인덱스 계산
+                    zone_num = int(zone_type)
+                    min_idx = 22 + (zone_num - 1) * 2  # zone1: 22,23, zone2: 24,25, ...
+                    max_idx = min_idx + 1
+                    roi_pairs.append((min_idx, max_idx, zone_type))
+                except ValueError:
+                    logger.warning(f"Invalid zone_type format: {zone_type}")
+                    continue
+
             # scenario2의 4단계 기준값 가져오기
             levels = self.alert_settings['alarmLevels']['scenario2']
             # 4단계 기준값: [10, 15, 20, 25] (%)
 
-            # 3. 각 ROI 지점의 최고-최저 온도차와 base 온도차 비교
-            roi_pairs = [(i, i+1) for i in range(22, 41, 2)]  # (22,23), (24,25), ..., (40,41)
-            for idx, (min_idx, max_idx) in enumerate(roi_pairs):
+            for idx, (min_idx, max_idx, zone_type) in enumerate(roi_pairs):
                 min_key = f'data_{min_idx}'
                 max_key = f'data_{max_idx}'
                 min_val = current_info.get(min_key)
@@ -441,7 +475,7 @@ class VideoAlertChecker:
                         # base 온도차와의 차이 계산 (%)
                         diff_percent = abs((roi_diff - base_diff) / base_diff * 100)
                         
-                        logger.info(f"ROI {min_key}/{max_key} 온도차: {roi_diff:.1f}℃ (최고: {max_val}℃, 최저: {min_val}℃), base 대비 차이: {diff_percent:.1f}%")
+                        logger.info(f"Zone {zone_type} ROI {min_key}/{max_key} 온도차: {roi_diff:.1f}℃ (최고: {max_val}℃, 최저: {min_val}℃), base 대비 차이: {diff_percent:.1f}%")
                         
                         # 4단계 기준값과 비교하여 alert_level 결정
                         if diff_percent >= levels[3]:  # 25% 이상
@@ -453,7 +487,7 @@ class VideoAlertChecker:
                         elif diff_percent >= levels[0]:  # 10% 이상
                             self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff_percent, base_diff, roi_diff, min_val, max_val)
                     except Exception as e:
-                        logger.error(f"ROI {min_key}/{max_key} 값 비교 오류: {e}")
+                        logger.error(f"Zone {zone_type} ROI {min_key}/{max_key} 값 비교 오류: {e}")
 
             return False, None
 
@@ -555,6 +589,42 @@ class VideoAlertChecker:
             if cursor:
                 cursor.close()
 
+    def get_zone_list(self):
+        """
+        tb_event_detection_zone 테이블에서 zone_type 값을 리스트로 가져오기
+        """
+        try:
+            cursor = self.get_db_cursor()
+            if not cursor:
+                return []
+
+            query = """
+                SELECT zone_type 
+                FROM tb_event_detection_zone 
+                WHERE zone_active = 1 
+                AND zone_type IS NOT NULL 
+                AND zone_type != ''
+                ORDER BY id
+            """
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            zone_types = []
+            for row in results:
+                if row['zone_type']:
+                    zone_types.append(row['zone_type'])
+            
+            self.zone_list = zone_types
+            logger.info(f"Retrieved zone types: {zone_types}")
+            return zone_types
+
+        except Exception as e:
+            logger.error(f"Error getting zone list: {str(e)}")
+            return []
+        finally:
+            if cursor:
+                cursor.close()
+
     def run(self):
         logger.info("Starting VideoAlertChecker...")
         try:
@@ -565,6 +635,7 @@ class VideoAlertChecker:
                     # Check alert settings every 30 seconds
                     if current_time - self.last_settings_check >= self.settings_check_interval:
                         self.get_alert_settings()
+                        self.get_zone_list()
                         self.last_settings_check = current_time
 
                     # 시나리오 분기
