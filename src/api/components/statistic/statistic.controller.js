@@ -21,12 +21,14 @@ export const getRealtimeTemp = async (req, res) => {
     rows.reverse();
     const result = rows.map(row => {
       const v = row.getDataValue('data_value') || {};
+      // JSON 파싱 추가
+      const parsedV = typeof v === 'string' ? JSON.parse(v) : v;
       return {
         time: row.getDataValue('create_date'),
-        rois: Array.from({ length: 10 }, (_, i) => v[`data_${22 + i * 2}`] ?? null),
-        min: v.data_19 ?? null,
-        max: v.data_20 ?? null,
-        avg: v.data_21 ?? null,
+        rois: Array.from({ length: 10 }, (_, i) => parsedV[`data_${22 + i * 2}`] ?? null),
+        min: parsedV.data_19 ?? null,
+        max: parsedV.data_20 ?? null,
+        avg: parsedV.data_21 ?? null,
       };
     });
     res.json({ result });
@@ -64,10 +66,12 @@ export const getDailyRoiAvgTemp = async (req, res) => {
     const roiTemps = Array.from({ length: 10 }, () => []);
 
     rows.forEach(row => {
-      const dataValue = row.getDataValue('data_value');
-      if (dataValue) {
+      const dataValue = row.getDataValue('data_value') || {};
+      // JSON 파싱 추가
+      const parsedDataValue = typeof dataValue === 'string' ? JSON.parse(dataValue) : dataValue;
+      if (parsedDataValue) {
         for (let i = 0; i < 10; i++) {
-          const temp = dataValue[`data_${22 + i * 2}`];
+          const temp = parsedDataValue[`data_${22 + i * 2}`];
           if (temp !== null && temp !== undefined) {
             roiTemps[i].push(temp);
           }
@@ -125,10 +129,12 @@ export const getDailyRoiMinChange = async (req, res) => {
     const roiTemps = Array.from({ length: 10 }, () => []);
 
     rows.forEach(row => {
-      const dataValue = row.getDataValue('data_value');
-      if (dataValue) {
+      const dataValue = row.getDataValue('data_value') || {};
+      // JSON 파싱 추가
+      const parsedDataValue = typeof dataValue === 'string' ? JSON.parse(dataValue) : dataValue;
+      if (parsedDataValue) {
         for (let i = 0; i < 10; i++) {
-          const temp = dataValue[`data_${22 + i * 2}`];
+          const temp = parsedDataValue[`data_${22 + i * 2}`];
           if (temp !== null && temp !== undefined) {
             roiTemps[i].push(temp);
           }
@@ -180,7 +186,7 @@ export const getRoiDataList = async (req, res) => {
       order: [['create_date', 'DESC']],
       limit: 2
     });
-
+    console.log('======>  latestData', latestData);
     if (!latestData || latestData.length === 0) {
       return res.json({
         success: true,
@@ -211,17 +217,19 @@ export const getRoiDataList = async (req, res) => {
       latestData.forEach(data => {
         // data_value는 이미 파싱된 객체 (모델의 get() 메서드에서 처리됨)
         const dataValue = data.getDataValue('data_value') || {};
+        // JSON 파싱 추가
+        const parsedDataValue = typeof dataValue === 'string' ? JSON.parse(dataValue) : dataValue;
 
-        // console.log('======>  dataValue', dataValue);
-        // console.log('======>  minDataField', minDataField);
-        // console.log('======>  maxDataField', maxDataField);
-        // console.log('======>  dataValue[minDataField]', dataValue[minDataField]);
-        // console.log('======>  dataValue[maxDataField]', dataValue[maxDataField]);
+        console.log('======>  dataValue', dataValue);
+        console.log('======>  minDataField', minDataField);
+        console.log('======>  maxDataField', maxDataField);
+        console.log('======>  dataValue[minDataField]', parsedDataValue[minDataField]);
+        console.log('======>  dataValue[maxDataField]', parsedDataValue[maxDataField]);
 
         // 데이터 필드가 존재하는지 확인
-        if (dataValue[minDataField] !== undefined && dataValue[maxDataField] !== undefined) {
-          const minTemp = Number(dataValue[minDataField]);
-          const maxTemp = Number(dataValue[maxDataField]);
+        if (parsedDataValue[minDataField] !== undefined && parsedDataValue[maxDataField] !== undefined) {
+          const minTemp = Number(parsedDataValue[minDataField]);
+          const maxTemp = Number(parsedDataValue[maxDataField]);
           const avgTemp = (maxTemp + minTemp) / 2;
 
           // console.log('======>  minTemp', minTemp);
