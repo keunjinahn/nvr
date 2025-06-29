@@ -205,7 +205,7 @@ import { getCameras, getCameraSettings } from '@/api/cameras.api';
 import VideoCard from '@/components/camera-card.vue';
 import { mdiRefresh, mdiMapMarkerRadius, mdiCheckboxMarkedCircle, mdiUndo, mdiPlus, mdiPencil, mdiDelete } from '@mdi/js';
 import Playground from '@/components/playground.vue';
-import { addEventDetectionZone, getEventDetectionZone, updateEventDetectionZone, deleteEventDetectionZone } from '@/api/eventDetectionZone.api';
+import { addEventDetectionZone, getEventDetectionZone, updateEventDetectionZone, deleteEventDetectionZone, updateInPageZone } from '@/api/eventDetectionZone.api';
 
 export default {
   name: 'EventDetectionZone',
@@ -516,6 +516,11 @@ export default {
         return;
       }
 
+      if (!this.detectionZoneType) {
+        this.$toast.error('ROI 번호를 입력해주세요.');
+        return;
+      }
+
       if (!this.description || this.description.trim() === '') {
         this.$toast.error('설명을 입력해주세요.');
         return;
@@ -791,6 +796,9 @@ export default {
   },
   async mounted() {
     try {
+      // 화면 진입시 updateInPageZone 호출 (1)
+      await updateInPageZone(1);
+      
       const response = await getCameras();
       for (const camera of response.data.result) {
         const settings = await getCameraSettings(camera.name);
@@ -825,6 +833,8 @@ export default {
     window.addEventListener('resize', this.updateVideoContainerSize);
   },
   beforeDestroy() {
+    // 화면 나갈때 updateInPageZone 호출 (0)
+    updateInPageZone(0);
     window.removeEventListener('resize', this.updateVideoContainerSize);
   }
 };

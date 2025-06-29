@@ -23,6 +23,7 @@ export const getRealtimeTemp = async (req, res) => {
       const v = row.getDataValue('data_value') || {};
       // JSON 파싱 추가
       const parsedV = typeof v === 'string' ? JSON.parse(v) : v;
+      // console.log('======>  parsedV', parsedV);
       return {
         time: row.getDataValue('create_date'),
         rois: Array.from({ length: 10 }, (_, i) => parsedV[`data_${22 + i * 2}`] ?? null),
@@ -220,11 +221,11 @@ export const getRoiDataList = async (req, res) => {
         // JSON 파싱 추가
         const parsedDataValue = typeof dataValue === 'string' ? JSON.parse(dataValue) : dataValue;
 
-        console.log('======>  dataValue', dataValue);
-        console.log('======>  minDataField', minDataField);
-        console.log('======>  maxDataField', maxDataField);
-        console.log('======>  dataValue[minDataField]', parsedDataValue[minDataField]);
-        console.log('======>  dataValue[maxDataField]', parsedDataValue[maxDataField]);
+        // console.log('======>  dataValue', dataValue);
+        // console.log('======>  minDataField', minDataField);
+        // console.log('======>  maxDataField', maxDataField);
+        // console.log('======>  dataValue[minDataField]', parsedDataValue[minDataField]);
+        // console.log('======>  dataValue[maxDataField]', parsedDataValue[maxDataField]);
 
         // 데이터 필드가 존재하는지 확인
         if (parsedDataValue[minDataField] !== undefined && parsedDataValue[maxDataField] !== undefined) {

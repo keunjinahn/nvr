@@ -83,7 +83,7 @@
       .bottomleft-inner-bottom
         .box-title Time Series Temperature
         .chart-container
-          v-chart(:options="chartOption" autoresize height="300" ref="trendChart" style="width:100%;height:218px;background:var(--cui-bg-card);")
+          v-chart(:options="chartOption" autoresize ref="trendChart" style="width:100%;height:160%;background:var(--cui-bg-card);")
   .cell.cell-bottomright
     .box-title 실화상 영상
     .video-container
@@ -618,8 +618,7 @@ methods: {
             this.gaugeChart.setOption({
               series: [{
                 data: [{
-                  value: this.alertCount,
-                  name: levelLabel
+                  value: this.alertCount
                 }],
                 detail: {
                   formatter: () => levelLabel,
@@ -939,12 +938,14 @@ methods: {
 .chart-container {
   flex: 1;
   min-height: 0;
-  padding: 20px;
+  padding: 2vw 1vw 1vw 1vw;
   background: var(--cui-bg-card);
   border-radius: 0 0 8px 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  margin-top: 0;
+  height: 28vh;
 
   .no-data {
     color: #888;
