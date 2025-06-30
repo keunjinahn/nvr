@@ -178,7 +178,7 @@ class RecordingProcess {
     }
   }
 
-  async startRecording(cameraName, scheduleId, source, fk_camera_id) {
+  async startRecording(cameraName, scheduleId, source, fk_camera_id, recoding_bitrate) {
     const recordingKey = `${cameraName}_${scheduleId}`;
     let recordingId = null;
 
@@ -253,9 +253,9 @@ class RecordingProcess {
         '-g', '15',
         '-keyint_min', '15',
         '-force_key_frames', 'expr:gte(t,n_forced*1)',
-        '-b:v', '2000k',
-        '-maxrate', '2000k',
-        '-bufsize', '2000k',
+        '-b:v', recoding_bitrate,
+        '-maxrate', recoding_bitrate,
+        '-bufsize', recoding_bitrate,
         '-c:a', 'aac',
         '-b:a', '128k',
         '-ar', '44100',
@@ -275,6 +275,7 @@ class RecordingProcess {
         env: { ...process.env, FFREPORT: `file=${recordingDir}/ffmpeg-${recordingKey}.log:level=32` }
       });
 
+      // console.log('=====> ffmpeg', ffmpeg);
       let hasError = false;
       let errorMessage = '';
 
@@ -515,7 +516,8 @@ class RecordingProcess {
         }
 
         logger.info(`Starting new recording for schedule: ${scheduleKey}`);
-        await this.startRecording(schedule.cameraName, schedule.id, schedule.source, schedule.fk_camera_id);
+        // console.log('=====> schedule', schedule);
+        await this.startRecording(schedule.cameraName, schedule.id, schedule.source, schedule.fk_camera_id, schedule.recoding_bitrate);
       }
 
     } catch (error) {

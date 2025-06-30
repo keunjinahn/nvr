@@ -61,6 +61,11 @@ export default (sequelize) => {
     update_date: {
       type: DataTypes.DATE,
       allowNull: true
+    },
+    recoding_bitrate: {
+      type: DataTypes.STRING(50),
+      allowNull: true,
+      defaultValue: ''
     }
   }, {
     tableName: 'tb_schedules',

@@ -76,7 +76,7 @@ class ScheduleChecker {
       // 현재 녹화해야 할 스케줄들 처리
       logger.info(`recordingSchedules:`, recordingSchedules);
       for (const schedule of recordingSchedules) {
-        const { cameraName, id, recording_type, fk_camera_id } = schedule;
+        const { cameraName, id, recording_type, fk_camera_id, bitrate } = schedule;
 
         // 이미 녹화 중인지 확인
         if (!RecordingService.isRecording(cameraName)) {

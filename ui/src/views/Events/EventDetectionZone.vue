@@ -516,11 +516,6 @@ export default {
         return;
       }
 
-      if (!this.detectionZoneType) {
-        this.$toast.error('ROI 번호를 입력해주세요.');
-        return;
-      }
-
       if (!this.description || this.description.trim() === '') {
         this.$toast.error('설명을 입력해주세요.');
         return;

@@ -187,7 +187,7 @@ export const getRoiDataList = async (req, res) => {
       order: [['create_date', 'DESC']],
       limit: 2
     });
-    console.log('======>  latestData', latestData);
+    //console.log('======>  latestData', latestData);
     if (!latestData || latestData.length === 0) {
       return res.json({
         success: true,

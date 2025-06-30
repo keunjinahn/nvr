@@ -24,14 +24,12 @@
 
 <script>
 import { mdiPlayCircle, mdiFormatListBulleted, mdiCompareHorizontal } from '@mdi/js';
-import RecodingSearch from './RecodingSearch.vue';
 import RecodingSchedule from './RecodingSchedule.vue';
 import RecodingCompare from './RecodingCompare.vue';
 export default {
   name: 'RecodingMgr',
 
   components: {
-    RecodingSearch,
     RecodingSchedule,
     RecodingCompare
   },
@@ -57,7 +55,7 @@ export default {
 
   computed: {
     currentComponent() {
-      return this.currentTab === 'search' ? 'RecodingSearch' : this.currentTab === 'schedule' ? 'RecodingSchedule' : 'RecodingCompare';
+      return this.currentTab === 'schedule' ? 'RecodingSchedule' : 'RecodingCompare';
     }
   }
 };

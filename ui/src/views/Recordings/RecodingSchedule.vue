@@ -114,6 +114,13 @@
               :rules="[v => !!v || '녹화 유형을 선택해주세요']"
               required
             )
+            v-select.dialog-field(
+              v-model="editedItem.bitrate"
+              :items="bitrateOptions"
+              label="영상 Bitrate"
+              :rules="[v => !!v || 'Bitrate를 선택해주세요']"
+              required
+            )
         v-card-actions
           .actions-wrapper
             v-btn.cancel-btn(@click="closeDialog") 취소
@@ -196,6 +203,7 @@ export default {
       { text: '종료 시간', value: 'formattedEndTime' },
       { text: '요일', value: 'formattedDays' },
       { text: '녹화 유형', value: 'recordingType' },
+      { text: 'Bitrate', value: 'bitrate' },
       { text: '상태', value: 'isActive' },
       { text: '작업', value: 'actions', sortable: false, align: 'center' }
     ],
@@ -208,7 +216,8 @@ export default {
       days: [],
       recordingType: 'Video',
       isActive: true,
-      source: ''
+      source: '',
+      bitrate: '1024k'
     },
 
     defaultItem: {
@@ -219,7 +228,8 @@ export default {
       days: [],
       recordingType: 'Video',
       isActive: true,
-      source: ''
+      source: '',
+      bitrate: '1024k'
     },
 
     daysOptions: [
@@ -234,6 +244,7 @@ export default {
 
     recordingTypes: ['Video'],
     selectedSchedule: null,
+    bitrateOptions: ['512k', '1024k', '2000k'],
   }),
 
   async mounted() {
@@ -255,7 +266,8 @@ export default {
           days: schedule.days_of_week || schedule.days || [],
           recordingType: schedule.recording_type || schedule.recordingType,
           isActive: schedule.isActive !== undefined ? schedule.isActive : true,
-          source:schedule.source
+          source:schedule.source,
+          bitrate: schedule.bitrate || '1024k'
         }));
       } catch (error) {
         console.error('Failed to fetch schedules:', error);
@@ -322,7 +334,8 @@ export default {
         recordingType: 'Video',
         isActive: true,
         source:this.cameras.length > 0 ? this.cameras[0].source : '',
-        fk_camera_id:this.cameras.length > 0 ? this.cameras[0].id : ''
+        fk_camera_id:this.cameras.length > 0 ? this.cameras[0].id : '',
+        bitrate: '1024k'
       };
 
       // 폼 초기화
@@ -349,7 +362,8 @@ export default {
         recordingType: item.recordingType || item.recording_type || 'Video',
         isActive: item.isActive !== undefined ? item.isActive : true,
         source: item.source,
-        fk_camera_id: item.fk_camera_id
+        fk_camera_id: item.fk_camera_id,
+        bitrate: item.bitrate || '1024k'
       };
 
       
@@ -390,7 +404,8 @@ export default {
             recordingType: this.editedItem.recordingType || 'Video',
             isActive: this.editedItem.isActive !== undefined ? this.editedItem.isActive : true,
             source:this.editedItem.source,
-            fk_camera_id:this.editedItem.fk_camera_id
+            fk_camera_id:this.editedItem.fk_camera_id,
+            bitrate: this.editedItem.bitrate || '1024k'
           };
           console.log('Saving schedule with data:', scheduleData); // 디버깅용 로그
 

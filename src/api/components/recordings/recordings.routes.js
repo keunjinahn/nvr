@@ -179,7 +179,7 @@ export const routesConfig = (app) => {
     const requestId = req.headers['x-request-id'] || 'unaknown';
     const startTime = Date.now();
     const id = req.params.id;
-    console.log("====> stream :", id);
+    // console.log("====> stream :", id);
     try {
       // recordingHistory에서 녹화 정보 찾기
       const recording = await RecordingsModel.getRecordingHistoryById(id);
@@ -331,18 +331,18 @@ export const routesConfig = (app) => {
   app.get('/api/recordings/history', async (req, res) => {
     try {
       let recordings;
-      console.log("====> history req.query :", req.query);
+      // console.log("====> history req.query :", req.query);
       if (req.query.startDate && req.query.endDate) {
         // 기간별 녹화 기록 조회
         const startDate = new Date(req.query.startDate);
         const endDate = new Date(req.query.endDate);
-        console.log("====> history :", req.query.cameraIds);
+        // console.log("====> history :", req.query.cameraIds);
         if (req.query.cameraIds) {
           // 여러 카메라 ID 처리
           const cameraIds = Array.isArray(req.query.cameraIds)
             ? req.query.cameraIds
             : req.query.cameraIds.split(',');
-          console.log("====> history cameraIds :", cameraIds);
+          // console.log("====> history cameraIds :", cameraIds);
           recordings = await Promise.all(
             cameraIds.map(cameraId =>
               RecordingsModel.getRecordingHistoryByDateRange(startDate, endDate, cameraId)

@@ -442,22 +442,96 @@ export const stopSmtpServer = async (req, res) => {
 export const updateSystem = async (req, res) => {
   try {
     if (updating) {
-      return res.status(500).send({
-        statusCode: 500,
-        message: 'System update is already in progress',
+      return res.status(400).send({
+        statusCode: 400,
+        message: 'Update already in progress',
       });
     }
 
-    const timeout = 5 * 60 * 1000; //5min
-    req.setTimeout(timeout);
-    res.setTimeout(timeout);
+    const version = req.body.version;
 
-    await updatePlugin(req.query.version);
+    const result = await updatePlugin(version);
 
-    Database.controller.emit('updated');
-    Socket.io.emit('updated');
+    res.status(200).send({
+      statusCode: 200,
+      message: 'Update completed successfully',
+      data: result,
+    });
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
 
-    res.status(204).send({});
+// Recording cleanup controller methods
+export const getCleanupInfo = async (req, res) => {
+  try {
+    const RecordingCleanupService = (await import('../../../services/recording/recording.cleanup.service.js')).default;
+    const info = await RecordingCleanupService.getCleanupInfo();
+
+    res.status(200).send({
+      statusCode: 200,
+      message: 'Cleanup info retrieved successfully',
+      data: info,
+    });
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+export const manualCleanup = async (req, res) => {
+  try {
+    const RecordingCleanupService = (await import('../../../services/recording/recording.cleanup.service.js')).default;
+    const result = await RecordingCleanupService.manualCleanup();
+
+    res.status(200).send({
+      statusCode: 200,
+      message: 'Manual cleanup completed',
+      data: result,
+    });
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+export const startCleanup = async (req, res) => {
+  try {
+    const RecordingCleanupService = (await import('../../../services/recording/recording.cleanup.service.js')).default;
+    const intervalHours = req.body.intervalHours || 24;
+
+    RecordingCleanupService.startCleanup(intervalHours);
+
+    res.status(200).send({
+      statusCode: 200,
+      message: 'Recording cleanup service started',
+      data: { intervalHours },
+    });
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+export const stopCleanup = async (req, res) => {
+  try {
+    const RecordingCleanupService = (await import('../../../services/recording/recording.cleanup.service.js')).default;
+
+    RecordingCleanupService.stopCleanup();
+
+    res.status(200).send({
+      statusCode: 200,
+      message: 'Recording cleanup service stopped',
+    });
   } catch (error) {
     res.status(500).send({
       statusCode: 500,

@@ -47,7 +47,7 @@ export const createSchedule = errorHandler(async (req, res) => {
     url: req.originalUrl
   });
 
-  const { cameraName, days, startTime, endTime, recordingType, isActive, source, fk_camera_id } = req.body;
+  const { cameraName, days, startTime, endTime, recordingType, isActive, source, fk_camera_id, bitrate } = req.body;
 
   // Transform the data to match backend expectations
   const transformedData = {
@@ -57,6 +57,7 @@ export const createSchedule = errorHandler(async (req, res) => {
     end_time: endTime,
     recording_type: recordingType,
     isActive: isActive !== undefined ? isActive : true,
+    recoding_bitrate: bitrate,
     source,
     fk_camera_id
   };
@@ -85,8 +86,7 @@ export const updateSchedule = errorHandler(async (req, res) => {
     url: req.originalUrl
   });
 
-  const { cameraName, days, startTime, endTime, recordingType, isActive, source, fk_camera_id } = req.body;
-
+  const { cameraName, days, startTime, endTime, recordingType, isActive, source, fk_camera_id, bitrate } = req.body;
   // Transform the data to match backend expectations
   const transformedData = {
     cameraName,
@@ -95,6 +95,7 @@ export const updateSchedule = errorHandler(async (req, res) => {
     end_time: endTime,
     recording_type: recordingType,
     isActive: isActive !== undefined ? isActive : true,
+    recoding_bitrate: bitrate,
     source,
     fk_camera_id
   };

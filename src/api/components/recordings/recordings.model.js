@@ -88,9 +88,9 @@ const deleteRecordingHistory = async (id) => {
 
 // 기간별 녹화 기록 조회
 const getRecordingHistoryByDateRange = async (startDate, endDate, cameraId = null) => {
-  console.log("====> getRecordingHistoryByDateRange startDate :", startDate);
-  console.log("====> getRecordingHistoryByDateRange endDate :", endDate);
-  console.log("====> getRecordingHistoryByDateRange cameraId :", cameraId);
+  // console.log("====> getRecordingHistoryByDateRange startDate :", startDate);
+  // console.log("====> getRecordingHistoryByDateRange endDate :", endDate);
+  // console.log("====> getRecordingHistoryByDateRange cameraId :", cameraId);
 
   const whereClause = {
     start_time: {

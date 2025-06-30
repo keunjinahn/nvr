@@ -157,6 +157,20 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted mdi-map-marker
                 
+                v-col(cols="12" md="6")
+                  label.form-input-label 파일 삭제 일수
+                  v-text-field(
+                    v-model="settings.system.recodingFileDeleteDays"
+                    type="number"
+                    suffix="일"
+                    placeholder="30"
+                    prepend-inner-icon="mdi-delete-clock"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-delete-clock
 </template>
 
 <script>
@@ -180,7 +194,9 @@ import {
   mdiDomain,
   mdiMapMarker,
   mdiPhone,
-  mdiAccount
+  mdiAccount,
+  mdiVideo,
+  mdiDeleteClock
 } from '@mdi/js'
 import { getEventSetting, updateEventSetting, createEventSetting } from '@/api/eventSetting.api.js'
 
@@ -208,7 +224,9 @@ export default {
       mdiDomain,
       mdiMapMarker,
       mdiPhone,
-      mdiAccount
+      mdiAccount,
+      mdiVideo,
+      mdiDeleteClock
     },
     currentMenu: 'object',
     menus: [
@@ -226,8 +244,8 @@ export default {
       },
       {
         id: 'system',
-        title: '현장정보',
-        subtitle: '현장 기본 정보 입력',
+        title: '시스템',
+        subtitle: '시스템 설정',
         icon: mdiCog
       },
       {
@@ -285,7 +303,9 @@ export default {
       },
       system: {
         location_info: '',
-        address: ''
+        address: '',
+        recodingBitrate: '1024k',
+        recodingFileDeleteDays: 30,
       },
       site: {
         name: '',
@@ -303,6 +323,7 @@ export default {
     accuracyLevels: ['낮음', '중간', '높음'],
     storageTypes: ['local', 'cloud', 'hybrid'],
     backupSchedules: ['사용안함', '매일', '매주', '매월']
+
   }),
 
   computed: {
@@ -344,7 +365,9 @@ export default {
         },
         system: {
           location_info: system.location_info ?? '',
-          address: system.address ?? ''
+          address: system.address ?? '',
+          recodingBitrate: system.recodingBitrate ?? '1024k',
+          recodingFileDeleteDays: system.recodingFileDeleteDays ?? 30
         },
         site: {
           name: '',
@@ -379,7 +402,9 @@ export default {
         },
         system: {
           location_info: '',
-          address: ''
+          address: '',
+          recodingBitrate: '1024k',
+          recodingFileDeleteDays: 30
         },
         site: {
           name: '',
