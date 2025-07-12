@@ -526,34 +526,34 @@ export const routesConfig = (app) => {
    *       500:
    *         description: Internal server error
    */
-  app.get('/api/system/uptime', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.onlyMasterCanDoThisAction,
-    SystemController.getUptime,
-  ]);
+  // app.get('/api/system/uptime', [
+  //   ValidationMiddleware.validJWTNeeded,
+  //   PermissionMiddleware.onlyMasterCanDoThisAction,
+  //   SystemController.getUptime,
+  // ]);
 
-  // Recording cleanup routes
-  app.get('/api/system/cleanup/info', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.onlyMasterCanDoThisAction,
-    SystemController.getCleanupInfo,
-  ]);
+  // // Recording cleanup routes
+  // app.get('/api/system/cleanup/info', [
+  //   ValidationMiddleware.validJWTNeeded,
+  //   PermissionMiddleware.onlyMasterCanDoThisAction,
+  //   SystemController.getCleanupInfo,
+  // ]);
 
-  app.post('/api/system/cleanup/manual', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.onlyMasterCanDoThisAction,
-    SystemController.manualCleanup,
-  ]);
+  // app.post('/api/system/cleanup/manual', [
+  //   ValidationMiddleware.validJWTNeeded,
+  //   PermissionMiddleware.onlyMasterCanDoThisAction,
+  //   SystemController.manualCleanup,
+  // ]);
 
-  app.post('/api/system/cleanup/start', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.onlyMasterCanDoThisAction,
-    SystemController.startCleanup,
-  ]);
+  // app.post('/api/system/cleanup/start', [
+  //   ValidationMiddleware.validJWTNeeded,
+  //   PermissionMiddleware.onlyMasterCanDoThisAction,
+  //   SystemController.startCleanup,
+  // ]);
 
-  app.post('/api/system/cleanup/stop', [
-    ValidationMiddleware.validJWTNeeded,
-    PermissionMiddleware.onlyMasterCanDoThisAction,
-    SystemController.stopCleanup,
-  ]);
+  // app.post('/api/system/cleanup/stop', [
+  //   ValidationMiddleware.validJWTNeeded,
+  //   PermissionMiddleware.onlyMasterCanDoThisAction,
+  //   SystemController.stopCleanup,
+  // ]);
 };

@@ -423,8 +423,32 @@ methods: {
         camera.url = camera.videoConfig.source.replace(/\u00A0/g, ' ').split('-i ')[1];
       }
       this.cameraList = response.data.result;
-      this.thermalCamera = this.cameraList[0] || null;
-      this.visibleCamera = this.cameraList[1] || null;
+      
+      // videoType에 따라 카메라 분류
+      this.thermalCamera = null;
+      this.visibleCamera = null;
+      
+      for (const camera of this.cameraList) {
+        const videoType = camera.videoConfig?.videoType || 1;
+        if (videoType === 1) {
+          // 열화상 카메라
+          if (!this.thermalCamera) {
+            this.thermalCamera = camera;
+          }
+        } else if (videoType === 2) {
+          // 실화상 카메라
+          if (!this.visibleCamera) {
+            this.visibleCamera = camera;
+          }
+        }
+      }
+      
+      // videoType이 없는 경우 기존 로직으로 fallback
+      if (!this.thermalCamera && !this.visibleCamera && this.cameraList.length > 0) {
+        this.thermalCamera = this.cameraList[0] || null;
+        this.visibleCamera = this.cameraList[1] || null;
+      }
+      
       this.videoKeyThermal = this.thermalCamera ? this.thermalCamera.name + '_' + Date.now() : '';
       this.videoKeyVisible = this.visibleCamera ? this.visibleCamera.name + '_' + Date.now() : '';
     } catch (err) {
