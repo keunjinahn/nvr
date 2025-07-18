@@ -90,6 +90,37 @@ export const getByName = async (req, res) => {
   }
 };
 
+export const getById = async (req, res) => {
+  try {
+    let user = null;
+    const userId = req.params.userId;
+
+    // Check if userId is a number (numeric ID)
+    if (!isNaN(userId) && Number.isInteger(Number(userId))) {
+      user = await UserModel.findById(Number(userId));
+    } else {
+      // Search by userId string
+      user = await UserModel.findByName(userId);
+    }
+
+    if (!user) {
+      return res.status(404).send({
+        statusCode: 404,
+        message: 'User not exists',
+      });
+    }
+
+    delete user.password;
+
+    res.status(200).send(user);
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
+
 export const patchByName = async (req, res) => {
   try {
     console.log('patchByName req.params:', req.params);

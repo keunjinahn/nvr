@@ -158,6 +158,7 @@ export default {
 
   async created() {
     console.log('Component created');
+    if (this.$sidebar) this.$sidebar.close();
     await this.initializeData();
     await this.loadAlertHistory();
   },

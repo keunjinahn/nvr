@@ -295,6 +295,7 @@ computed: {
   }
 },
 mounted() {
+  if (this.$sidebar) this.$sidebar.close();
   this.updateTime();
   this.timeInterval = setInterval(this.updateTime, 1000);
   

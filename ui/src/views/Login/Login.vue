@@ -123,7 +123,7 @@ export default {
 
           await getConfig();
 
-          this.$router.push('/dashboard');
+          this.$router.push('/first-start');
         } catch (err) {
           this.loading = false;
           console.log(err);
