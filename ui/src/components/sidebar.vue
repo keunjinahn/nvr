@@ -40,7 +40,6 @@
                   <v-btn
                     @click="logout"
                     class="logout-btn"
-                    color="primary"
                   >
                     <v-icon>{{ icons.mdiLogoutVariant }}</v-icon>
                   </v-btn>
@@ -62,7 +61,7 @@
     <!-- Navigation Menu -->
     <v-list class="navigation-menu" dense>
       <v-list-item
-        v-for="item in navigationItems"
+        v-for="item in filteredNavigationItems"
         :key="item.name"
         :to="item.path"
         class="nav-item"
@@ -100,12 +99,12 @@
       
       <div class="contact-info">
         <div class="contact-title">시스템문의</div>
-        <div class="contact-detail">Tel. 031-421-2583</div>
-        <div class="contact-detail">E-Mail. asincnt@naver.com</div>
+        <div class="contact-detail">Tel. 000-0000-0000</div>
+        <div class="contact-detail">E-Mail. 0000@daum.com</div>
       </div>
       
       <div class="copyright">
-        Copyright © ASINCNT. All rights reserved.
+        Copyright © 0000. All rights reserved.
       </div>
     </div>
   </v-navigation-drawer>
@@ -136,6 +135,7 @@ export default {
       drawer: true,
       sidebarWidth: 300,
       userName: 'system',
+      userPermissionLevel: 2, // 기본값은 일반 사용자
       weather: {
         location: '수자원공사 섬진강댐'
       },
@@ -145,58 +145,58 @@ export default {
         mdiLogoutVariant,
         mdiAccount
       },
-      navigationItems: [
+      allNavigationItems: [
         {
           name: 'dashboard',
           title: '열화상카메라 모니터링',
           path: '/dashboard',
-          icon: 'mdi-view-dashboard'
+          icon: 'mdi-view-dashboard',
+          permissionRequired: null // 모든 사용자 접근 가능
         },
         {
           name: 'alert-status',
           title: '열화상이미지 분석결과',
           path: '/alerts/status',
-          icon: 'mdi-view-dashboard'
+          icon: 'mdi-view-dashboard',
+          permissionRequired: null // 모든 사용자 접근 가능
         },
         {
           name: 'cameras',
           title: '카메라 관리',
           path: '/cameras',
-          icon: 'mdi-cctv'
-        },
-        {
-          name: 'recordings',
-          title: '녹화관리',
-          path: '/recordings',
-          icon: 'mdi-image-multiple'
-        },
-        {
-          name: 'events',
-          title: '이벤트관리',
-          path: '/events',
-          icon: 'mdi-alert-circle'
-        },
-        {
-          name: 'alerts',
-          title: '알림관리',
-          path: '/alerts',
-          icon: 'mdi-bell'
-        },
-        {
-          name: 'settings',
-          title: '설정',
-          path: '/settings',
-          icon: 'mdi-cog'
+          icon: 'mdi-cctv',
+          permissionRequired: 1 // 관리자만 접근 가능
         },
         {
           name: 'users',
           title: '사용자관리',
-          path: '/users',
-          icon: 'mdi-account-group'
+          path: '/user-management',
+          icon: 'mdi-account-group',
+          permissionRequired: 1 // 관리자만 접근 가능
+        },
+        {
+          name: 'events',
+          title: '설정',
+          path: '/events',
+          icon: 'mdi-account-group',
+          permissionRequired: 1 // 관리자만 접근 가능
         }
       ]
     };
   },
+  computed: {
+    filteredNavigationItems() {
+      return this.allNavigationItems.filter(item => {
+        // permissionRequired가 null이면 모든 사용자 접근 가능
+        if (item.permissionRequired === null) {
+          return true;
+        }
+        // permissionRequired가 있으면 해당 권한 레벨 이상만 접근 가능
+        return this.userPermissionLevel == item.permissionRequired;
+      });
+    }
+  },
+  
   async mounted() {
     await this.loadUserInfo();
     await this.loadWeatherLocation();
@@ -216,8 +216,9 @@ export default {
     async loadUserInfo() {
       // 사용자 정보 로드 로직
       const user = await getUser(this.$store.state.auth.user.id);
-      if (user.data && user.data.userName) {
-        this.userName = user.data.userName;
+      if (user.data) {
+        this.userName = user.data.userName || 'system';
+        this.userPermissionLevel = user.data.permissionLevel || 2;
       }
     },
     async loadWeatherLocation() {
@@ -354,8 +355,7 @@ export default {
         background-color: transparent !important;
         min-width: 36px !important;
         min-height: 36px !important;
-        border-radius: 30% !important;
-        
+      
         &:hover {
           color: #1976d2 !important;
           background-color: rgba(25, 118, 210, 0.1) !important;

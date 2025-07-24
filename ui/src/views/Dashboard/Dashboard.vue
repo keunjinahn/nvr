@@ -3,39 +3,42 @@
   .cell.cell-topleft
     .topleft-inner-row
       .topleft-inner-left
-        .time-display
-          .site-time-block
+        .time-layer
+          .current-time {{ currentTime }}
+        .site-info-layer
+          .layer-title 실증현장 정보
+          .site-info-content
             .site-name(v-if="location_info") {{ location_info }}
-            .current-time {{ currentTime }}
-        .weather-widget
-          .weather-info
-            .temperature {{ weather.temperature }}°C
-            .weather-description {{ weather.description }}
-            .location {{ weather.location }}
+        .leak-status-layer
+          .layer-title 실시간누수감지상태
+          .status-buttons
+            .status-button.safe
+              .status-icon ✅
+              .status-text 안전
+            .status-button.attention
+              .status-icon 🛡️
+              .status-text 관심
+            .status-button.caution
+              .status-icon ⚠️
+              .status-text 주의
+            .status-button.check
+              .status-icon 🔍
+              .status-text 점검
+            .status-button.prepare
+              .status-icon 🔔
+              .status-text 대비
       .topleft-inner-right
-        .gauge-container
-          .gauge-meter(ref="gaugeChart" style="width:100%;height:180px;min-width:180px;min-height:180px;")
-        .bottom-box
-          .table-title 경보 이력
-          .alert-table
-            .table-header
-              .header-cell 경보레벨
-              .header-cell 발생일자
-            .table-body
-              .table-row(
-                v-for="alert in alertHistory"
-                :key="alert.id"
-                :class="['alert-row', `level-${alert.level}`]"
-                )
-                .table-cell
-                  span.level-icon(:class="`level-${alert.level}`")
-                    span(v-if="alert.level == 4") ⚠️
-                    span(v-else-if="alert.level == 3") 🔶
-                    span(v-else-if="alert.level == 2") 🟡
-                    span(v-else-if="alert.level == 1") 🟦
-                    span(v-else) 🟩
-                  span.level-text {{ getLevelText(alert.level) }}
-                .table-cell {{ alert.time }}
+        .map-image-container(v-if="mapImagePreview")
+          .map-title 지도 이미지
+          v-img(
+            :src="mapImagePreview"
+            height="100%"
+            width="100%"
+            cover
+            class="map-preview-image"
+          )
+        .no-map-image(v-else)
+          .no-map-text 지도 이미지가 없습니다
   .cell.cell-topright
     .box-title 열화상 영상
     .video-container
@@ -54,7 +57,7 @@
   .cell.cell-bottomleft
     .bottomleft-inner-col
       .bottomleft-inner-top
-        .box-title ROI List
+        .box-title 분석영역리스트
         .table-container
           table.zone-table
             thead
@@ -81,7 +84,7 @@
                 td
                   span.icon-excel(@click.stop="downloadExcel(zone)") 📊
       .bottomleft-inner-bottom
-        .box-title Time Series Temperature
+        .box-title 시계열 온도 데이터
         .chart-container
           v-chart(:options="chartOption" autoresize ref="trendChart" style="width:100%;height:160%;background:var(--cui-bg-card);")
   .cell.cell-bottomright
@@ -157,6 +160,7 @@ data() {
     gaugeChart: null,
     location_info: '',
     address: '',
+    mapImagePreview: null,
   };
 },
 computed: {
@@ -307,10 +311,10 @@ mounted() {
   if (!this.$socket.client.connected) {
     this.$socket.client.connect();
   }
-  this.initGaugeChart();
   this.initializeData();
   this.loadAlertHistory();
   this.loadSiteName();
+  this.loadMapImage();
 },
 beforeDestroy() {
   if (this.timeInterval) {
@@ -727,6 +731,21 @@ methods: {
         this.address = '';
       }
     },
+
+    async loadMapImage() {
+      try {
+        console.log('loadMapImage ...start')
+        const data = await getEventSetting();
+        if (data && data.system_json) {
+          const system = JSON.parse(data.system_json);
+
+          this.mapImagePreview = system.map || null;
+          
+        }
+      } catch (e) {
+        this.mapImagePreview = null;
+      }
+    },
   },
 };
 </script>
@@ -874,50 +893,165 @@ methods: {
   height: 100%;
 }
 
-.time-display {
+.time-layer {
   background: #0066cc;
   color: white;
-  padding: 20px;
+  padding: 15px;
   text-align: center;
-  border-radius: 8px 8px 0 0;
-  height: 50%;
+  border-radius: 8px 0 0 0;
+  height: 20%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  
+  .current-time {
+    font-size: 20px;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  }
 }
 
-.weather-widget {
-  background: #1a1a1a;
+.site-info-layer {
+  background: #333;
   color: white;
-  padding: 20px;
-  text-align: center;
-  border-radius: 0 0 8px 8px;
-  height: 50%;
+  padding: 0px;
+  border-top: 1px solid #555;
+  height: 60%;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   flex-shrink: 0;
+  
+  .layer-title {
+    background: #666;
+    color: white;
+    font-weight: bold;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    text-align: left;
+  }
+  
+  .site-info-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    .site-name {
+      font-size: 16px;
+      font-weight: bold;
+      text-align: center;
+      line-height: 1.3;
+      word-break: break-all;
+    }
+  }
 }
 
-.weather-info {
-  width: 100%;
-}
+.leak-status-layer {
+  background: #333;
+  color: white;
+  padding: 0px;
+  border-top: 1px solid #555;
+  border-radius: 0 0 0 8px;
+  height: 20%;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  
+  .layer-title {
+    background: #666;
+    color: white;
+    font-weight: bold;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    text-align: left;
+  }
+  
+  .status-buttons {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    padding: 0px 10px;
+    align-items: center;
+    justify-content: center;
+    
+    .status-button {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 4px;
+      border-radius: 6px;
+      background: transparent !important;
 
-.temperature {
-  font-size: 2em;
-  font-weight: bold;
-  margin-bottom: 10px;
-}
-
-.weather-description {
-  font-size: 1.2em;
-  margin-bottom: 5px;
-}
-
-.location {
-  font-size: 1em;
-  color: #888;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      
+      &:hover {
+        background: #555;
+        transform: translateY(-2px);
+      }
+      
+      &.safe {
+        background: #2d5a2d;
+        border-color: #4caf50;
+        
+        &:hover {
+          background: #3d6a3d;
+        }
+      }
+      
+      &.attention {
+        background: #2d4a5a;
+        border-color: #2196f3;
+        
+        &:hover {
+          background: #3d5a6a;
+        }
+      }
+      
+      &.caution {
+        background: #5a4a2d;
+        border-color: #ff9800;
+        
+        &:hover {
+          background: #6a5a3d;
+        }
+      }
+      
+      &.check {
+        background: #5a2d4a;
+        border-color: #9c27b0;
+        
+        &:hover {
+          background: #6a3d5a;
+        }
+      }
+      
+      &.prepare {
+        background: #5a2d2d;
+        border-color: #f44336;
+        
+        &:hover {
+          background: #6a3d3d;
+        }
+      }
+      
+      .status-icon {
+        font-size: 18px;
+        margin-bottom: 4px;
+      }
+      
+      .status-text {
+        font-size: 12px;
+        font-weight: bold;
+        text-align: center;
+      }
+    }
+  }
 }
 
 .zone-table {
@@ -1103,29 +1237,50 @@ methods: {
   }
 }
 
-.site-time-block {
+// 기존 스타일은 새로운 3개 레이어 구조로 대체됨
+
+.map-image-container {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+  padding: 16px;
+  background: #333;
+  border-radius: 0 8px 8px 0;
+
+  .map-title {
+    background: #666;
+    color: #fff;
+    font-weight: bold;
+    padding: 8px 16px;
+    border-bottom: 2px solid #555;
+    border-radius: 8px 8px 0 0;
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  .map-preview-image {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #222;
+    border-radius: 0 0 8px 8px;
+    margin-top: 0;
+  }
 }
 
-.site-name {
-  white-space: pre-line;
-  word-break: break-all;
-  max-width: 180px;
-  font-size: 22px;
-  color: #fff;
-  line-height: 1.3;
-  text-align: left;
-  display: block;
-}
+.no-map-image {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #333;
+  border-radius: 0 8px 8px 0;
 
-.current-time {
-  font-size: 22px;
-  color: #ccc;
-  line-height: 1.2;
-  text-align: left;
-  display: block;
+  .no-map-text {
+    color: #888;
+    font-size: 16px;
+    text-align: center;
+  }
 }
 </style>

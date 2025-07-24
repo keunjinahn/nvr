@@ -227,7 +227,7 @@ export const routes = [
     children: [
       {
         path: '',
-        redirect: 'search'
+        redirect: 'setting'
       },
       {
         path: 'search',

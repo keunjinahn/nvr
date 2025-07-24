@@ -6,29 +6,7 @@
         v-col(cols="12")
           v-card.notification-card
             .camera-status
-              .status-header
-              .camera-list-container
-                .camera-grid(v-if="cameras && cameras.length > 0")
-                  .camera-box(
-                    v-for="(camera, index) in cameras"
-                    :key="`camera-${index}`"
-                    :class="{ 'active': selectedCameraIndex === index }"
-                    @click="selectCamera(index)"
-                  )
-                    .camera-thumbnail
-                      VideoCard(
-                        :ref="`thumbnail-${camera.name}`"
-                        :camera="camera"
-                        stream
-                        noLink
-                        hideNotifications
-                        hideIndicatorFullscreen
-                        :style="{ height: '120px' }"
-                      )
-                    .camera-info
-                      .camera-name {{ camera.name }}
-                .no-cameras(v-else)
-                  span.no-cameras-text 카메라 목록이 없습니다. ({{ cameras.length }})
+               
             .camera-display-area
               .display-box.left-box
                 .alert-history

@@ -33,13 +33,13 @@
       no-data-text="데이터가 없습니다"
       class="elevation-1"
     )
-      template(v-slot:item.role="{ item }")
+      template(v-slot:item.permissionLevel="{ item }")
         v-chip(
-          :color="getRoleColor(item.role)"
+          :color="getPermissionColor(item.permissionLevel)"
           small
           label
           text-color="white"
-        ) {{ item.role }}
+        ) {{ getPermissionText(item.permissionLevel) }}
       
       template(v-slot:item.actions="{ item }")
         .tw-flex.tw-items-center.tw-gap-2.tw-justify-center
@@ -102,6 +102,15 @@
               type="password"
               :rules="passwordConfirmRules"
               :required="!editedItem.id"
+            )
+            v-select(
+              v-model="editedItem.permissionLevel"
+              label="권한 레벨"
+              :items="permissionOptions"
+              item-text="text"
+              item-value="value"
+              :rules="[v => !!v || '권한 레벨은 필수입니다']"
+              required
             )
         v-card-actions.dialog-actions
           v-spacer
@@ -173,6 +182,7 @@ export default {
       { text: '아이디', value: 'userId', align: 'center' },
       { text: '이름', value: 'userName', align: 'center' },
       { text: '직급', value: 'userDept', align: 'center' },
+      { text: '권한', value: 'permissionLevel', align: 'center' },
       { text: '관리', value: 'actions', sortable: false, align: 'center', width: '400px' }
     ],
     users: [],
@@ -182,15 +192,21 @@ export default {
       userName: '',
       userDept: '',
       password: '',
-      passwordConfirm: ''
+      passwordConfirm: '',
+      permissionLevel: 2
     },
     defaultItem: {
-      userId: 'akj2995',
-      userName: '안근진2',
-      userDept: '경영기획실실',
-      password: 'test1234',
-      passwordConfirm: 'test1234'
+      userId: '',
+      userName: '',
+      userDept: '',
+      password: '',
+      passwordConfirm: '',
+      permissionLevel: 2
     },
+    permissionOptions: [
+      { text: '관리자', value: 1 },
+      { text: '사용자', value: 2 }
+    ],
     isProcessing: false
   }),
 
@@ -281,7 +297,8 @@ export default {
           // 수정
           const payload = {
             userName: this.editedItem.userName,
-            userDept: this.editedItem.userDept
+            userDept: this.editedItem.userDept,
+            permissionLevel: this.editedItem.permissionLevel
           }
           if (this.editedItem.password && this.editedItem.password !== '****') {
             payload.password = this.editedItem.password
@@ -294,7 +311,8 @@ export default {
             userId: this.editedItem.userId,
             userName: this.editedItem.userName,
             userDept: this.editedItem.userDept,
-            password: this.editedItem.password
+            password: this.editedItem.password,
+            permissionLevel: this.editedItem.permissionLevel
           })
           this.$toast.success('사용자가 추가되었습니다.')
         }
@@ -326,13 +344,20 @@ export default {
       }
     },
 
-    getRoleColor(role) {
+    getPermissionColor(permissionLevel) {
       const colors = {
-        '관리자': 'error',
-        '매니저': 'warning',
-        '일반사용자': 'success'
+        1: 'error',    // 관리자
+        2: 'success'   // 사용자
       }
-      return colors[role] || 'grey'
+      return colors[permissionLevel] || 'grey'
+    },
+
+    getPermissionText(permissionLevel) {
+      const texts = {
+        1: '관리자',
+        2: '사용자'
+      }
+      return texts[permissionLevel] || '알 수 없음'
     }
   }
 }

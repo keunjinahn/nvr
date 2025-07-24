@@ -23,7 +23,7 @@ export default (sequelize) => {
       defaultValue: null
     },
     system_json: {
-      type: DataTypes.STRING(1024),
+      type: DataTypes.TEXT('medium'),
       allowNull: true,
       defaultValue: null
     },
