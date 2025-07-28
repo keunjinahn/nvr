@@ -22,6 +22,12 @@ import argparse
 import pymysql
 import socket
 import atexit
+import cv2
+import base64
+import numpy as np
+import subprocess
+import tempfile
+import os
 
 def load_config():
     config = ConfigParser()
@@ -85,8 +91,9 @@ class VideoAlertChecker:
         self.last_settings_check = 0
         self.last_data_check = 0
         self.settings_check_interval = 30  # 30 seconds
-        self.data_check_interval = 10  # 10 seconds
+        self.data_check_interval = 10  # 10 secon6ds
         self.running = True
+        self.force_exit = False  # 강제 종료 플래그
         
         # 시그널 핸들러 등록
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -99,6 +106,8 @@ class VideoAlertChecker:
         """시그널 핸들러"""
         logger.info(f"Received signal {signum}, initiating graceful shutdown...")
         self.running = False
+        # 강제 종료를 위한 추가 플래그
+        self.force_exit = True
 
     def cleanup(self):
         """프로그램 종료 시 정리 작업"""
@@ -266,6 +275,14 @@ class VideoAlertChecker:
                 logger.info(f"Duplicate alert exists for fk_video_receive_data_id={fk_video_receive_data_id}, fk_detect_zone_id={idx + 1}. Skipping insert.")
                 return
 
+            # 2. 비디오 스냅샷 캡처
+            snapshot_images = self.capture_video_snapshots()
+            print(f"Captured {len(snapshot_images)} snapshots")
+            if snapshot_images:
+                print(f"First snapshot data length: {len(snapshot_images[0]['image_data'])}")
+            else:
+                print("No snapshots captured")
+
             # 시나리오 3의 경우 다른 설명 포맷 사용
             if min_roi['key'] == 'data_21':
                 temp_desc = f"현재 평균온도({min_roi['value']:.1f}℃)가 기준온도({base_temperature:.1f}℃)와 {temperature_diff:.1f}℃ 차이 (95% 신뢰구간: {roi_min_temp:.1f}℃ ~ {roi_max_temp:.1f}℃)"
@@ -287,8 +304,8 @@ class VideoAlertChecker:
                 INSERT INTO tb_alert_history 
                 (fk_camera_id, alert_accur_time, alert_type, alert_level, 
                 alert_status, alert_info_json, fk_detect_zone_id, 
-                fk_process_user_id, create_date, update_date, fk_video_receive_data_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                fk_process_user_id, create_date, update_date, fk_video_receive_data_id, snapshotImages)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             now = datetime.now()
@@ -303,11 +320,14 @@ class VideoAlertChecker:
                 0,  # fk_process_user_id
                 now,  # create_date
                 now,   # update_date
-                fk_video_receive_data_id   # fk_video_receive_data_id
+                fk_video_receive_data_id,   # fk_video_receive_data_id
+                json.dumps(snapshot_images)  # snapshotImages
             )
 
             cursor.execute(query, values)
-            logger.info(f"Created alert for camera with level {alert_level} (ROI: {min_roi['key']} = {min_roi['value']})")
+            logger.info(f"Created alert for camera with level {alert_level} (ROI: {min_roi['key']} = {min_roi['value']}) with {len(snapshot_images)} snapshots")
+            print(f"Alert created with {len(snapshot_images)} snapshots")
+            print(f"Snapshot data size: {len(json.dumps(snapshot_images))} characters")
 
         except Exception as e:
             logger.error(f"Error creating alert: {str(e)}")
@@ -377,14 +397,15 @@ class VideoAlertChecker:
                         logger.info(f"Zone {zone_type} ROI {min_key}/{max_key} 최대-최소값 차이: {diff}℃ (최대: {max_val}, 최소: {min_val})")
                         
                         # 4단계 기준값과 비교하여 alert_level 결정
-                        if diff >= levels[3]:  # 10℃ 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff)
-                        elif diff >= levels[2]:  # 8℃ 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff)
-                        elif diff >= levels[1]:  # 5℃ 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff)
-                        elif diff >= levels[0]:  # 2℃ 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff)
+                        self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff)
+                        # if diff >= levels[3]:  # 10℃ 이상
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff)
+                        # elif diff >= levels[2]:  # 8℃ 이상
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff)
+                        # elif diff >= levels[1]:  # 5℃ 이상
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff)
+                        # elif diff >= levels[0]:  # 2℃ 이상
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff)
                     except Exception as e:
                         logger.error(f"Zone {zone_type} ROI 값 비교 오류: {e}")
 
@@ -625,6 +646,190 @@ class VideoAlertChecker:
             if cursor:
                 cursor.close()
 
+    def get_camera_rtsp_sources(self):
+        """
+        tb_cameras 테이블에서 videoConfig 필드의 JSON을 파싱하여 source 키값과 videoType을 읽어서 리스트 변수에 저장
+        """
+        try:
+            cursor = self.get_db_cursor()
+            if not cursor:
+                return []
+
+            query = """
+                SELECT videoConfig 
+                FROM tb_cameras 
+                WHERE videoConfig IS NOT NULL 
+                AND videoConfig != ''
+            """
+            cursor.execute(query)
+            results = cursor.fetchall()
+            
+            camera_info_list = []
+            for row in results:
+                try:
+                    if row['videoConfig']:
+                        video_config = json.loads(row['videoConfig'])
+                        if 'source' in video_config:
+                            # RTSP URL에서 -i 파라미터 제거
+                            rtsp_url = video_config['source']
+                            print("rtsp_url : ", rtsp_url)
+                            # URL이 문자열인지 확인
+                            if not isinstance(rtsp_url, str):
+                                logger.warning(f"Invalid source type: {type(rtsp_url)}, value: {rtsp_url}")
+                                continue
+                            
+                            # 빈 문자열 체크
+                            if not rtsp_url.strip():
+                                logger.warning(f"Empty source URL: {rtsp_url}")
+                                continue
+                            
+                            # -i 파라미터 제거 (rtsp://로 시작하는 부분만 유지)
+                            if '-i' in rtsp_url:
+                                # rtsp://로 시작하는 부분을 찾아서 추출
+                                rtsp_start = rtsp_url.find('rtsp://')
+                                if rtsp_start != -1:
+                                    rtsp_url = rtsp_url[rtsp_start:]
+                                else:
+                                    # rtsp://가 없으면 http:// 또는 https:// 찾기
+                                    http_start = rtsp_url.find('http://')
+                                    if http_start != -1:
+                                        rtsp_url = rtsp_url[http_start:]
+                                    else:
+                                        https_start = rtsp_url.find('https://')
+                                        if https_start != -1:
+                                            rtsp_url = rtsp_url[https_start:]
+                                        else:
+                                            logger.warning(f"No valid protocol found in URL: {rtsp_url}")
+                                            continue
+                            
+                            # URL 정리 (앞뒤 공백 제거)
+                            rtsp_url = rtsp_url.strip()
+                            print("rtsp_url 2: ", rtsp_url)
+                            # videoType 값 가져오기 (기본값: 'unknown')
+                            video_type = video_config.get('videoType', 'unknown')
+                            
+                            camera_info = {
+                                'rtsp_url': rtsp_url,
+                                'video_type': video_type
+                            }
+                            print("camera_info : ", camera_info)
+                            camera_info_list.append(camera_info)
+                            logger.info(f"Found camera - RTSP: {rtsp_url}, Type: {video_type}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Error parsing videoConfig JSON: {str(e)}")
+                except Exception as e:
+                    logger.error(f"Error processing videoConfig: {str(e)}")
+            
+            self.camera_info_list = camera_info_list
+            logger.info(f"Retrieved {len(camera_info_list)} camera configurations")
+            return camera_info_list
+
+        except Exception as e:
+            logger.error(f"Error getting camera RTSP sources: {str(e)}")
+            return []
+        finally:
+            if cursor:
+                cursor.close()
+
+    def capture_video_snapshots(self):
+        """
+        FFmpeg를 사용하여 RTSP 소스에서 비디오 이미지를 캡처하여 base64로 인코딩
+        """
+        snapshot_images = []
+        
+        if not hasattr(self, 'camera_info_list') or not self.camera_info_list:
+            logger.warning("No camera configurations available for snapshot capture")
+            return snapshot_images
+        
+        for camera_info in self.camera_info_list:
+            try:
+                # 강제 종료 체크
+                if self.force_exit:
+                    logger.info("Force exit requested, stopping snapshot capture")
+                    return snapshot_images
+                
+                print("capture_video_snapshots 1 : ", camera_info)
+                rtsp_url = camera_info['rtsp_url']
+                video_type = camera_info['video_type']
+                
+                # RTSP URL 유효성 검사
+                if not rtsp_url or not isinstance(rtsp_url, str) or rtsp_url.strip() == '':
+                    logger.warning(f"Invalid RTSP URL: {rtsp_url}")
+                    continue
+                
+                rtsp_url = rtsp_url.strip()
+                
+                # RTSP 프로토콜 확인
+                if not rtsp_url.startswith(('rtsp://', 'http://', 'https://')):
+                    logger.warning(f"Invalid protocol in RTSP URL: {rtsp_url}")
+                    continue
+                
+                print(f"Capturing snapshot from: {rtsp_url}")
+                
+                try:
+                    # FFmpeg 명령어 구성 (메모리로 직접 출력)
+                    ffmpeg_cmd = [
+                        'ffmpeg',
+                        '-hide_banner',
+                        '-loglevel', 'error',
+                        '-rtsp_transport', 'tcp',  # TCP 전송 사용
+                        '-i', rtsp_url,  # 입력 소스
+                        '-vframes', '1',  # 1프레임만 캡처
+                        '-q:v', '2',  # 품질 설정
+                        '-f', 'image2',  # 이미지 포맷
+                        '-'  # stdout으로 출력
+                    ]
+                    
+                    print(f"FFmpeg command: {' '.join(ffmpeg_cmd)}")
+                    
+                    # FFmpeg 프로세스 실행
+                    process = subprocess.Popen(
+                        ffmpeg_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE
+                    )
+                    
+                    # 출력 데이터 수집 (타임아웃 설정)
+                    stdout_data, stderr_data = process.communicate(timeout=30)
+                    
+                    # 디버깅을 위한 로그
+                    if stderr_data:
+                        stderr_text = stderr_data.decode('utf-8', errors='ignore')
+                        logger.debug(f"FFmpeg stderr for {rtsp_url}: {stderr_text}")
+                    
+                    if process.returncode == 0 and stdout_data:
+                        # base64로 인코딩
+                        img_base64 = base64.b64encode(stdout_data).decode('utf-8')
+                        
+                        snapshot_data = {
+                            'rtsp_url': rtsp_url,
+                            'video_type': video_type,
+                            'timestamp': datetime.now().isoformat(),
+                            'image_data': img_base64
+                        }
+                        snapshot_images.append(snapshot_data)
+                        logger.info(f"Successfully captured snapshot from: {rtsp_url} (Type: {video_type})")
+                        print(f"Added snapshot to list. Total snapshots: {len(snapshot_images)}")
+                    else:
+                        error_msg = stderr_data.decode('utf-8') if stderr_data else "Unknown error"
+                        logger.error(f"FFmpeg failed for {rtsp_url}: {error_msg}")
+                        
+                except subprocess.TimeoutExpired:
+                    logger.error(f"FFmpeg timeout for {rtsp_url}")
+                    if process:
+                        process.kill()
+                        process.wait()
+                except Exception as e:
+                    logger.error(f"FFmpeg error for {rtsp_url}: {str(e)}")
+                
+            except Exception as e:
+                logger.error(f"Error capturing snapshot from {rtsp_url}: {str(e)}")
+                logger.error(f"Exception details: {traceback.format_exc()}")
+                continue
+        
+        print(f"Returning {len(snapshot_images)} snapshots from capture_video_snapshots")
+        return snapshot_images
+
     def run(self):
         logger.info("Starting VideoAlertChecker...")
         try:
@@ -636,25 +841,20 @@ class VideoAlertChecker:
                     if current_time - self.last_settings_check >= self.settings_check_interval:
                         self.get_alert_settings()
                         self.get_zone_list()
+                        self.get_camera_rtsp_sources()
                         self.last_settings_check = current_time
 
-                    # 시나리오 분기
-                    scenario = None
-                    if self.alert_settings and 'alert' in self.alert_settings and 'scenario' in self.alert_settings['alert']:
-                        scenario = self.alert_settings['alert']['scenario']
-                    else:
-                        scenario = 'scenario1'  # 기본값
-
-                    if scenario == 'scenario1':
-                        self.scenario1_judge()
-                    elif scenario == 'scenario2':
-                        self.scenario2_judge()
-                    elif scenario == 'scenario3':
-                        self.scenario3_judge()
-                    else:
-                        logger.warning(f"Unknown scenario: {scenario}")
+                    # 강제 종료 체크
+                    if self.force_exit:
+                        logger.info("Force exit requested, stopping main loop")
+                        break
                     
-                    time.sleep(1)  # Sleep for 1 second to prevent CPU overuse
+                    #전체 시나리오를 다 체크크
+                    self.scenario1_judge()
+                    # self.scenario2_judge()
+                    # self.scenario3_judge()
+                   
+                    time.sleep(self.data_check_interval)  # Sleep for 1 second to prevent CPU overuse
 
                 except Exception as e:
                     logger.error(f"Error in main loop: {str(e)}")

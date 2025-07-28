@@ -1,80 +1,89 @@
 <template lang="pug">
-.sidebar-root
-  .notification-status
-    v-container(fluid)
-      v-row
-        v-col(cols="12")
-          v-card.notification-card
-            .camera-status
-               
-            .camera-display-area
-              .display-box.left-box
-                .alert-history
-                  .alert-history-title
-                    | 경보 이력
-                    v-btn(
-                      icon
-                      :color="autoRefreshAlertHistory ? 'primary' : 'grey'"
-                      @click="toggleAlertHistoryRefresh"
-                      class="ml-2"
-                      small
-                    )
-                      v-icon {{ icons.mdiRefresh }}
-                  .alert-history-table
-                    .table-row(
-                      v-for="alert in alertHistory" 
-                      :key="alert.id"
-                      :class="{'alert-level-3': Number(alert.level) >= 3, 'alert-level-4': Number(alert.level) >= 4, 'alert-level-5': Number(alert.level) >= 5}"
-                    )
-                      .table-item
-                        .item-label 경보시간
-                        .item-value {{ alert.time }}
-                      .table-item
-                        .item-label 경보종류
-                        .item-value {{ getTypeText(alert.type) }}
-                      .table-item
-                        .item-label 경보단계
-                        .item-value {{ getLevelText(alert.level) }}
-                      .table-item
-                        .item-label 최고온도
-                        .item-value {{ alert.maxTemp }}°C
-                      .table-item
-                        .item-label 최저온도
-                        .item-value {{ alert.minTemp }}°C
-              .display-box.center-box
-                VideoCard(
-                  v-if="selectedCamera"
-                  :ref="`main-${selectedCamera.name}`"
-                  :key="`video-${selectedCamera.name}-${videoKey}`"
-                  :camera="selectedCamera"
-                  stream
-                  noLink
-                  hideNotifications
-                  hideIndicatorFullscreen
-                  :style="{ height: '100%' }"
-                )
-                .no-video(v-else)
-                  span.no-video-text 영상을 선택해주세요
-              .display-box.right-box
-                .right-box-content
-                  .top-box
-  
-                    .gauge-container
-                      .gauge-meter(ref="gaugeChart")
-                  .center-box
-                    .chart-title 최근 7일 경보건수
-                    .chart-container
-                      div(ref="alertChart" style="width:100%;height:200px;min-width:200px;min-height:200px;")
-                  .bottom-box
-                    .table-title 경보 이력
-                    .alert-table
-                      .table-header
-                        .header-cell 경보레벨
-                        .header-cell 발생일자
-                      .table-body
-                        .table-row(v-for="alert in alertHistory" :key="alert.id")
-                          .table-cell {{ getLevelText(alert.level) }}
-                          .table-cell {{ alert.time }}
+.alert-status-container
+  .left-sidebar
+    .time-layer
+      .location-info {{ location_info }}
+      .current-time {{ currentTime }}
+    .alert-history-layer
+      .layer-title
+        | 경보 이력
+        v-btn(
+          icon
+          :color="autoRefreshAlertHistory ? 'primary' : 'grey'"
+          @click="toggleAlertHistoryRefresh"
+          class="ml-2"
+          small
+        )
+          v-icon {{ icons.mdiRefresh }}
+      .alert-history-content
+        .alert-history-table
+          .table-row(
+            v-for="(alert, index) in alertHistory" 
+            :key="alert.id"
+            :class="getAlertRowClass(alert, index)"
+            @click="selectAlert(index)"
+          )
+            .table-item
+              .item-label 최고온도
+              .item-value {{ alert.maxTemp }}°C
+            .table-item
+              .item-label 최소온도
+              .item-value {{ alert.minTemp }}°C
+            .table-item
+              .item-label 평균온도
+              .item-value {{ (Number(alert.maxTemp) + Number(alert.minTemp)) / 2 | toFixed(2) }}°C
+            .table-item
+              .item-label 경보단계
+              .item-value {{ getLevelText(alert.level) }}
+            .table-item
+              .item-label 측정시간
+              .item-value {{ alert.time }}
+
+  .center-content
+    .top-image-box
+      .box-title 열화상 이미지 분석 결과({{ currentTime }})
+      .image-container
+        img.thermal-image(
+          v-if="thermalImageSrc"
+          :src="thermalImageSrc"
+          alt="열화상 이미지"
+        )
+        .thermal-image-placeholder(v-else)
+          .placeholder-text 열화상 이미지
+          .placeholder-subtext (DB에서 base64 이미지 로드 예정)
+    .bottom-image-box
+      .box-title 실화상 이미지
+      .image-container
+        img.visual-image(
+          v-if="visualImageSrc"
+          :src="visualImageSrc"
+          alt="실화상 이미지"
+        )
+        .visual-image-placeholder(v-else)
+          .placeholder-text 실화상 이미지
+          .placeholder-subtext (DB에서 base64 이미지 로드 예정)
+
+  .right-sidebar
+    .gauge-box
+      .box-title 현재 경보단계
+      .gauge-container
+        .gauge-meter(ref="gaugeChart")
+    
+    .chart-box
+      .box-title 최근 7일 경보 발령 수
+      .chart-container
+        div(ref="alertChart" style="width:100%;height:200px;min-width:200px;min-height:200px;")
+    
+    .history-box
+      .box-title 경보 발생(누수) 날짜 및 시간 이력
+      .alert-table
+        .table-header
+          .header-cell 경보레벨
+          .header-cell 발생일자
+        .table-body
+          .table-row(v-for="alert in alertHistory" :key="alert.id")
+            .table-cell {{ getLevelText(alert.level) }}
+            .table-cell {{ alert.time }}
 </template>
   
 <script>
@@ -111,7 +120,20 @@ export default {
     alertHistory: [],
     env: process.env.NODE_ENV,
     alertRefreshTimer: null,
-    autoRefreshAlertHistory: true
+    autoRefreshAlertHistory: true,
+    currentTime: '',
+    timeInterval: null,
+    location_info: '수자원공사 섬진강댐',
+    thermalImageSrc: null,
+    visualImageSrc: null,
+    selectedAlertIndex: 0,
+    siteDetails: {
+      maxTemp: '46.24',
+      minTemp: '19.73',
+      avgTemp: '41.31',
+      alertLevel: '4',
+      measurementTime: '2025-07-09 15:40:00'
+    }
   }),
 
   computed: {
@@ -119,6 +141,13 @@ export default {
       return this.selectedCameraIndex !== null && this.cameras.length > 0 
         ? this.cameras[this.selectedCameraIndex] 
         : null;
+    }
+  },
+  
+  filters: {
+    toFixed(value, decimals) {
+      if (isNaN(value)) return '0.00';
+      return Number(value).toFixed(decimals);
     }
   },
 
@@ -137,6 +166,8 @@ export default {
   async created() {
     console.log('Component created');
     if (this.$sidebar) this.$sidebar.close();
+    this.updateTime();
+    this.timeInterval = setInterval(this.updateTime, 1000);
     await this.initializeData();
     await this.loadAlertHistory();
   },
@@ -153,6 +184,9 @@ export default {
   },
 
   beforeDestroy() {
+    if (this.timeInterval) {
+      clearInterval(this.timeInterval);
+    }
     if (this.selectedCamera?.name) {
       this.$refs[this.selectedCamera.name]?.[0]?.destroy();
     }
@@ -168,6 +202,18 @@ export default {
   },
 
   methods: {
+    updateTime() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth() + 1;
+      const day = now.getDate();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      
+      this.currentTime = `${year}/${month}/${day} 오후 ${hours}:${minutes}:${seconds}`;
+    },
+    
     async initializeData() {
       try {
         await this.fetchCameras();
@@ -433,9 +479,16 @@ export default {
             type: alert.alert_type,
             level: alert.alert_level,
             maxTemp,
-            minTemp
+            minTemp,
+            snapshotImages: alert.snapshotImages
           }
         });
+
+        // 최신 경보의 snapshotImages 파싱하여 이미지 분류
+        if (this.alertHistory.length > 0) {
+          this.selectedAlertIndex = 0; // 최신 경보를 기본 선택
+          this.parseSnapshotImages(this.alertHistory[0].snapshotImages);
+        }
 
         // 최신 경보단계로 gaugeChart 값 반영 (한글 문구로)
         if (this.alertHistory.length > 0) {
@@ -545,6 +598,79 @@ export default {
       }
     },
 
+    getAlertRowClass(alert, index) {
+      return {
+        'alert-level-3': Number(alert.level) >= 3,
+        'alert-level-4': Number(alert.level) >= 4,
+        'alert-level-5': Number(alert.level) >= 5,
+        'selected-alert': this.selectedAlertIndex === index
+      };
+    },
+
+    selectAlert(index) {
+      if (index >= 0 && index < this.alertHistory.length) {
+        this.selectedAlertIndex = index;
+        const selectedAlert = this.alertHistory[index];
+        console.log('Selected alert:', selectedAlert);
+        this.parseSnapshotImages(selectedAlert.snapshotImages);
+      }
+    },
+
+    parseSnapshotImages(snapshotImagesJson) {
+      try {
+        if (!snapshotImagesJson) {
+          console.log('No snapshot images data');
+          this.thermalImageSrc = null;
+          this.visualImageSrc = null;
+          return;
+        }
+
+        const snapshotImages = JSON.parse(snapshotImagesJson);
+        console.log('Parsed snapshot images:', snapshotImages);
+
+        if (!Array.isArray(snapshotImages) || snapshotImages.length === 0) {
+          console.log('No snapshot images in array');
+          this.thermalImageSrc = null;
+          this.visualImageSrc = null;
+          return;
+        }
+
+        // video_type에 따라 이미지 분류
+        let thermalImage = null;
+        let visualImage = null;
+
+        for (const snapshot of snapshotImages) {
+          if (snapshot.video_type === '1' || snapshot.video_type === 1) {
+            thermalImage = snapshot;
+          } else if (snapshot.video_type === '2' || snapshot.video_type === 2) {
+            visualImage = snapshot;
+          }
+        }
+
+        // base64 이미지 소스 설정
+        if (thermalImage && thermalImage.image_data) {
+          this.thermalImageSrc = `data:image/jpeg;base64,${thermalImage.image_data}`;
+          console.log('Thermal image loaded');
+        } else {
+          this.thermalImageSrc = null;
+          console.log('No thermal image found');
+        }
+
+        if (visualImage && visualImage.image_data) {
+          this.visualImageSrc = `data:image/jpeg;base64,${visualImage.image_data}`;
+          console.log('Visual image loaded');
+        } else {
+          this.visualImageSrc = null;
+          console.log('No visual image found');
+        }
+
+      } catch (error) {
+        console.error('Error parsing snapshot images:', error);
+        this.thermalImageSrc = null;
+        this.visualImageSrc = null;
+      }
+    },
+
     toggleAlertHistoryRefresh() {
       this.autoRefreshAlertHistory = !this.autoRefreshAlertHistory;
       if (this.autoRefreshAlertHistory) {
@@ -558,421 +684,177 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.notification-status {
+.alert-status-container {
+  display: flex;
   height: 100vh;
-  background-color: #1e1e1e;
-  
-  .notification-card {
-    background-color: transparent !important;
-    height: 100%;
-    
-    .camera-status {
-      background-color: #2d2d2d;
-      border-radius: 8px;
-      margin-bottom: 10px;
-      padding: 2px;
-      
-      .status-header {
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        margin-bottom: 10px;
-        
-        .status-title {
-          font-size: 1.25rem;
-          color: #ffffff;
-          margin-right: auto;
-        }
-      }
+  background: #222736;
+  gap: 16px;
+  padding: 16px;
+  overflow: hidden;
+}
 
-      .camera-list-container {
-        width: 100%;
-        
-        .camera-grid {
-          display: flex;
-          flex-direction: row;
-          gap: 16px;
-          overflow-x: auto;
-          padding: 8px 0;
-          width: 100%;
-          
-          &::-webkit-scrollbar {
-            height: 8px;
-          }
-          
-          &::-webkit-scrollbar-track {
+.left-sidebar {
+  width: 25%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 250px;
+}
+
+.center-content {
+  width: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.right-sidebar {
+  width: 25%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex-shrink: 0;
+  min-width: 250px;
+}
+
+// Time Layer
+.time-layer {
+  background: #3659e2;
+  color: white;
+  padding: 15px;
+  text-align: center;
+  border-radius: 8px;
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  
+  .location-info {
+    font-size: 16px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+    line-height: 1.2;
+  }
+  
+  .current-time {
+    font-size: 18px;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  }
+}
+
+// Alert History Layer
+.alert-history-layer {
+  background: #2a3042;
+  color: white;
+  padding: 8px;
+  border-radius: 8px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  
+  .layer-title {
+    background: #666;
+    color: white;
+    font-weight: bold;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    text-align: left;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .alert-history-content {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    
+            .alert-history-table {
+          .table-row {
             background: #1e1e1e;
             border-radius: 4px;
-          }
-          
-          &::-webkit-scrollbar-thumb {
-            background: #3d3d3d;
-            border-radius: 4px;
+            margin-bottom: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s ease;
             
             &:hover {
-              background: #4d4d4d;
+              background: #2a2a2a;
+              transform: translateY(-1px);
+              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             }
-          }
-        }
-        
-        .camera-box {
-          min-width: 250px;
-          max-width: 350px;
-          flex: 0 0 auto;
-          background: #1e1e1e;
-          border: 1px solid #3d3d3d;
-          border-radius: 4px;
-          padding: 8px;
-          overflow: hidden;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          
-          &:hover {
-            transform: scale(1.02);
-          }
-          
-          &.active {
-            background: #3d3d3d;
-            border-color: var(--cui-primary);
-          }
-          
-          .camera-thumbnail {
-            width: 100px;
-            height: 80px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             
-            :deep(.video-card) {
-              width: 100px;
-              height: 80px;
-              background: transparent;
+            .table-item {
               display: flex;
-              align-items: center;
-              justify-content: center;
+              padding: 0;
+              border-bottom: 1px solid #2d2d2d;
               
-              .video-card-content {
-                border-radius: 4px;
-                width: 100px;
-                height: 80px;
+              &:last-child {
+                border-bottom: none;
+              }
+              
+              .item-label {
+                background: #535e6c;
+                color: #ffffff;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 8px 12px;
+                flex: 0 0 40%;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-
-                video, img {
-                  width: 100px;
-                  height: 80px;
-                  object-fit: contain;
-                }
               }
-            }
-          }
-          
-          .camera-info {
-            width: 100%;
-            padding: 4px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
-            
-            &:hover {
-              background: #3d3d3d;
-              border-radius: 4px;
-            }
-            
-            .camera-name {
-              color: #ffffff;
-              font-size: 0.7rem;
-              white-space: nowrap;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              text-align: center;
-            }
-          }
-        }
-      }
-    }
-
-    .camera-display-area {
-      flex: 1;
-      display: flex;
-      gap: 16px;
-      margin-top: auto;
-      height: calc(100vh - 200px);
-      
-      .display-box {
-        background-color: #2d2d2d;
-        border: 1px solid #3d3d3d;
-        border-radius: 4px;
-        height: 100%;
-
-        &.left-box {
-          width: 15%;
-          
-          .alert-history {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            
-            .alert-history-title {
-              padding: 12px;
-              font-size: 0.95rem;
-              color: #ffffff;
-              border-bottom: 1px solid #3d3d3d;
-              flex-shrink: 0;
-            }
-            
-            .alert-history-table {
-              flex: 1;
-              overflow-y: auto;
-              padding: 8px;
-              min-height: 0;
               
-              .table-row {
+              .item-value {
                 background: #1e1e1e;
-                border-radius: 4px;
-                margin-bottom: 8px;
-                
-                .table-item {
-                  display: flex;
-                  justify-content: space-between;
-                  padding: 6px 10px;
-                  border-bottom: 1px solid #2d2d2d;
-                  
-                  .item-label {
-                    color: #888888;
-                    font-size: 0.8rem;
-                  }
-                  
-                  .item-value {
-                    color: #ffffff;
-                    font-size: 0.8rem;
-                  }
-                }
-              }
-            }
-          }
-        }
-
-        &.center-box {
-          width: 60%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          overflow: hidden;
-          padding: 8px;
-          
-          position: relative;
-          height: 100%;
-          min-height: 400px;
-          
-          :deep(.video-card) {
-            width: 100%;
-            height: 100%;
-            background: transparent;
-            
-            .video-card-content {
-              border-radius: 4px;
-              overflow: hidden;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            }
-          }
-          
-          .no-video {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            text-align: center;
-            color: #666;
-          }
-        }
-
-        &.right-box {
-          width: 25%;
-          
-          .right-box-content {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            padding: 12px;
-
-            .top-box, .center-box, .bottom-box {
-              background: #1e1e1e;
-              border-radius: 4px;
-              padding: 12px;
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-            }
-
-            .gauge-title, .chart-title, .table-title {
-              color: #ffffff;
-              font-size: 0.45rem;
-              margin-bottom: 10px;
-              text-align: center;
-            }
-
-            .gauge-container {
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-
-              .gauge-meter {
-                width: 100%;
-                height: 240px;
-              }
-            }
-
-            .chart-container {
-              flex: 1;
-              position: relative;
-              height: 200px;
-            }
-
-            .bottom-box {
-              background: #1e1e1e;
-              border-radius: 4px;
-              padding: 12px;
-              flex: 1;
-              display: flex;
-              flex-direction: column;
-              min-height: 0;
-              height: 260px; /* 고정 높이 예시 */
-              max-height: 260px;
-
-              .table-title {
                 color: #ffffff;
-                font-size: 20px;
-                margin-bottom: 10px;
-                text-align: center;
-              }
-
-              .alert-table {
+                font-size: 12px;
+                padding: 8px 12px;
                 flex: 1;
                 display: flex;
-                flex-direction: column;
-                min-height: 0;
-                height: 100%;
-                overflow: hidden;
-
-                .table-header {
-                  display: flex;
-                  background: #2d2d2d;
-                  padding: 6px;
-                  border-radius: 4px 4px 0 0;
-                  margin-bottom: 1px;
-                  flex-shrink: 0;
-                  .header-cell {
-                    flex: 1;
-                    min-width: 60px;
-                    max-width: 120px;
-                    color: #ffffff;
-                    font-size: 14px;
-                    text-align: center;
-                    font-weight: 600;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                  }
-                }
-
-                .table-body {
-                  overflow-y: auto;
-                  flex: 1;
-                  min-height: 0;
-                  .table-row {
-                    display: flex;
-                    padding: 6px;
-                    border-bottom: 1px solid #2d2d2d;
-                    transition: background-color 0.2s;
-                    &:hover {
-                      background: #2d2d2d;
-                    }
-                    &:last-child {
-                      border-bottom: none;
-                    }
-                    .table-cell {
-                      flex: 1;
-                      min-width: 60px;
-                      max-width: 120px;
-                      color: #ffffff;
-                      font-size: 14px;
-                      text-align: center;
-                      white-space: nowrap;
-                      overflow: hidden;
-                      text-overflow: ellipsis;
-                      padding: 0 4px;
-                      &:first-child {
-                        color: #888888;
-                      }
-                    }
-                  }
-                }
-
-                .table-header .header-cell:nth-child(2),
-                .table-body .table-row .table-cell:nth-child(2) {
-                  min-width: 140px;
-                  max-width: 220px;
-                }
+                align-items: center;
+                justify-content: flex-start;
               }
+            }
+        
+        &.alert-level-3 {
+          animation: blink-amber 1s infinite;
+        }
+        &.alert-level-4 {
+          animation: blink-orange 1s infinite;
+        }
+        &.alert-level-5 {
+          animation: blink-red 1s infinite;
+        }
+        
+        &.selected-alert {
+          background: #3659e2 !important;
+          border: 2px solid #fff;
+          box-shadow: 0 0 10px rgba(54, 89, 226, 0.5);
+          
+          .table-item {
+            .item-label {
+              background: #2a3042;
+            }
+            
+            .item-value {
+              background: #3659e2;
+              color: #fff;
+              font-weight: bold;
             }
           }
         }
       }
-    }
-  }
-}
-
-.camera-box {
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    transform: scale(1.02);
-  }
-  
-  &.active {
-    border: 2px solid #4CAF50;
-  }
-}
-
-.display-box.center-box {
-  position: relative;
-  height: 100%;
-  min-height: 400px;
-  
-  .no-video {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
-    color: #666;
-  }
-}
-
-.alert-history-table {
-  .table-row {
-    &.alert-level-3 {
-      animation: blink-amber 1s infinite;
-    }
-    &.alert-level-4 {
-      animation: blink-orange 1s infinite;
-    }
-    &.alert-level-5 {
-      animation: blink-red 1s infinite;
     }
   }
 }
@@ -993,5 +875,197 @@ export default {
   0% { background-color: #1e1e1e; }
   50% { background-color: rgba(244, 67, 54, 0.2); }
   100% { background-color: #1e1e1e; }
+}
+
+
+
+// Center Content - Image Boxes
+.top-image-box, .bottom-image-box {
+  background: #2a3042;
+  border: 1px solid #2a3042;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.top-image-box {
+  flex: 1;
+}
+
+.bottom-image-box {
+  flex: 1;
+}
+
+.box-title {
+  background: #666;
+  color: #fff;
+  font-weight: bold;
+  padding: 8px 16px;
+  border-bottom: 2px solid #555;
+  border-radius: 8px 8px 0 0;
+  flex-shrink: 0;
+}
+
+.image-container {
+  flex: 1;
+  position: relative;
+  background: #000;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.thermal-image, .visual-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #000;
+}
+
+.thermal-image-placeholder, .visual-image-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #444;
+  
+  .placeholder-text {
+    color: #fff;
+    font-size: 24px;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+  
+  .placeholder-subtext {
+    color: #888;
+    font-size: 14px;
+    text-align: center;
+  }
+}
+
+// Right Sidebar
+.gauge-box, .chart-box, .history-box {
+  background: #2a3042;
+  border: 1px solid #2a3042;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.gauge-box {
+  height: 300px;
+}
+
+.chart-box {
+  height: 250px;
+}
+
+.history-box {
+  flex: 1;
+}
+
+.gauge-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+}
+
+.gauge-meter {
+  width: 100%;
+  height: 240px;
+  min-width: 180px;
+  min-height: 180px;
+}
+
+.chart-container {
+  flex: 1;
+  padding: 16px;
+  background: #2a3042;
+}
+
+.alert-table {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+
+  .table-header {
+    display: flex;
+    background: #444;
+    font-weight: bold;
+    flex-shrink: 0;
+    
+    .header-cell {
+      flex: 1;
+      text-align: center;
+      color: #fff;
+      padding: 8px 0;
+      font-size: 12px;
+    }
+  }
+  
+  .table-body {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    
+    .table-row {
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #333;
+      transition: background 0.2s;
+      
+      &:hover {
+        background: #333;
+      }
+      
+      .table-cell {
+        flex: 1;
+        text-align: center;
+        color: #eee;
+        padding: 6px 0;
+        font-size: 12px;
+        
+        .level-icon {
+          margin-right: 4px;
+        }
+      }
+      
+      &.level-4 { background: rgba(255,75,75,0.15);}
+      &.level-3 { background: rgba(255,138,0,0.10);}
+      &.level-2 { background: rgba(255,184,0,0.10);}
+      &.level-1 { background: rgba(75,123,229,0.10);}
+    }
+  }
+}
+
+@media (max-width: 1200px) {
+  .alert-status-container {
+    flex-direction: column;
+    height: auto;
+    gap: 8px;
+  }
+  
+  .left-sidebar, .right-sidebar {
+    width: 100%;
+  }
+  
+  .center-content {
+    min-height: 400px;
+  }
 }
 </style>

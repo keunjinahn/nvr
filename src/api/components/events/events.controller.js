@@ -279,6 +279,7 @@ export const getAllDetectionZones = async (req, res) => {
       regions: JSON.parse(zone.zone_segment_json || '[]'),
       options: JSON.parse(zone.zone_params_json || '{}'),
       active: zone.zone_active,
+      alertLevel: zone.alert_level,
       createDate: zone.create_date,
       updateDate: zone.update_date
     }));

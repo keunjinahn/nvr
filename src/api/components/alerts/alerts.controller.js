@@ -155,7 +155,7 @@ export const getAlertSettings = async (req, res) => {
 export const saveAlertSettings = async (req, res) => {
   try {
     const { alert_setting_json, fk_user_id } = req.body.settings;
-    // console.log('----------> saveAlertSettings', req.body);
+    console.log('----------> saveAlertSettings', req.body);
     let setting = await AlertSetting.findOne({ where: { fk_user_id } });
     if (setting) {
       // update

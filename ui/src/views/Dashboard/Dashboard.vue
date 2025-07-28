@@ -24,12 +24,11 @@
             .status-button.check
               .status-icon 🔍
               .status-text 점검
-            .status-button.prepare
+            .status-button.prepare.active
               .status-icon 🔔
               .status-text 대비
       .topleft-inner-right
         .map-image-container(v-if="mapImagePreview")
-          .map-title 지도 이미지
           v-img(
             :src="mapImagePreview"
             height="100%"
@@ -76,17 +75,18 @@
                 @click="showChart(zone)"
               )
                 td {{ zone.zone_desc }}
-                td {{ zone.maxTemp }}
-                td {{ zone.minTemp }}
-                td {{ zone.avgTemp }}
+                td 최대온도: {{ zone.maxTemp }}
+                td 최소온도: {{ zone.minTemp }}
+                td 평균온도: {{ zone.avgTemp }}
+                td 경보단계: {{ zone.alertLevel }}
                 td
                   span.icon-chart 📈
                 td
                   span.icon-excel(@click.stop="downloadExcel(zone)") 📊
       .bottomleft-inner-bottom
-        .box-title 시계열 온도 데이터
-        .chart-container
-          v-chart(:options="chartOption" autoresize ref="trendChart" style="width:100%;height:160%;background:var(--cui-bg-card);")
+          .box-title 시계열 온도 데이터
+          .chart-container
+            v-chart(:options="chartOption" autoresize ref="trendChart" class="trend-chart")
   .cell.cell-bottomright
     .box-title 실화상 영상
     .video-container
@@ -193,7 +193,6 @@ computed: {
     const minTemps = temps.map(t => Number(t.min));
     const maxTemps = temps.map(t => Number(t.max));
     const avgTemps = temps.map(t => Number(t.avg));
-
     console.log('Processed data:', {
       times: times.length,
       minTemps: minTemps.length,
@@ -757,14 +756,14 @@ methods: {
   grid-template-rows: 1fr 1fr;
   gap: 16px;
   height: calc(100vh - 32px);
-  background: #222;
+  background: #222736;
   padding: 16px;
   overflow: hidden;
 }
 
 .cell {
-  background: #333;
-  border: 2px solid #555;
+  background: #2a3042;
+  border: 1px solid #2a3042;
   border-radius: 8px;
   display: flex;
   flex-direction: column;
@@ -850,7 +849,7 @@ methods: {
 .bottomleft-inner-bottom {
   flex: 1;
   border-radius: 0 0 8px 8px;
-  background: transparent;
+  background: #2a3042;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -894,7 +893,7 @@ methods: {
 }
 
 .time-layer {
-  background: #0066cc;
+  background: #3659e2;
   color: white;
   padding: 15px;
   text-align: center;
@@ -905,30 +904,29 @@ methods: {
   justify-content: center;
   flex-shrink: 0;
   
+  
   .current-time {
     font-size: 20px;
-    font-weight: bold;
-    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+    color: white;
   }
 }
 
 .site-info-layer {
-  background: #333;
+  background: #2a3042;
   color: white;
   padding: 0px;
-  border-top: 1px solid #555;
-  height: 60%;
+  border-top: 1px solid #2a3042;
+  height: 50%;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  
+  margin: 5px 0;
   .layer-title {
     background: #666;
     color: white;
     font-weight: bold;
     padding: 8px 10px;
     margin-bottom: 10px;
-    font-size: 14px;
     text-align: left;
   }
   
@@ -949,15 +947,16 @@ methods: {
 }
 
 .leak-status-layer {
-  background: #333;
+  background: #2a3042;
   color: white;
   padding: 0px;
-  border-top: 1px solid #555;
+  border-top: 1px solid #2a3042;
   border-radius: 0 0 0 8px;
-  height: 20%;
+  height: 30%;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  margin: 5px 0 !important;
   
   .layer-title {
     background: #666;
@@ -973,6 +972,7 @@ methods: {
     flex: 1;
     display: flex;
     gap: 8px;
+    margin-top: -20px;
     padding: 0px 10px;
     align-items: center;
     justify-content: center;
@@ -985,8 +985,6 @@ methods: {
       justify-content: center;
       padding: 8px 4px;
       border-radius: 6px;
-      background: transparent !important;
-
       transition: all 0.3s ease;
       cursor: pointer;
       
@@ -996,47 +994,77 @@ methods: {
       }
       
       &.safe {
-        background: #2d5a2d;
-        border-color: #4caf50;
+        background: transparent;
+        border-color: transparent;
         
         &:hover {
-          background: #3d6a3d;
+          background: rgba(76, 175, 80, 0.2);
+        }
+        
+        &.active {
+          background: #4caf50;
+          border: 2px solid #fff;
+          box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
       }
       
       &.attention {
-        background: #2d4a5a;
-        border-color: #2196f3;
+        background: transparent;
+        border-color: transparent;
         
         &:hover {
-          background: #3d5a6a;
+          background: rgba(33, 150, 243, 0.2);
+        }
+        
+        &.active {
+          background: #2196f3;
+          border: 2px solid #fff;
+          box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
       }
       
       &.caution {
-        background: #5a4a2d;
-        border-color: #ff9800;
+        background: transparent;
+        border-color: transparent;
         
         &:hover {
-          background: #6a5a3d;
+          background: rgba(255, 152, 0, 0.2);
+        }
+        
+        &.active {
+          background: #ff9800;
+          border: 2px solid #fff;
+          box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
       }
       
       &.check {
-        background: #5a2d4a;
-        border-color: #9c27b0;
+        background: transparent;
+        border-color: transparent;
         
         &:hover {
-          background: #6a3d5a;
+          background: rgba(244, 67, 54, 0.2);
+        }
+        
+        &.active {
+          background: #f44336;
+          border: 2px solid #fff;
+          box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
       }
       
       &.prepare {
-        background: #5a2d2d;
-        border-color: #f44336;
+        background: transparent;
+        border-color: transparent;
         
         &:hover {
-          background: #6a3d3d;
+          background: rgba(227, 77, 77, 0.2);
+        }
+        
+        &.active {
+          background: #e34d4d;
+          border: 2px solid #fff;
+          box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
         }
       }
       
@@ -1068,6 +1096,7 @@ methods: {
   th {
     background: #444;
     color: #fff;
+    display: none;
   }
 
   tr {
@@ -1075,11 +1104,16 @@ methods: {
     transition: background-color 0.3s;
 
     &:hover {
-      background-color: #333;
+      background-color: #444d67;
     }
 
     &.selected {
-      background-color: #2c2c2c;
+      background-color: #444d67;
+    }
+
+    td:first-child {
+      background-color: #535e6c;
+      font-weight: bold;
     }
   }
 
@@ -1098,13 +1132,19 @@ methods: {
   flex: 1;
   min-height: 0;
   padding: 2vw 1vw 1vw 1vw;
-  background: var(--cui-bg-card);
+  background: #2a3042;
   border-radius: 0 0 8px 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-top: 0;
-  height: 28vh;
+  height: 100%;
+
+  .trend-chart {
+    width: 100%;
+    height:215px;
+    background: #2a3042;
+  }
 
   .no-data {
     color: #888;
@@ -1243,29 +1283,18 @@ methods: {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: 0;
   background: #333;
   border-radius: 0 8px 8px 0;
-
-  .map-title {
-    background: #666;
-    color: #fff;
-    font-weight: bold;
-    padding: 8px 16px;
-    border-bottom: 2px solid #555;
-    border-radius: 8px 8px 0 0;
-    flex-shrink: 0;
-    text-align: center;
-  }
-
+  margin-left: 3px;
   .map-preview-image {
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     background: #222;
-    border-radius: 0 0 8px 8px;
-    margin-top: 0;
+    border-radius: 0 8px 8px 0;
+
   }
 }
 

@@ -196,6 +196,7 @@ export const getRoiDataList = async (req, res) => {
           maxTemp: '--',
           minTemp: '--',
           avgTemp: '--',
+          alertLevel: zone.alert_level,
           temps: []
         }))
       });
@@ -266,6 +267,7 @@ export const getRoiDataList = async (req, res) => {
         maxTemp,
         minTemp,
         avgTemp,
+        alertLevel: zone.alert_level,
         temps: temps.reverse() // Reverse to get chronological order
       };
     });
