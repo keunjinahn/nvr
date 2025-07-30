@@ -41,16 +41,26 @@
 
   .center-content
     .top-image-box
-      .box-title 열화상 이미지 분석 결과({{ currentTime }})
+      .box-title 열화상 이미지 분석 결과({{ lastEventTime }})
       .image-container
         img.thermal-image(
           v-if="thermalImageSrc"
           :src="thermalImageSrc"
           alt="열화상 이미지"
+          @load="onThermalImageLoad"
         )
         .thermal-image-placeholder(v-else)
           .placeholder-text 열화상 이미지
           .placeholder-subtext (DB에서 base64 이미지 로드 예정)
+        // Zone 박스 오버레이
+        .zone-overlay(v-if="thermalImageSrc && zoneBoxes.length > 0")
+          .zone-box(
+            v-for="(zone, index) in zoneBoxes"
+            :key="index"
+            :style="getZoneBoxStyle(zone)"
+            :class="{ 'active-zone': zone.zone_type === selectedAlertZoneType }"
+            @click="onZoneBoxClick(zone)"
+          )
     .bottom-image-box
       .box-title 실화상 이미지
       .image-container
@@ -84,6 +94,40 @@
           .table-row(v-for="alert in alertHistory" :key="alert.id")
             .table-cell {{ getLevelText(alert.level) }}
             .table-cell {{ alert.time }}
+
+  // ROI 데이터 팝업 다이얼로그
+  v-dialog(
+    v-model="showRoiDataDialog"
+    max-width="1000px"
+    persistent
+  )
+    v-card.roi-dialog-card
+      v-card-title.roi-dialog-title
+        .title-content
+          .main-title ROI {{ selectedRoiNumber }} 시계열 데이터
+          .sub-title 열화상 이미지 분석 결과
+        v-spacer
+        v-btn.close-btn(icon @click="closeRoiDataDialog")
+          v-icon mdi-close
+      v-card-text.roi-dialog-content
+        .roi-data-container
+          .temperature-summary(v-if="roiTimeSeriesData.length > 0")
+            .summary-item
+              .item-label 최대온도
+              .item-value {{ roiTemperatureStats.maxTemp }}°C
+            .summary-item
+              .item-label 최소온도
+              .item-value {{ roiTemperatureStats.minTemp }}°C
+            .summary-item
+              .item-label 평균온도
+              .item-value {{ roiTemperatureStats.avgTemp }}°C
+          .chart-container(v-if="roiTimeSeriesData.length > 0")
+            div(ref="roiTimeSeriesChart" style="width:100%;height:400px;")
+          .no-data(v-else)
+            .no-data-text 데이터가 없습니다.
+      v-card-actions.roi-dialog-actions
+        v-spacer
+        v-btn.close-action-btn(color="primary" @click="closeRoiDataDialog") 닫기
 </template>
   
 <script>
@@ -127,12 +171,25 @@ export default {
     thermalImageSrc: null,
     visualImageSrc: null,
     selectedAlertIndex: 0,
+    zoneBoxes: [],
+    selectedAlertZoneType: null,
+    thermalImageSize: { width: 0, height: 0 },
     siteDetails: {
       maxTemp: '46.24',
       minTemp: '19.73',
       avgTemp: '41.31',
       alertLevel: '4',
       measurementTime: '2025-07-09 15:40:00'
+    },
+    // ROI 데이터 팝업 관련
+    showRoiDataDialog: false,
+    selectedRoiNumber: null,
+    roiTimeSeriesData: [],
+    roiTimeSeriesChart: null,
+    roiTemperatureStats: {
+      maxTemp: 0,
+      minTemp: 0,
+      avgTemp: 0
     }
   }),
 
@@ -141,6 +198,21 @@ export default {
       return this.selectedCameraIndex !== null && this.cameras.length > 0 
         ? this.cameras[this.selectedCameraIndex] 
         : null;
+    },
+    
+    lastEventTime() {
+      if (this.alertHistory.length === 0) {
+        return this.currentTime;
+      }
+      
+      // 선택된 경보가 있으면 해당 경보의 시간, 없으면 마지막 이벤트의 시간 반환
+      if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.alertHistory.length) {
+        const selectedAlert = this.alertHistory[this.selectedAlertIndex];
+        return selectedAlert.time || this.currentTime;
+      } else {
+        const lastEvent = this.alertHistory[this.alertHistory.length - 1];
+        return lastEvent.time || this.currentTime;
+      }
     }
   },
   
@@ -180,6 +252,9 @@ export default {
       this.initGaugeChart();
       this.loadAlertChart();
     });
+    
+    // 윈도우 resize 이벤트 리스너 추가
+    window.addEventListener('resize', this.handleWindowResize);
     //this.startAlertRefresh();
   },
 
@@ -197,6 +272,7 @@ export default {
       this.gaugeChart.dispose();
     }
     window.removeEventListener('resize', this.handleChartResize);
+    window.removeEventListener('resize', this.handleWindowResize);
     this.$socket.client.off('connect', this.handleSocketConnect);
     this.stopAlertRefresh();
   },
@@ -459,6 +535,13 @@ export default {
       }
     },
 
+    handleWindowResize() {
+      // 윈도우 크기 변경 시 zone 박스 위치 재계산
+      this.$nextTick(() => {
+        this.updateZoneBoxes();
+      });
+    },
+
     async loadAlertHistory() {
       try {
         // 1페이지 20개만 요청
@@ -480,7 +563,8 @@ export default {
             level: alert.alert_level,
             maxTemp,
             minTemp,
-            snapshotImages: alert.snapshotImages
+            snapshotImages: alert.snapshotImages,
+            alert_info_json: alert.alert_info_json
           }
         });
 
@@ -488,6 +572,7 @@ export default {
         if (this.alertHistory.length > 0) {
           this.selectedAlertIndex = 0; // 최신 경보를 기본 선택
           this.parseSnapshotImages(this.alertHistory[0].snapshotImages);
+          this.updateZoneBoxes();
         }
 
         // 최신 경보단계로 gaugeChart 값 반영 (한글 문구로)
@@ -613,6 +698,7 @@ export default {
         const selectedAlert = this.alertHistory[index];
         console.log('Selected alert:', selectedAlert);
         this.parseSnapshotImages(selectedAlert.snapshotImages);
+        this.updateZoneBoxes();
       }
     },
 
@@ -677,6 +763,291 @@ export default {
         this.startAlertRefresh();
       } else {
         this.stopAlertRefresh();
+      }
+    },
+
+    onThermalImageLoad(event) {
+      console.log('onThermalImageLoad', event);
+      // 고정된 640x480 크기 사용
+      this.thermalImageSize = {
+        width: 640,
+        height: 480
+      };
+      
+      // 이미지 렌더링 완료 후 zone 박스 업데이트
+      this.$nextTick(() => {
+        setTimeout(() => {
+          this.updateZoneBoxes();
+        }, 100);
+      });
+    },
+
+    updateZoneBoxes() {
+      if (this.alertHistory.length === 0 || this.selectedAlertIndex >= this.alertHistory.length) {
+        this.zoneBoxes = [];
+        return;
+      }
+
+      const selectedAlert = this.alertHistory[this.selectedAlertIndex];
+      try {
+        const alertInfo = selectedAlert.alert_info_json ? JSON.parse(selectedAlert.alert_info_json) : {};
+        const zoneList = alertInfo.zone_list || [];
+        this.selectedAlertZoneType = alertInfo.zone_type;
+
+        // zone_list에서 박스 정보 추출
+        this.zoneBoxes = zoneList.map(zone => {
+          if (typeof zone === 'object' && zone !== null) {
+            return {
+              left: zone.left || zone.x1 || 0,
+              top: zone.top || zone.y1 || 0,
+              right: zone.right || zone.x2 || 0,
+              bottom: zone.bottom || zone.y2 || 0,
+              zone_type: zone.zone_type || zone.type || '1'
+            };
+          }
+          return null;
+        }).filter(zone => zone !== null);
+
+        console.log('Zone boxes updated:', this.zoneBoxes);
+        console.log('Selected alert zone type:', this.selectedAlertZoneType);
+      } catch (error) {
+        console.error('Error parsing zone list:', error);
+        this.zoneBoxes = [];
+      }
+    },
+
+    getZoneBoxStyle(zone) {
+      // 640x480 고정 크기에 맞춰 오버레이 위치 계산
+      // 오버레이가 이미지와 정확히 겹치므로 zone 좌표를 직접 사용
+      return {
+        position: 'absolute',
+        left: `${zone.left}px`,
+        top: `${zone.top}px`,
+        width: `${zone.right - zone.left}px`,
+        height: `${zone.bottom - zone.top}px`
+      };
+    },
+
+    // Zone 박스 클릭 이벤트
+    onZoneBoxClick(zone) {
+      console.log('Zone box clicked:', zone);
+      this.selectedRoiNumber = zone.zone_type;
+      this.showRoiDataDialog = true;
+      this.loadRoiTimeSeriesData(zone.zone_type);
+    },
+
+    // ROI 시계열 데이터 로드
+    async loadRoiTimeSeriesData(roiNumber) {
+      try {
+        console.log('Loading ROI time series data for:', roiNumber);
+        
+        // API 호출 (실제 API 엔드포인트에 맞게 수정 필요)
+        // const response = await getRoiTimeSeriesData(roiNumber);
+        
+        // 임시 데이터 생성 (실제 API 연동 시 제거)
+        this.generateMockRoiData(roiNumber);
+        
+        this.$nextTick(() => {
+          this.initRoiTimeSeriesChart();
+        });
+      } catch (error) {
+        console.error('Error loading ROI time series data:', error);
+        this.$toast.error('ROI 데이터를 불러오는데 실패했습니다.');
+      }
+    },
+
+    // 임시 데이터 생성 (실제 API 연동 시 제거)
+    generateMockRoiData(roiNumber) {
+      const now = new Date();
+      const data = [];
+      
+      for (let i = 24; i >= 0; i--) {
+        const time = new Date(now.getTime() - i * 60 * 60 * 1000); // 1시간 간격
+        const temperature = 20 + Math.random() * 30 + (roiNumber * 2); // ROI 번호에 따른 온도 변화
+        
+        data.push({
+          time: time.toISOString(),
+          temperature: parseFloat(temperature.toFixed(2)),
+          roiNumber: roiNumber
+        });
+      }
+      
+      this.roiTimeSeriesData = data;
+      this.calculateTemperatureStats();
+      console.log('Generated mock ROI data:', data);
+    },
+
+    // 온도 통계 계산
+    calculateTemperatureStats() {
+      if (this.roiTimeSeriesData.length === 0) {
+        this.roiTemperatureStats = { maxTemp: 0, minTemp: 0, avgTemp: 0 };
+        return;
+      }
+
+      const temperatures = this.roiTimeSeriesData.map(item => item.temperature);
+      const maxTemp = Math.max(...temperatures);
+      const minTemp = Math.min(...temperatures);
+      const avgTemp = temperatures.reduce((sum, temp) => sum + temp, 0) / temperatures.length;
+
+      this.roiTemperatureStats = {
+        maxTemp: parseFloat(maxTemp.toFixed(2)),
+        minTemp: parseFloat(minTemp.toFixed(2)),
+        avgTemp: parseFloat(avgTemp.toFixed(2))
+      };
+
+      console.log('Temperature stats:', this.roiTemperatureStats);
+    },
+
+    // ROI 시계열 차트 초기화
+    initRoiTimeSeriesChart() {
+      const chartDom = this.$refs.roiTimeSeriesChart;
+      if (!chartDom) return;
+      
+      if (this.roiTimeSeriesChart) {
+        this.roiTimeSeriesChart.dispose();
+      }
+      
+      this.roiTimeSeriesChart = echarts.init(chartDom);
+      
+      const timeData = this.roiTimeSeriesData.map(item => {
+        const date = new Date(item.time);
+        return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+      });
+      
+      const temperatureData = this.roiTimeSeriesData.map(item => item.temperature);
+      
+      const option = {
+        backgroundColor: 'transparent',
+        title: {
+          text: `ROI ${this.selectedRoiNumber} 온도 변화 추이`,
+          textStyle: {
+            color: '#ffffff',
+            fontSize: 18,
+            fontWeight: 'bold'
+          },
+          left: 'center',
+          top: 10
+        },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          borderColor: '#ff6b6b',
+          borderWidth: 1,
+          textStyle: {
+            color: '#ffffff'
+          },
+          axisPointer: {
+            type: 'cross',
+            lineStyle: {
+              color: '#ff6b6b',
+              width: 1
+            }
+          },
+          formatter: function (params) {
+            const data = params[0];
+            return `<div style="padding: 8px;">
+              <div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>
+              <div style="color: #ff6b6b;">온도: ${data.value}°C</div>
+            </div>`;
+          }
+        },
+        grid: {
+          left: '5%',
+          right: '5%',
+          bottom: '10%',
+          top: '15%',
+          containLabel: true
+        },
+        xAxis: {
+          type: 'category',
+          data: timeData,
+          axisLine: {
+            lineStyle: {
+              color: '#666666',
+              width: 2
+            }
+          },
+          axisTick: {
+            lineStyle: {
+              color: '#666666'
+            }
+          },
+          axisLabel: {
+            color: '#ffffff',
+            fontSize: 12,
+            rotate: 45
+          }
+        },
+        yAxis: {
+          type: 'value',
+          name: '온도 (°C)',
+          nameTextStyle: {
+            color: '#ffffff',
+            fontSize: 14,
+            fontWeight: 'bold'
+          },
+          axisLine: {
+            lineStyle: {
+              color: '#666666',
+              width: 2
+            }
+          },
+          axisTick: {
+            lineStyle: {
+              color: '#666666'
+            }
+          },
+          axisLabel: {
+            color: '#ffffff',
+            fontSize: 12
+          },
+          splitLine: {
+            lineStyle: {
+              color: 'rgba(255, 255, 255, 0.1)',
+              type: 'dashed'
+            }
+          }
+        },
+        series: [{
+          name: '온도',
+          type: 'line',
+          data: temperatureData,
+          smooth: true,
+          symbol: 'circle',
+          symbolSize: 6,
+          lineStyle: {
+            color: '#ff6b6b',
+            width: 4,
+            shadowColor: 'rgba(255, 107, 107, 0.3)',
+            shadowBlur: 10
+          },
+          itemStyle: {
+            color: '#ff6b6b',
+            borderColor: '#ffffff',
+            borderWidth: 2
+          },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(255, 107, 107, 0.4)' },
+              { offset: 0.5, color: 'rgba(255, 107, 107, 0.2)' },
+              { offset: 1, color: 'rgba(255, 107, 107, 0.05)' }
+            ])
+          }
+        }]
+      };
+      
+      this.roiTimeSeriesChart.setOption(option);
+    },
+
+    // ROI 데이터 다이얼로그 닫기
+    closeRoiDataDialog() {
+      this.showRoiDataDialog = false;
+      this.selectedRoiNumber = null;
+      this.roiTimeSeriesData = [];
+      
+      if (this.roiTimeSeriesChart) {
+        this.roiTimeSeriesChart.dispose();
+        this.roiTimeSeriesChart = null;
       }
     }
   }
@@ -919,12 +1290,61 @@ export default {
   padding: 16px;
 }
 
-.thermal-image, .visual-image {
+.thermal-image {
+  width: 640px;
+  height: 480px;
+  object-fit: fill;
+  border-radius: 8px;
+  background: #000;
+}
+
+.visual-image {
   width: 100%;
   height: 100%;
   object-fit: contain;
   border-radius: 8px;
   background: #000;
+}
+
+.zone-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 640px;
+  height: 480px;
+  pointer-events: none;
+  z-index: 10;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.zone-box {
+  position: absolute;
+  border: 2px solid #00ff00;
+  background-color: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 0.3s ease;
+  
+  &:hover {
+    border-color: #ffff00;
+    background-color: rgba(255, 255, 0, 0.2);
+    box-shadow: 0 0 8px rgba(255, 255, 0, 0.4);
+  }
+  
+  &.active-zone {
+    border-color: #ff0000;
+    background-color: rgba(255, 0, 0, 0.3);
+    box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+    
+    &:hover {
+      border-color: #ff6666;
+      background-color: rgba(255, 102, 102, 0.4);
+      box-shadow: 0 0 12px rgba(255, 102, 102, 0.6);
+    }
+  }
 }
 
 .thermal-image-placeholder, .visual-image-placeholder {
@@ -1066,6 +1486,121 @@ export default {
   
   .center-content {
     min-height: 400px;
+  }
+}
+
+// ROI 데이터 팝업 스타일
+.roi-dialog-card {
+  background: #2a3042 !important;
+  border-radius: 12px;
+  overflow: hidden;
+  
+  .roi-dialog-title {
+    background: linear-gradient(135deg, #3659e2 0%, #764ba2 100%);
+    color: white;
+    padding: 20px 24px;
+    border-bottom: 1px solid #444;
+    
+    .title-content {
+      .main-title {
+        font-size: 20px;
+        font-weight: bold;
+        margin-bottom: 4px;
+      }
+      
+      .sub-title {
+        font-size: 14px;
+        opacity: 0.8;
+      }
+    }
+    
+    .close-btn {
+      color: white;
+      
+      &:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+    }
+  }
+  
+  .roi-dialog-content {
+    padding: 24px;
+    background: #2a3042;
+    
+    .roi-data-container {
+      .temperature-summary {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 24px;
+        padding: 16px;
+        background: #1e1e1e;
+        border-radius: 8px;
+        border: 1px solid #444;
+        
+        .summary-item {
+          flex: 1;
+          text-align: center;
+          padding: 12px;
+          background: #2a3042;
+          border-radius: 6px;
+          border: 1px solid #555;
+          
+          .item-label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+            font-weight: 500;
+          }
+          
+          .item-value {
+            font-size: 18px;
+            color: #ff6b6b;
+            font-weight: bold;
+          }
+        }
+      }
+      
+      .chart-container {
+        background: #1e1e1e;
+        border-radius: 12px;
+        padding: 20px;
+        border: 1px solid #444;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      }
+      
+      .no-data {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 200px;
+        background: #1e1e1e;
+        border-radius: 8px;
+        border: 1px solid #444;
+        
+        .no-data-text {
+          color: #888;
+          font-size: 16px;
+        }
+      }
+    }
+  }
+  
+  .roi-dialog-actions {
+    padding: 16px 24px;
+    background: #2a3042;
+    border-top: 1px solid #444;
+    
+    .close-action-btn {
+      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+      color: white;
+      border-radius: 6px;
+      padding: 8px 24px;
+      font-weight: 500;
+      
+      &:hover {
+        background: linear-gradient(135deg, #ff5252 0%, #d32f2f 100%);
+      }
+    }
   }
 }
 </style>

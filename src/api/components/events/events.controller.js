@@ -54,6 +54,7 @@ function sendPacketToCamera(packet, cameraIp, cameraPort) {
 }
 
 async function sendRoiSetting(roiIndex, startX, startY, endX, endY, cameraIp, cameraPort, roiEnable) {
+  roiIndex += 1; //인덱스에서 1씩 더해줘야함함
   try {
     console.log('[sendRoiSetting] Sending ROI settings:', {
       roiIndex,

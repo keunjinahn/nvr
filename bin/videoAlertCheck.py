@@ -242,7 +242,10 @@ class VideoAlertChecker:
                         for idx, min_roi in enumerate(roi_values):
                             #print("min_roi : ", min_roi, "levelItem : ", levelItem['threshold'])
                             if min_roi['value'] < float(levelItem['threshold']):
-                                self.create_alert(data['id'],data_value,idx, min_roi, int(levelItem['id']) -1, None)
+                                # zone_type 계산 (ROI 키에서 추출)
+                                roi_num = int(min_roi['key'].split('_')[1])
+                                zone_type = str((roi_num - 22) // 2 + 1) if roi_num >= 22 else None
+                                self.create_alert(data['id'],data_value,idx, min_roi, int(levelItem['id']) -1, None, zone_type=zone_type)
                                 break
 
                 except json.JSONDecodeError:
@@ -256,7 +259,7 @@ class VideoAlertChecker:
             if cursor:
                 cursor.close()
 
-    def create_alert(self, fk_video_receive_data_id, data_value, idx, min_roi, alert_level, temperature_diff=None, base_temperature=None, roi_temperature_diff=None, roi_min_temp=None, roi_max_temp=None):
+    def create_alert(self, fk_video_receive_data_id, data_value, idx, min_roi, alert_level, temperature_diff=None, base_temperature=None, roi_temperature_diff=None, roi_min_temp=None, roi_max_temp=None, zone_type=None):
         try:
             cursor = self.get_db_cursor()
             if not cursor:
@@ -297,7 +300,9 @@ class VideoAlertChecker:
                 'alert_level': alert_level,
                 'check_time': datetime.now().isoformat(),
                 'temperature_diff': temperature_diff,
-                'temperature_diff_desc': temp_desc
+                'temperature_diff_desc': temp_desc,
+                'zone_list': self.zone_list,  # 전체 zone_list 정보 추가
+                'zone_type': zone_type  # 현재 처리 중인 zone_type 추가
             }
             print("alert_info : ", alert_info)
             query = """
@@ -364,20 +369,26 @@ class VideoAlertChecker:
                 logger.warning("No active zone types found for scenario1_judge")
                 return False, None
 
-            # 3. ROI 값 추출 및 반복 (zone_type 기반)
+            # 3. ROI 값 추출 및 반복 (zone_segment_json 기반)
             current_info = json.loads(current['data_value'])
             
-            # zone_type을 기반으로 ROI 쌍 생성
+            # zone_segment_json을 기반으로 ROI 쌍 생성
             roi_pairs = []
-            for zone_type in self.zone_list:
+            for zone_segment in self.zone_list:
                 try:
+                    # zone_segment에서 zone_type 정보 추출
+                    if isinstance(zone_segment, dict):
+                        zone_type = zone_segment.get('zone_type', zone_segment.get('type', '1'))
+                    else:
+                        zone_type = str(zone_segment)
+                    
                     # zone_type을 숫자로 변환하여 ROI 인덱스 계산
                     zone_num = int(zone_type)
                     min_idx = 22 + (zone_num - 1) * 2  # zone1: 22,23, zone2: 24,25, ...
                     max_idx = min_idx + 1
                     roi_pairs.append((min_idx, max_idx, zone_type))
-                except ValueError:
-                    logger.warning(f"Invalid zone_type format: {zone_type}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid zone_segment format: {zone_segment}, error: {e}")
                     continue
 
             # scenario1의 4단계 기준값 가져오기
@@ -397,15 +408,15 @@ class VideoAlertChecker:
                         logger.info(f"Zone {zone_type} ROI {min_key}/{max_key} 최대-최소값 차이: {diff}℃ (최대: {max_val}, 최소: {min_val})")
                         
                         # 4단계 기준값과 비교하여 alert_level 결정
-                        self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff)
+                        self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff, zone_type=zone_type)
                         # if diff >= levels[3]:  # 10℃ 이상
-                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff)
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff, zone_type=zone_type)
                         # elif diff >= levels[2]:  # 8℃ 이상
-                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff)
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff, zone_type=zone_type)
                         # elif diff >= levels[1]:  # 5℃ 이상
-                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff)
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff, zone_type=zone_type)
                         # elif diff >= levels[0]:  # 2℃ 이상
-                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff)
+                        #     self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff, zone_type=zone_type)
                     except Exception as e:
                         logger.error(f"Zone {zone_type} ROI 값 비교 오류: {e}")
 
@@ -464,17 +475,23 @@ class VideoAlertChecker:
                 logger.warning("No active zone types found for scenario2_judge")
                 return False, None
 
-            # zone_type을 기반으로 ROI 쌍 생성
+            # zone_segment_json을 기반으로 ROI 쌍 생성
             roi_pairs = []
-            for zone_type in self.zone_list:
+            for zone_segment in self.zone_list:
                 try:
+                    # zone_segment에서 zone_type 정보 추출
+                    if isinstance(zone_segment, dict):
+                        zone_type = zone_segment.get('zone_type', zone_segment.get('type', '1'))
+                    else:
+                        zone_type = str(zone_segment)
+                    
                     # zone_type을 숫자로 변환하여 ROI 인덱스 계산
                     zone_num = int(zone_type)
                     min_idx = 22 + (zone_num - 1) * 2  # zone1: 22,23, zone2: 24,25, ...
                     max_idx = min_idx + 1
                     roi_pairs.append((min_idx, max_idx, zone_type))
-                except ValueError:
-                    logger.warning(f"Invalid zone_type format: {zone_type}")
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid zone_segment format: {zone_segment}, error: {e}")
                     continue
 
             # scenario2의 4단계 기준값 가져오기
@@ -500,13 +517,13 @@ class VideoAlertChecker:
                         
                         # 4단계 기준값과 비교하여 alert_level 결정
                         if diff_percent >= levels[3]:  # 25% 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff_percent, base_diff, roi_diff, min_val, max_val)
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 3, diff_percent, base_diff, roi_diff, min_val, max_val, zone_type=zone_type)
                         elif diff_percent >= levels[2]:  # 20% 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff_percent, base_diff, roi_diff, min_val, max_val)
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 2, diff_percent, base_diff, roi_diff, min_val, max_val, zone_type=zone_type)
                         elif diff_percent >= levels[1]:  # 15% 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff_percent, base_diff, roi_diff, min_val, max_val)
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 1, diff_percent, base_diff, roi_diff, min_val, max_val, zone_type=zone_type)
                         elif diff_percent >= levels[0]:  # 10% 이상
-                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff_percent, base_diff, roi_diff, min_val, max_val)
+                            self.create_alert(current['id'], current_info, idx, {'key': min_key, 'value': min_val}, 0, diff_percent, base_diff, roi_diff, min_val, max_val, zone_type=zone_type)
                     except Exception as e:
                         logger.error(f"Zone {zone_type} ROI {min_key}/{max_key} 값 비교 오류: {e}")
 
@@ -593,13 +610,13 @@ class VideoAlertChecker:
 
                 # 4단계 기준값과 비교하여 alert_level 결정
                 if temp_diff >= levels[3]:  # 5℃ 이상
-                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 3, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 3, temp_diff, mean_temp, std_temp, upper_bound, lower_bound, zone_type=None)
                 elif temp_diff >= levels[2]:  # 4℃ 이상
-                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 2, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 2, temp_diff, mean_temp, std_temp, upper_bound, lower_bound, zone_type=None)
                 elif temp_diff >= levels[1]:  # 3℃ 이상
-                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 1, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 1, temp_diff, mean_temp, std_temp, upper_bound, lower_bound, zone_type=None)
                 elif temp_diff >= levels[0]:  # 2℃ 이상
-                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 0, temp_diff, mean_temp, std_temp, upper_bound, lower_bound)
+                    self.create_alert(current['id'], current_info, 0, {'key': 'data_21', 'value': current_temp}, 0, temp_diff, mean_temp, std_temp, upper_bound, lower_bound, zone_type=None)
             except ValueError:
                 logger.error(f"온도 변환 오류: data_21={current_temp}")
 
@@ -612,7 +629,7 @@ class VideoAlertChecker:
 
     def get_zone_list(self):
         """
-        tb_event_detection_zone 테이블에서 zone_type 값을 리스트로 가져오기
+        tb_event_detection_zone 테이블에서 zone_segment_json과 zone_type 필드 내용을 리스트로 가져오기
         """
         try:
             cursor = self.get_db_cursor()
@@ -620,24 +637,47 @@ class VideoAlertChecker:
                 return []
 
             query = """
-                SELECT zone_type 
+                SELECT zone_segment_json, zone_type 
                 FROM tb_event_detection_zone 
                 WHERE zone_active = 1 
-                AND zone_type IS NOT NULL 
-                AND zone_type != ''
+                AND zone_segment_json IS NOT NULL 
+                AND zone_segment_json != ''
                 ORDER BY id
             """
             cursor.execute(query)
             results = cursor.fetchall()
             
-            zone_types = []
+            zone_segments = []
             for row in results:
-                if row['zone_type']:
-                    zone_types.append(row['zone_type'])
+                if row['zone_segment_json']:
+                    try:
+                        # JSON 파싱하여 zone_segment_json 내용을 리스트로 변환
+                        segment_data = json.loads(row['zone_segment_json'])
+                        zone_type = row['zone_type']
+                        
+                        if isinstance(segment_data, list):
+                            # 리스트인 경우 각 항목에 zone_type 추가
+                            for segment in segment_data:
+                                if isinstance(segment, dict):
+                                    segment['zone_type'] = zone_type
+                                zone_segments.append(segment)
+                        elif isinstance(segment_data, dict):
+                            # 딕셔너리인 경우 zone_type 추가
+                            segment_data['zone_type'] = zone_type
+                            zone_segments.append(segment_data)
+                        else:
+                            # 기타 타입인 경우 zone_type과 함께 딕셔너리로 변환
+                            zone_segments.append({
+                                'data': segment_data,
+                                'zone_type': zone_type
+                            })
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error parsing zone_segment_json: {str(e)}, data: {row['zone_segment_json']}")
+                        continue
             
-            self.zone_list = zone_types
-            logger.info(f"Retrieved zone types: {zone_types}")
-            return zone_types
+            self.zone_list = zone_segments
+            logger.info(f"Retrieved zone segments: {zone_segments}")
+            return zone_segments
 
         except Exception as e:
             logger.error(f"Error getting zone list: {str(e)}")
