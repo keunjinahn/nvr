@@ -136,6 +136,8 @@ import {
 } from '@mdi/js';
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
 import { getAlerts, getRecentAlertCounts } from '@/api/alerts.api';
+import { getEventSetting } from '@/api/eventSetting.api';
+import { getRoiTimeSeriesData } from '@/api/statistic.api';
 import VideoCard from '@/components/camera-card.vue';
 import socket from '@/mixins/socket';
 import * as echarts from 'echarts';
@@ -293,6 +295,7 @@ export default {
     async initializeData() {
       try {
         await this.fetchCameras();
+        await this.loadLocationInfo();
         if (this.cameras.length > 0) {
           this.selectCamera(0);
         }
@@ -359,6 +362,26 @@ export default {
       } finally {
         this.loading = false;
         console.log('fetchCameras completed. Current cameras:', this.cameras);
+      }
+    },
+
+    async loadLocationInfo() {
+      try {
+        console.log('Loading location info...');
+        const data = await getEventSetting();
+        console.log('Event setting response:', data);
+        
+        if (data && data.system_json) {
+          const system = JSON.parse(data.system_json);
+          this.location_info = system.location_info || '수자원공사 섬진강댐';
+          console.log('Location info loaded:', this.location_info);
+        } else {
+          console.log('No system_json found, using default location info');
+          this.location_info = '수자원공사 섬진강댐';
+        }
+      } catch (error) {
+        console.error('Error loading location info:', error);
+        this.location_info = '수자원공사 섬진강댐';
       }
     },
 
@@ -841,41 +864,81 @@ export default {
       try {
         console.log('Loading ROI time series data for:', roiNumber);
         
-        // API 호출 (실제 API 엔드포인트에 맞게 수정 필요)
-        // const response = await getRoiTimeSeriesData(roiNumber);
-        
-        // 임시 데이터 생성 (실제 API 연동 시 제거)
-        this.generateMockRoiData(roiNumber);
-        
-        this.$nextTick(() => {
-          this.initRoiTimeSeriesChart();
-        });
+        // 선택된 경보의 시간 정보 가져오기
+        if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.alertHistory.length) {
+          const selectedAlert = this.alertHistory[this.selectedAlertIndex];
+          const eventDate = new Date(selectedAlert.time);
+          
+          // API 호출
+          const response = await getRoiTimeSeriesData({
+            roiNumber: roiNumber,
+            eventDate: eventDate.toISOString()
+          });
+          
+          console.log('ROI Time Series API Response:', response);
+          
+          if (response && response.data && response.data.result) {
+            const result = response.data.result;
+            
+            // API 응답 데이터를 차트용 데이터로 변환
+            this.roiTimeSeriesData = result.timeSeriesData.map(item => ({
+              time: item.time,
+              temperature: parseFloat(item.avg), // 평균 온도 사용
+              roiNumber: item.roiNumber
+            }));
+            
+            // 통계 정보 업데이트
+            this.roiTemperatureStats = {
+              maxTemp: parseFloat(result.statistics.maxTemp),
+              minTemp: parseFloat(result.statistics.minTemp),
+              avgTemp: parseFloat(result.statistics.avgTemp)
+            };
+            
+            console.log('Processed ROI time series data:', this.roiTimeSeriesData);
+            console.log('Temperature stats:', this.roiTemperatureStats);
+            
+            // 차트 초기화
+            this.$nextTick(() => {
+              this.initRoiTimeSeriesChart();
+            });
+          } else {
+            console.log('No data available for ROI', roiNumber);
+            this.roiTimeSeriesData = [];
+            this.roiTemperatureStats = { maxTemp: 0, minTemp: 0, avgTemp: 0 };
+          }
+        } else {
+          console.log('No selected alert available');
+          this.roiTimeSeriesData = [];
+          this.roiTemperatureStats = { maxTemp: 0, minTemp: 0, avgTemp: 0 };
+        }
       } catch (error) {
         console.error('Error loading ROI time series data:', error);
         this.$toast.error('ROI 데이터를 불러오는데 실패했습니다.');
+        this.roiTimeSeriesData = [];
+        this.roiTemperatureStats = { maxTemp: 0, minTemp: 0, avgTemp: 0 };
       }
     },
 
     // 임시 데이터 생성 (실제 API 연동 시 제거)
-    generateMockRoiData(roiNumber) {
-      const now = new Date();
-      const data = [];
-      
-      for (let i = 24; i >= 0; i--) {
-        const time = new Date(now.getTime() - i * 60 * 60 * 1000); // 1시간 간격
-        const temperature = 20 + Math.random() * 30 + (roiNumber * 2); // ROI 번호에 따른 온도 변화
-        
-        data.push({
-          time: time.toISOString(),
-          temperature: parseFloat(temperature.toFixed(2)),
-          roiNumber: roiNumber
-        });
-      }
-      
-      this.roiTimeSeriesData = data;
-      this.calculateTemperatureStats();
-      console.log('Generated mock ROI data:', data);
-    },
+    // generateMockRoiData(roiNumber) {
+    //   const now = new Date();
+    //   const data = [];
+    //   
+    //   for (let i = 24; i >= 0; i--) {
+    //     const time = new Date(now.getTime() - i * 60 * 60 * 1000); // 1시간 간격
+    //     const temperature = 20 + Math.random() * 30 + (roiNumber * 2); // ROI 번호에 따른 온도 변화
+    //     
+    //     data.push({
+    //       time: time.toISOString(),
+    //       temperature: parseFloat(temperature.toFixed(2)),
+    //       roiNumber: roiNumber
+    //     });
+    //   }
+    //   
+    //   this.roiTimeSeriesData = data;
+    //   this.calculateTemperatureStats();
+    //   console.log('Generated mock ROI data:', data);
+    // },
 
     // 온도 통계 계산
     calculateTemperatureStats() {
@@ -909,9 +972,38 @@ export default {
       
       this.roiTimeSeriesChart = echarts.init(chartDom);
       
+      // 데이터가 없으면 빈 차트 표시
+      if (!this.roiTimeSeriesData || this.roiTimeSeriesData.length === 0) {
+        const emptyOption = {
+          backgroundColor: 'transparent',
+          title: {
+            text: `ROI ${this.selectedRoiNumber} 온도 변화 추이`,
+            textStyle: {
+              color: '#ffffff',
+              fontSize: 18,
+              fontWeight: 'bold'
+            },
+            left: 'center',
+            top: 10
+          },
+          graphic: {
+            type: 'text',
+            left: 'center',
+            top: 'middle',
+            style: {
+              text: '데이터가 없습니다',
+              fontSize: 16,
+              fill: '#888'
+            }
+          }
+        };
+        this.roiTimeSeriesChart.setOption(emptyOption);
+        return;
+      }
+      
       const timeData = this.roiTimeSeriesData.map(item => {
         const date = new Date(item.time);
-        return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+        return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
       });
       
       const temperatureData = this.roiTimeSeriesData.map(item => item.temperature);
@@ -919,7 +1011,7 @@ export default {
       const option = {
         backgroundColor: 'transparent',
         title: {
-          text: `ROI ${this.selectedRoiNumber} 온도 변화 추이`,
+          text: `ROI ${this.selectedRoiNumber} 온도 변화 추이 (1분간)`,
           textStyle: {
             color: '#ffffff',
             fontSize: 18,
@@ -1009,7 +1101,7 @@ export default {
           }
         },
         series: [{
-          name: '온도',
+          name: '평균온도',
           type: 'line',
           data: temperatureData,
           smooth: true,

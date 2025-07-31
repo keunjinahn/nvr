@@ -12,19 +12,29 @@
         .leak-status-layer
           .layer-title 실시간누수감지상태
           .status-buttons
-            .status-button.safe
+            .status-button.safe(
+              :class="{ active: selectedStatusButton === 'safe' }"
+            )
               .status-icon ✅
               .status-text 안전
-            .status-button.attention
+            .status-button.attention(
+              :class="{ active: selectedStatusButton === 'attention' }"
+            )
               .status-icon 🛡️
               .status-text 관심
-            .status-button.caution
+            .status-button.caution(
+              :class="{ active: selectedStatusButton === 'caution' }"
+            )
               .status-icon ⚠️
               .status-text 주의
-            .status-button.check
+            .status-button.check(
+              :class="{ active: selectedStatusButton === 'check' }"
+            )
               .status-icon 🔍
               .status-text 점검
-            .status-button.prepare.active
+            .status-button.prepare(
+              :class="{ active: selectedStatusButton === 'prepare' }"
+            )
               .status-icon 🔔
               .status-text 대비
       .topleft-inner-right
@@ -161,6 +171,8 @@ data() {
     location_info: '',
     address: '',
     mapImagePreview: null,
+    selectedStatusButton: null,
+    latestAlertInfo: null,
   };
 },
 computed: {
@@ -657,6 +669,27 @@ methods: {
               }]
             });
           }
+          
+          // 기본적으로 최신 경보 레벨에 해당하는 버튼 선택 (level에 1을 더함)
+          const latestLevel = Number(this.alertHistory[0].level) + 1;
+          const buttonMapping = {
+            1: 'safe',
+            2: 'attention', 
+            3: 'caution',
+            4: 'check',
+            5: 'prepare'
+          };
+          
+          const defaultButton = buttonMapping[latestLevel] || 'prepare';
+          this.selectedStatusButton = defaultButton; // 버튼 타입 설정
+          
+          // 최신 경보 정보 설정
+          this.latestAlertInfo = {
+            level: this.getLevelText(this.alertHistory[0].level),
+            maxTemp: this.alertHistory[0].maxTemp,
+            minTemp: this.alertHistory[0].minTemp,
+            time: this.alertHistory[0].time
+          };
         }
       } catch (error) {
         console.error('알림 이력 조회 실패:', error);
@@ -707,6 +740,7 @@ methods: {
       });
     },
     getLevelText(level) {
+      const adjustedLevel = Number(level) + 1;
       const levels = {
         '1': '주의',
         '2': '경고',
@@ -714,7 +748,7 @@ methods: {
         '4': '심각',
         '5': '비상'
       };
-      return levels[level] || level;
+      return levels[adjustedLevel] || adjustedLevel;
     },
     async loadSiteName() {
       try {
@@ -745,6 +779,61 @@ methods: {
         this.mapImagePreview = null;
       }
     },
+    // selectStatusButton(buttonType) {
+    //   this.selectedStatusButton = buttonType;
+    //   
+    //   // 버튼 타입을 경보 레벨로 매핑
+    //   const levelMapping = {
+    //     'safe': 1,
+    //     'attention': 2,
+    //     'caution': 3,
+    //     'check': 4,
+    //     'prepare': 5
+    //   };
+    //   
+    //   const targetLevel = levelMapping[buttonType];
+    //   
+    //   // 해당 레벨의 가장 최신 경보 찾기
+    //   const latestAlert = this.alertHistory.find(alert => Number(alert.level) === targetLevel);
+    //   
+    //   if (latestAlert) {
+    //     this.latestAlertInfo = {
+    //       level: this.getLevelText(latestAlert.level),
+    //       maxTemp: latestAlert.maxTemp,
+    //       minTemp: latestAlert.minTemp,
+    //       time: latestAlert.time
+    //     };
+    //   } else {
+    //     // 해당 레벨의 경보가 없으면 전체에서 가장 최신 경보 표시
+    //     if (this.alertHistory.length > 0) {
+    //       const latest = this.alertHistory[0];
+    //       this.latestAlertInfo = {
+    //         level: this.getLevelText(latest.level),
+    //         maxTemp: latest.maxTemp,
+    //         minTemp: latest.minTemp,
+    //         time: latest.time
+    //       };
+    //     } else {
+    //       this.latestAlertInfo = null;
+    //     }
+    //   }
+    // },
+    getStatusButtonText(buttonType) {
+      switch (buttonType) {
+        case 'safe':
+          return '안전';
+        case 'attention':
+          return '관심';
+        case 'caution':
+          return '주의';
+        case 'check':
+          return '점검';
+        case 'prepare':
+          return '대비';
+        default:
+          return '';
+      }
+    }
   },
 };
 </script>
@@ -898,7 +987,7 @@ methods: {
   padding: 15px;
   text-align: center;
   border-radius: 8px 0 0 0;
-  height: 20%;
+  height: 15%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -986,20 +1075,10 @@ methods: {
       padding: 8px 4px;
       border-radius: 6px;
       transition: all 0.3s ease;
-      cursor: pointer;
-      
-      &:hover {
-        background: #555;
-        transform: translateY(-2px);
-      }
       
       &.safe {
         background: transparent;
         border-color: transparent;
-        
-        &:hover {
-          background: rgba(76, 175, 80, 0.2);
-        }
         
         &.active {
           background: #4caf50;
@@ -1012,10 +1091,6 @@ methods: {
         background: transparent;
         border-color: transparent;
         
-        &:hover {
-          background: rgba(33, 150, 243, 0.2);
-        }
-        
         &.active {
           background: #2196f3;
           border: 2px solid #fff;
@@ -1026,10 +1101,6 @@ methods: {
       &.caution {
         background: transparent;
         border-color: transparent;
-        
-        &:hover {
-          background: rgba(255, 152, 0, 0.2);
-        }
         
         &.active {
           background: #ff9800;
@@ -1042,10 +1113,6 @@ methods: {
         background: transparent;
         border-color: transparent;
         
-        &:hover {
-          background: rgba(244, 67, 54, 0.2);
-        }
-        
         &.active {
           background: #f44336;
           border: 2px solid #fff;
@@ -1056,10 +1123,6 @@ methods: {
       &.prepare {
         background: transparent;
         border-color: transparent;
-        
-        &:hover {
-          background: rgba(227, 77, 77, 0.2);
-        }
         
         &.active {
           background: #e34d4d;
@@ -1077,6 +1140,37 @@ methods: {
         font-size: 12px;
         font-weight: bold;
         text-align: center;
+      }
+    }
+  }
+  .status-info {
+    background: #333;
+    border-radius: 0 0 8px 8px;
+    padding: 10px;
+    margin-top: 10px;
+    .info-title {
+      font-size: 14px;
+      font-weight: bold;
+      color: #fff;
+      margin-bottom: 8px;
+      text-align: left;
+    }
+    .info-content {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      .info-item {
+        display: flex;
+        justify-content: space-between;
+        .label {
+          color: #bbb;
+          font-size: 12px;
+        }
+        .value {
+          color: #fff;
+          font-size: 14px;
+          font-weight: bold;
+        }
       }
     }
   }
