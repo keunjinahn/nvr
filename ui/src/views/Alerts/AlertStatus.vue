@@ -51,7 +51,7 @@
         )
         .thermal-image-placeholder(v-else)
           .placeholder-text 열화상 이미지
-          .placeholder-subtext (DB에서 base64 이미지 로드 예정)
+          .placeholder-subtext
         // Zone 박스 오버레이
         .zone-overlay(v-if="thermalImageSrc && zoneBoxes.length > 0")
           .zone-box(
@@ -71,8 +71,7 @@
         )
         .visual-image-placeholder(v-else)
           .placeholder-text 실화상 이미지
-          .placeholder-subtext (DB에서 base64 이미지 로드 예정)
-
+          .placeholder-subtext
   .right-sidebar
     .gauge-box
       .box-title 현재 경보단계
