@@ -82,7 +82,7 @@
     .chart-box
       .box-title 최근 7일 경보 발령 수
       .chart-container
-        div(ref="alertChart" style="width:100%;height:200px;min-width:200px;min-height:200px;")
+        div(ref="alertChart" style="width:100%;height:180px;min-width:180px;min-height:180px;")
     
     .history-box
       .box-title 경보 발생(누수) 날짜 및 시간 이력
@@ -582,6 +582,7 @@ export default {
           return {
             id: alert.id,
             time: this.formatDate(alert.alert_accur_time),
+            originalTime: alert.alert_accur_time, // 원본 날짜 데이터 보존
             type: alert.alert_type,
             level: alert.alert_level,
             maxTemp,
@@ -626,7 +627,12 @@ export default {
     },
 
     formatDate(dateStr) {
+      if (!dateStr) return '-';
       const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        console.warn('Invalid date format in formatDate:', dateStr);
+        return '-';
+      }
       return date.toLocaleString();
     },
 
@@ -821,9 +827,9 @@ export default {
         this.zoneBoxes = zoneList.map(zone => {
           if (typeof zone === 'object' && zone !== null) {
             return {
-              left: zone.left || zone.x1 || 0,
+              left: zone.left  + 3|| zone.x1 || 0,
               top: zone.top || zone.y1 || 0,
-              right: zone.right || zone.x2 || 0,
+              right: zone.right - 4 || zone.x2 || 0,
               bottom: zone.bottom || zone.y2 || 0,
               zone_type: zone.zone_type || zone.type || '1'
             };
@@ -867,7 +873,30 @@ export default {
         // 선택된 경보의 시간 정보 가져오기
         if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.alertHistory.length) {
           const selectedAlert = this.alertHistory[this.selectedAlertIndex];
-          const eventDate = new Date(selectedAlert.time);
+          
+          // 날짜 유효성 검사 및 변환
+          let eventDate;
+          if (selectedAlert.originalTime) {
+            eventDate = new Date(selectedAlert.originalTime);
+            // Invalid Date 체크
+            if (isNaN(eventDate.getTime())) {
+              console.warn('Invalid date format:', selectedAlert.originalTime);
+              // 현재 시간으로 대체
+              eventDate = new Date();
+            }
+          } else if (selectedAlert.time) {
+            // fallback: 포맷된 시간 사용
+            eventDate = new Date(selectedAlert.time);
+            if (isNaN(eventDate.getTime())) {
+              console.warn('Invalid formatted date format:', selectedAlert.time);
+              eventDate = new Date();
+            }
+          } else {
+            console.warn('No time data available, using current time');
+            eventDate = new Date();
+          }
+          
+          console.log('Using event date:', eventDate.toISOString());
           
           // API 호출
           const response = await getRoiTimeSeriesData({
@@ -880,10 +909,12 @@ export default {
           if (response && response.data && response.data.result) {
             const result = response.data.result;
             
-            // API 응답 데이터를 차트용 데이터로 변환
+            // API 응답 데이터를 차트용 데이터로 변환 (최대, 평균, 최소 온도 포함)
             this.roiTimeSeriesData = result.timeSeriesData.map(item => ({
               time: item.time,
-              temperature: parseFloat(item.avg), // 평균 온도 사용
+              maxTemp: parseFloat(item.max || item.avg || 0),
+              avgTemp: parseFloat(item.avg || 0),
+              minTemp: parseFloat(item.min || item.avg || 0),
               roiNumber: item.roiNumber
             }));
             
@@ -947,10 +978,13 @@ export default {
         return;
       }
 
-      const temperatures = this.roiTimeSeriesData.map(item => item.temperature);
-      const maxTemp = Math.max(...temperatures);
-      const minTemp = Math.min(...temperatures);
-      const avgTemp = temperatures.reduce((sum, temp) => sum + temp, 0) / temperatures.length;
+      const maxTemps = this.roiTimeSeriesData.map(item => item.maxTemp);
+      const avgTemps = this.roiTimeSeriesData.map(item => item.avgTemp);
+      const minTemps = this.roiTimeSeriesData.map(item => item.minTemp);
+      
+      const maxTemp = Math.max(...maxTemps);
+      const minTemp = Math.min(...minTemps);
+      const avgTemp = avgTemps.reduce((sum, temp) => sum + temp, 0) / avgTemps.length;
 
       this.roiTemperatureStats = {
         maxTemp: parseFloat(maxTemp.toFixed(2)),
@@ -1006,7 +1040,9 @@ export default {
         return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
       });
       
-      const temperatureData = this.roiTimeSeriesData.map(item => item.temperature);
+      const maxTempData = this.roiTimeSeriesData.map(item => item.maxTemp);
+      const avgTempData = this.roiTimeSeriesData.map(item => item.avgTemp);
+      const minTempData = this.roiTimeSeriesData.map(item => item.minTemp);
       
       const option = {
         backgroundColor: 'transparent',
@@ -1036,11 +1072,18 @@ export default {
             }
           },
           formatter: function (params) {
-            const data = params[0];
-            return `<div style="padding: 8px;">
-              <div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>
-              <div style="color: #ff6b6b;">온도: ${data.value}°C</div>
-            </div>`;
+            let tooltipContent = `<div style="padding: 8px;">
+              <div style="font-weight: bold; margin-bottom: 8px;">${params[0].name}</div>`;
+            
+            params.forEach(param => {
+              const color = param.color;
+              const value = param.value;
+              const seriesName = param.seriesName;
+              tooltipContent += `<div style="color: ${color}; margin-bottom: 4px;">${seriesName}: ${value}°C</div>`;
+            });
+            
+            tooltipContent += '</div>';
+            return tooltipContent;
           }
         },
         grid: {
@@ -1100,32 +1143,80 @@ export default {
             }
           }
         },
-        series: [{
-          name: '평균온도',
-          type: 'line',
-          data: temperatureData,
-          smooth: true,
-          symbol: 'circle',
-          symbolSize: 6,
-          lineStyle: {
-            color: '#ff6b6b',
-            width: 4,
-            shadowColor: 'rgba(255, 107, 107, 0.3)',
-            shadowBlur: 10
+        legend: {
+          data: ['최대온도', '평균온도', '최소온도'],
+          textStyle: {
+            color: '#ffffff',
+            fontSize: 12
           },
-          itemStyle: {
-            color: '#ff6b6b',
-            borderColor: '#ffffff',
-            borderWidth: 2
+          top: 40
+        },
+        series: [
+          {
+            name: '최대온도',
+            type: 'line',
+            data: maxTempData,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            lineStyle: {
+              color: '#ff4444',
+              width: 3,
+              shadowColor: 'rgba(255, 68, 68, 0.3)',
+              shadowBlur: 8
+            },
+            itemStyle: {
+              color: '#ff4444',
+              borderColor: '#ffffff',
+              borderWidth: 2
+            }
           },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: 'rgba(255, 107, 107, 0.4)' },
-              { offset: 0.5, color: 'rgba(255, 107, 107, 0.2)' },
-              { offset: 1, color: 'rgba(255, 107, 107, 0.05)' }
-            ])
+          {
+            name: '평균온도',
+            type: 'line',
+            data: avgTempData,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            lineStyle: {
+              color: '#ff6b6b',
+              width: 4,
+              shadowColor: 'rgba(255, 107, 107, 0.3)',
+              shadowBlur: 10
+            },
+            itemStyle: {
+              color: '#ff6b6b',
+              borderColor: '#ffffff',
+              borderWidth: 2
+            },
+            areaStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: 'rgba(255, 107, 107, 0.4)' },
+                { offset: 0.5, color: 'rgba(255, 107, 107, 0.2)' },
+                { offset: 1, color: 'rgba(255, 107, 107, 0.05)' }
+              ])
+            }
+          },
+          {
+            name: '최소온도',
+            type: 'line',
+            data: minTempData,
+            smooth: true,
+            symbol: 'circle',
+            symbolSize: 6,
+            lineStyle: {
+              color: '#44aaff',
+              width: 3,
+              shadowColor: 'rgba(68, 170, 255, 0.3)',
+              shadowBlur: 8
+            },
+            itemStyle: {
+              color: '#44aaff',
+              borderColor: '#ffffff',
+              borderWidth: 2
+            }
           }
-        }]
+        ]
       };
       
       this.roiTimeSeriesChart.setOption(option);
@@ -1151,8 +1242,8 @@ export default {
   display: flex;
   height: 100vh;
   background: #222736;
-  gap: 16px;
-  padding: 16px;
+  gap: 8px;
+  padding: 8px;
   overflow: hidden;
 }
 
@@ -1160,7 +1251,7 @@ export default {
   width: 25%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   flex-shrink: 0;
   min-width: 250px;
 }
@@ -1169,7 +1260,7 @@ export default {
   width: 50%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   min-width: 0;
   flex-shrink: 0;
 }
@@ -1178,7 +1269,7 @@ export default {
   width: 25%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   flex-shrink: 0;
   min-width: 250px;
 }
@@ -1187,10 +1278,10 @@ export default {
 .time-layer {
   background: #3659e2;
   color: white;
-  padding: 15px;
+  padding: 10px;
   text-align: center;
   border-radius: 8px;
-  height: 100px;
+  height: 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1351,6 +1442,8 @@ export default {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .top-image-box {
@@ -1369,6 +1462,8 @@ export default {
   border-bottom: 2px solid #555;
   border-radius: 8px 8px 0 0;
   flex-shrink: 0;
+  position: relative;
+  z-index: 2;
 }
 
 .image-container {
@@ -1379,7 +1474,8 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 8px;
+  z-index: 0;
 }
 
 .thermal-image {
@@ -1406,7 +1502,7 @@ export default {
   width: 640px;
   height: 480px;
   pointer-events: none;
-  z-index: 10;
+  z-index: 5;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.3);
 }
@@ -1417,7 +1513,7 @@ export default {
   background-color: transparent;
   pointer-events: auto;
   cursor: pointer;
-  z-index: 10;
+  z-index: 6;
   transition: all 0.3s ease;
   
   &:hover {
@@ -1476,11 +1572,11 @@ export default {
 }
 
 .gauge-box {
-  height: 300px;
+  height: 280px;
 }
 
 .chart-box {
-  height: 250px;
+  height: 220px;
 }
 
 .history-box {
@@ -1492,19 +1588,19 @@ export default {
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 16px;
+  padding: 8px;
 }
 
 .gauge-meter {
   width: 100%;
-  height: 240px;
-  min-width: 180px;
-  min-height: 180px;
+  height: 220px;
+  min-width: 160px;
+  min-height: 160px;
 }
 
 .chart-container {
   flex: 1;
-  padding: 16px;
+  padding: 8px;
   background: #2a3042;
 }
 
@@ -1569,7 +1665,7 @@ export default {
   .alert-status-container {
     flex-direction: column;
     height: auto;
-    gap: 8px;
+    gap: 4px;
   }
   
   .left-sidebar, .right-sidebar {

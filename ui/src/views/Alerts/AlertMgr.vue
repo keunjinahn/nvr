@@ -84,7 +84,7 @@ export default {
 
 <style lang="scss" scoped>
 .recording-mgr {
-  padding: 20px;
+  padding: 0px;
 }
 
 .tab-bar-container {
