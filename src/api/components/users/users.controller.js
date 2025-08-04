@@ -180,7 +180,7 @@ export const removeByName = async (req, res) => {
       });
     }
 
-    if (user.permissionLevel === 2) {
+    if (user.permissionLevel === 1) {
       return res.status(409).send({
         statusCode: 409,
         message: 'User with ADMIN permission level can not be removed',

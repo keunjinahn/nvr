@@ -178,7 +178,7 @@ export default {
     deleteDialog: false,
     valid: false,
     headers: [
-      { text: 'No', value: 'id', align: 'center', width: '80px' },
+      { text: 'No', value: 'index', align: 'center', width: '80px' },
       { text: '아이디', value: 'userId', align: 'center' },
       { text: '이름', value: 'userName', align: 'center' },
       { text: '직급', value: 'userDept', align: 'center' },
@@ -208,7 +208,7 @@ export default {
       return this.editedIndex === -1 ? '사용자 추가' : '사용자 수정'
     },
     filteredUsers() {
-      return this.users.filter(user => {
+      const filtered = this.users.filter(user => {
         const matchesSearch = !this.search || 
           user.userId.toLowerCase().includes(this.search.toLowerCase()) ||
           user.userName.toLowerCase().includes(this.search.toLowerCase()) ||
@@ -216,6 +216,12 @@ export default {
         
         return matchesSearch;
       });
+      
+      // 순번 추가
+      return filtered.map((user, index) => ({
+        ...user,
+        index: index + 1
+      }));
     },
     passwordConfirmRules() {
       return [
