@@ -19,15 +19,7 @@ export const insert = async (req, res) => {
       });
     }
 
-    const users = await UserModel.list();
-
-    // 관리자 권한(1)은 하나만 존재할 수 있음
-    if (users.some((usr) => usr.permissionLevel === 1) && req.body.permissionLevel === 1) {
-      return res.status(409).send({
-        statusCode: 409,
-        message: 'User with ADMIN permission level already exists',
-      });
-    }
+    // 관리자 중복 등록 허용 - 제한 제거
 
     let salt = crypto.randomBytes(16).toString('base64');
     let hash = crypto.createHmac('sha512', salt).update(req.body.password).digest('base64');

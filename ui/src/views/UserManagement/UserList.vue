@@ -134,7 +134,7 @@
               color="white"
             )
             v-icon.tw-mr-2(v-else size="20") {{ editedIndex === -1 ? icons['mdiPlus'] : icons['mdiContentSave'] }}
-            span {{ editedIndex === -1 ? '추가하기' : '수정하기' }}
+            span {{ editedIndex === -1 ? '추가하기' : '수정' }}
 
     // 삭제 확인 다이얼로그
     v-dialog(
@@ -160,7 +160,7 @@
 </template>
 
 <script>
-import { mdiDelete, mdiPencil, mdiPlus } from '@mdi/js';
+import { mdiDelete, mdiPencil, mdiPlus, mdiContentSave } from '@mdi/js';
 import { getUsers, addUser, changeUser, removeUser } from '@/api/users.api';
 
 export default {
@@ -170,7 +170,8 @@ export default {
     icons: {
       mdiDelete,
       mdiPencil,
-      mdiPlus
+      mdiPlus,
+      mdiContentSave
     },
     search: '',
     loading: false,
@@ -275,7 +276,9 @@ export default {
     },
 
     editUser(item) {
-      this.editedIndex = this.users.indexOf(item)
+      // userId로 원본 users 배열에서 해당 사용자를 찾아서 인덱스 설정
+      const originalIndex = this.users.findIndex(user => user.userId === item.userId)
+      this.editedIndex = originalIndex
       this.editedItem = {
         ...item,
         password: '****',
