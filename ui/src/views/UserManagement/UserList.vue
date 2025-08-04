@@ -195,14 +195,7 @@ export default {
       passwordConfirm: '',
       permissionLevel: 2
     },
-    defaultItem: {
-      userId: '',
-      userName: '',
-      userDept: '',
-      password: '',
-      passwordConfirm: '',
-      permissionLevel: 2
-    },
+
     permissionOptions: [
       { text: '관리자', value: 1 },
       { text: '사용자', value: 2 }
@@ -263,7 +256,15 @@ export default {
 
     showAddUserDialog() {
       this.editedIndex = -1
-      this.editedItem = Object.assign({}, this.defaultItem)
+      // 깊은 복사를 위해 새로운 객체 생성
+      this.editedItem = {
+        userId: '',
+        userName: '',
+        userDept: '',
+        password: '',
+        passwordConfirm: '',
+        permissionLevel: 2
+      }
       this.dialog = true
     },
 
@@ -280,7 +281,15 @@ export default {
     closeDialog() {
       this.dialog = false
       this.$nextTick(() => {
-        this.editedItem = Object.assign({}, this.defaultItem)
+        // 깊은 복사를 위해 새로운 객체 생성
+        this.editedItem = {
+          userId: '',
+          userName: '',
+          userDept: '',
+          password: '',
+          passwordConfirm: '',
+          permissionLevel: 2
+        }
         this.editedIndex = -1
         if (this.$refs.form) {
           this.$refs.form.reset()

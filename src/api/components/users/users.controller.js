@@ -21,7 +21,8 @@ export const insert = async (req, res) => {
 
     const users = await UserModel.list();
 
-    if (users.some((usr) => usr.permissionLevel === 2) && req.body.permissionLevel === 2) {
+    // 관리자 권한(1)은 하나만 존재할 수 있음
+    if (users.some((usr) => usr.permissionLevel === 1) && req.body.permissionLevel === 1) {
       return res.status(409).send({
         statusCode: 409,
         message: 'User with ADMIN permission level already exists',
