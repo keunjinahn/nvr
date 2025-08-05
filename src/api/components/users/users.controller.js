@@ -172,12 +172,7 @@ export const removeByName = async (req, res) => {
       });
     }
 
-    if (user.permissionLevel === 1) {
-      return res.status(409).send({
-        statusCode: 409,
-        message: 'User with ADMIN permission level can not be removed',
-      });
-    }
+    // 관리자 계정 삭제 허용 - 제한 제거
 
     await UserModel.removeByName(req.params.userId);
 
