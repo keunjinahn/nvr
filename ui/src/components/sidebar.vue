@@ -15,7 +15,7 @@
       <div class="logo-container">
         <v-img
           src="@/assets/img/logo.png"
-          alt="Safe Signal"
+          alt="Welcome to SDMS "
           width="40"
           height="40"
           class="logo-image"
@@ -158,6 +158,13 @@ export default {
           title: '열화상이미지 분석결과',
           path: '/alerts/status',
           icon: 'mdi-view-dashboard',
+          permissionRequired: null // 모든 사용자 접근 가능
+        },
+        {
+          name: 'recordings',
+          title: '녹화영상관리',
+          path: '/recordings',
+          icon: 'mdi-record',
           permissionRequired: null // 모든 사용자 접근 가능
         },
         {

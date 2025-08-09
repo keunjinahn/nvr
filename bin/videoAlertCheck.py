@@ -91,7 +91,7 @@ class VideoAlertChecker:
         self.last_settings_check = 0
         self.last_data_check = 0
         self.settings_check_interval = 30  # 30 seconds
-        self.data_check_interval = 10  # 10 secon6ds
+        self.data_check_interval = 60  # 10 secon6ds
         self.running = True
         self.force_exit = False  # 강제 종료 플래그
         

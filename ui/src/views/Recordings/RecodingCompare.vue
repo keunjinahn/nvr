@@ -81,7 +81,7 @@
                 )
               // 달력 아래 버튼 박스
               .tw-mt-5-tw-w-full.tw-bg-gray-900.tw-rounded.tw-p-5
-                v-btn.export-btn.tw-mb-2.tw-w-full(color="secondary" @click="onExportRecording") 녹화내보내기
+                <!-- v-btn.export-btn.tw-mb-2.tw-w-full(color="secondary" @click="onExportRecording") 녹화내보내기 -->
                 v-btn.snapshot-btn.tw-w-full(color="secondary" @click="onSaveSnapshot") 정지이미지 저장
 
         v-card.mt-4

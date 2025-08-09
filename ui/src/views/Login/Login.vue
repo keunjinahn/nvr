@@ -8,7 +8,7 @@
           <div class="logo-container">
           <v-img
             src="@/assets/img/logo.png"
-            alt="Safe Signal"
+            alt="Welcome to SDMS "
             width="40"
             height="50"
             class="logo-image"

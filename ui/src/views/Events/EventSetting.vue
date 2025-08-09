@@ -156,22 +156,7 @@
                   )
                     template(v-slot:prepend-inner)
                       v-icon.text-muted mdi-map-marker
-                
-                v-col(cols="12" md="6")
-                  label.form-input-label 파일 삭제 일수
-                  v-text-field(
-                    v-model="settings.system.recodingFileDeleteDays"
-                    type="number"
-                    suffix="일"
-                    placeholder="30"
-                    prepend-inner-icon="mdi-delete-clock"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted mdi-delete-clock
-                
+                              
                 v-col(cols="12" md="6")
                   label.form-input-label 지도 이미지 추가
                   v-file-input(

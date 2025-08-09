@@ -23,21 +23,24 @@
             :class="getAlertRowClass(alert, index)"
             @click="selectAlert(index)"
           )
-            .table-item
-              .item-label 최고온도
-              .item-value {{ alert.maxTemp }}°C
-            .table-item
-              .item-label 최소온도
-              .item-value {{ alert.minTemp }}°C
-            .table-item
-              .item-label 평균온도
-              .item-value {{ (Number(alert.maxTemp) + Number(alert.minTemp)) / 2 | toFixed(2) }}°C
-            .table-item
-              .item-label 경보단계
-              .item-value {{ getLevelText(alert.level) }}
-            .table-item
-              .item-label 측정시간
-              .item-value {{ alert.time }}
+            .roi-number
+              .roi-label ROI {{ alert.roiNumber || '-' }}
+            .data-table
+              .table-item
+                .item-label 최고온도
+                .item-value {{ alert.maxTemp }}°C
+              .table-item
+                .item-label 최소온도
+                .item-value {{ alert.minTemp }}°C
+              .table-item
+                .item-label 평균온도
+                .item-value {{ (Number(alert.maxTemp) + Number(alert.minTemp)) / 2 | toFixed(2) }}°C
+              .table-item
+                .item-label 경보단계
+                .item-value {{ getLevelText(alert.level) }}
+              .table-item
+                .item-label 측정시간
+                .item-value {{ alert.time }}
 
   .center-content
     .top-image-box
@@ -280,15 +283,23 @@ export default {
 
   methods: {
     updateTime() {
+      // 한국 시간으로 변환 (UTC+9)
       const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth() + 1;
-      const day = now.getDate();
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
       
-      this.currentTime = `${year}/${month}/${day} 오후 ${hours}:${minutes}:${seconds}`;
+      const year = koreaTime.getUTCFullYear();
+      const month = koreaTime.getUTCMonth() + 1;
+      const day = koreaTime.getUTCDate();
+      const hours = koreaTime.getUTCHours();
+      const minutes = String(koreaTime.getUTCMinutes()).padStart(2, '0');
+      const seconds = String(koreaTime.getUTCSeconds()).padStart(2, '0');
+      
+      // 오전/오후 구분
+      const period = hours < 12 ? '오전' : '오후';
+      const displayHours = hours < 12 ? hours : (hours === 12 ? 12 : hours - 12);
+      const displayHoursStr = String(displayHours).padStart(2, '0');
+      
+      this.currentTime = `${year}/${month}/${day} ${period} ${displayHoursStr}:${minutes}:${seconds}`;
     },
     
     async initializeData() {
@@ -571,8 +582,9 @@ export default {
         this.alertHistory = response.data.result.map(alert => {
           let minTemp = '-';
           let maxTemp = '-';
+          const info = alert.alert_info_json ? JSON.parse(alert.alert_info_json) : {};
           try {
-            const info = alert.alert_info_json ? JSON.parse(alert.alert_info_json) : {};
+            
             minTemp = (typeof info.min_roi_value === 'number') ? info.min_roi_value.toFixed(1) : '-';
             maxTemp = (typeof info.max_roi_value === 'number') ? info.max_roi_value.toFixed(1) : '-';
           } catch (e) {
@@ -586,6 +598,7 @@ export default {
             level: alert.alert_level,
             maxTemp,
             minTemp,
+            roiNumber: info.zone_type,
             snapshotImages: alert.snapshotImages,
             alert_info_json: alert.alert_info_json
           }
@@ -627,12 +640,23 @@ export default {
 
     formatDate(dateStr) {
       if (!dateStr) return '-';
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) {
-        console.warn('Invalid date format in formatDate:', dateStr);
-        return '-';
+      
+      try {
+        // ISO 문자열이면 포맷팅 (AdminResult.vue와 동일한 방식)
+        if (typeof dateStr === 'string') {
+          return dateStr.replace('T', ' ').substring(0, 19);
+        }
+        
+        // Date 객체인 경우
+        if (dateStr instanceof Date) {
+          return dateStr.toISOString().replace('T', ' ').substring(0, 19);
+        }
+        
+        return String(dateStr);
+      } catch (error) {
+        console.error('날짜 포맷팅 오류:', error);
+        return String(dateStr);
       }
-      return date.toLocaleString();
     },
 
     getTypeText(type) {
@@ -661,13 +685,17 @@ export default {
         const response = await getRecentAlertCounts();
         const data = response.data.result;
 
-        // 최근 7일 날짜 배열 생성 (오늘 포함)
+        // 최근 7일 날짜 배열 생성 (오늘 포함) - 한국 시간 기준
         const today = new Date();
+        const koreaToday = new Date(today.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
         const categories = [];
         for (let i = 6; i >= 0; i--) {
-          const d = new Date(today);
-          d.setDate(today.getDate() - i);
-          categories.push(d.toISOString().slice(0, 10));
+          const d = new Date(koreaToday);
+          d.setUTCDate(koreaToday.getUTCDate() - i);
+          const year = d.getUTCFullYear();
+          const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(d.getUTCDate()).padStart(2, '0');
+          categories.push(`${year}-${month}-${day}`);
         }
         const dataMap = Object.fromEntries(data.map(d => [d.date, d.count]));
         const counts = categories.map(date => dataMap[date] || 0);
@@ -873,29 +901,33 @@ export default {
         if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.alertHistory.length) {
           const selectedAlert = this.alertHistory[this.selectedAlertIndex];
           
-          // 날짜 유효성 검사 및 변환
+          // 날짜 유효성 검사 및 변환 (한국 시간 기준)
           let eventDate;
           if (selectedAlert.originalTime) {
             eventDate = new Date(selectedAlert.originalTime);
             // Invalid Date 체크
             if (isNaN(eventDate.getTime())) {
               console.warn('Invalid date format:', selectedAlert.originalTime);
-              // 현재 시간으로 대체
-              eventDate = new Date();
+              // 현재 한국 시간으로 대체
+              const now = new Date();
+              eventDate = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
             }
           } else if (selectedAlert.time) {
             // fallback: 포맷된 시간 사용
             eventDate = new Date(selectedAlert.time);
             if (isNaN(eventDate.getTime())) {
               console.warn('Invalid formatted date format:', selectedAlert.time);
-              eventDate = new Date();
+              // 현재 한국 시간으로 대체
+              const now = new Date();
+              eventDate = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
             }
           } else {
-            console.warn('No time data available, using current time');
-            eventDate = new Date();
+            console.warn('No time data available, using current Korea time');
+            const now = new Date();
+            eventDate = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
           }
           
-          console.log('Using event date:', eventDate.toISOString());
+          console.log('Using event date (Korea time):', eventDate.toISOString());
           
           // API 호출
           const response = await getRoiTimeSeriesData({
@@ -1036,7 +1068,9 @@ export default {
       
       const timeData = this.roiTimeSeriesData.map(item => {
         const date = new Date(item.time);
-        return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`;
+        // 한국 시간으로 변환 (UTC+9)
+        const koreaTime = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+        return `${koreaTime.getUTCHours()}:${String(koreaTime.getUTCMinutes()).padStart(2, '0')}:${String(koreaTime.getUTCSeconds()).padStart(2, '0')}`;
       });
       
       const maxTempData = this.roiTimeSeriesData.map(item => item.maxTemp);
@@ -1340,6 +1374,7 @@ export default {
             overflow: hidden;
             cursor: pointer;
             transition: all 0.2s ease;
+            display: flex;
             
             &:hover {
               background: #2a2a2a;
@@ -1347,36 +1382,57 @@ export default {
               box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
             }
             
-            .table-item {
+            .roi-number {
+              flex: 1;
               display: flex;
-              padding: 0;
-              border-bottom: 1px solid #2d2d2d;
+              align-items: center;
+              justify-content: center;
+              background: transparent !important;
+              border-right: 1px solid #2d2d2d;
               
-              &:last-child {
-                border-bottom: none;
-              }
-              
-              .item-label {
-                background: #535e6c;
+              .roi-label {
                 color: #ffffff;
-                font-size: 12px;
+                font-size: 14px;
                 font-weight: bold;
-                padding: 8px 12px;
-                flex: 0 0 40%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
               }
+            }
+            
+            .data-table {
+              flex: 3;
+              display: flex;
+              flex-direction: column;
               
-              .item-value {
-                background: #1e1e1e;
-                color: #ffffff;
-                font-size: 12px;
-                padding: 8px 12px;
-                flex: 1;
+              .table-item {
                 display: flex;
-                align-items: center;
-                justify-content: flex-start;
+                padding: 0;
+                border-bottom: 1px solid #2d2d2d;
+                
+                &:last-child {
+                  border-bottom: none;
+                }
+                
+                .item-label {
+                  background: #535e6c;
+                  color: #ffffff;
+                  font-size: 12px;
+                  font-weight: bold;
+                  padding: 8px 12px;
+                  flex: 1;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                }
+                
+                .item-value {
+                  background: #3659e2;
+                  color: #ffffff;
+                  font-size: 12px;
+                  padding: 8px 12px;
+                  flex: 3;
+                  display: flex;
+                  align-items: center;
+                  justify-content: flex-start;
+                }
               }
             }
         
@@ -1391,19 +1447,29 @@ export default {
         }
         
         &.selected-alert {
-          background: #3659e2 !important;
+          background: #2a3042 !important;
           border: 2px solid #fff;
           box-shadow: 0 0 10px rgba(54, 89, 226, 0.5);
           
-          .table-item {
-            .item-label {
-              background: #2a3042;
-            }
+          .roi-number {
+            background: #2a3042;
             
-            .item-value {
-              background: #3659e2;
-              color: #fff;
-              font-weight: bold;
+            .roi-label {
+              color: #ffffff !important;
+            }
+          }
+          
+          .data-table {
+            .table-item {
+              .item-label {
+                background: #2a3042;
+              }
+              
+              .item-value {
+                background: #3659e2;
+                color: #fff;
+                font-weight: bold;
+              }
             }
           }
         }
