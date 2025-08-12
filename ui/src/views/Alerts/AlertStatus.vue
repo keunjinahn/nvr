@@ -1383,7 +1383,7 @@ export default {
             }
             
             .roi-number {
-              flex: 1;
+              flex: 0.5;
               display: flex;
               align-items: center;
               justify-content: center;
@@ -1392,13 +1392,13 @@ export default {
               
               .roi-label {
                 color: #ffffff;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: bold;
               }
             }
             
             .data-table {
-              flex: 3;
+              flex: 3.5;
               display: flex;
               flex-direction: column;
               
@@ -1414,7 +1414,7 @@ export default {
                 .item-label {
                   background: #535e6c;
                   color: #ffffff;
-                  font-size: 12px;
+                  font-size: 14px;
                   font-weight: bold;
                   padding: 8px 12px;
                   flex: 1;
@@ -1426,7 +1426,7 @@ export default {
                 .item-value {
                   background: #3659e2;
                   color: #ffffff;
-                  font-size: 12px;
+                  font-size: 14px;
                   padding: 8px 12px;
                   flex: 3;
                   display: flex;
