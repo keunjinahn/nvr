@@ -65,7 +65,7 @@ const AlertHistory = sequelize.define('AlertHistory', {
     allowNull: true
   },
   alert_info_json: {
-    type: DataTypes.TEXT,
+    type: DataTypes.TEXT('medium'),
     allowNull: true
   }
 }, {

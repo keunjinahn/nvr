@@ -24,7 +24,7 @@
             @click="selectAlert(index)"
           )
             .roi-number
-              .roi-label ROI {{ alert.roiNumber || '-' }}
+              .roi-label ROI {{ getRoiDisplayName(alert) }}
             .data-table
               .table-item
                 .item-label 최고온도
@@ -34,7 +34,7 @@
                 .item-value {{ alert.minTemp }}°C
               .table-item
                 .item-label 평균온도
-                .item-value {{ (Number(alert.maxTemp) + Number(alert.minTemp)) / 2 | toFixed(2) }}°C
+                .item-value {{ alert.avgTemp }}°C
               .table-item
                 .item-label 경보단계
                 .item-value {{ getLevelText(alert.level) }}
@@ -55,14 +55,14 @@
         .thermal-image-placeholder(v-else)
           .placeholder-text 열화상 이미지
           .placeholder-subtext
-        // Zone 박스 오버레이
-        .zone-overlay(v-if="thermalImageSrc && zoneBoxes.length > 0")
-          .zone-box(
-            v-for="(zone, index) in zoneBoxes"
-            :key="index"
-            :style="getZoneBoxStyle(zone)"
-            :class="{ 'active-zone': zone.zone_type === selectedAlertZoneType }"
-            @click="onZoneBoxClick(zone)"
+        // Alert Boxes 오버레이 (20x20 박스 기반)
+        .alert-boxes-overlay(v-if="thermalImageSrc && alertBoxes.length > 0")
+          .alert-box(
+            v-for="(box, index) in alertBoxes"
+            :key="`${box.box_id}_${index}`"
+            :style="getAlertBoxStyle(box)"
+            :class="{ 'active-box': box.box_id === selectedAlertBoxId }"
+            @click="onAlertBoxClick(box)"
           )
     .bottom-image-box
       .box-title 실화상 이미지
@@ -177,6 +177,8 @@ export default {
     selectedAlertIndex: 0,
     zoneBoxes: [],
     selectedAlertZoneType: null,
+    alertBoxes: [],
+    selectedAlertBoxId: null,
     thermalImageSize: { width: 0, height: 0 },
     siteDetails: {
       maxTemp: '46.24',
@@ -569,9 +571,9 @@ export default {
     },
 
     handleWindowResize() {
-      // 윈도우 크기 변경 시 zone 박스 위치 재계산
+      // 윈도우 크기 변경 시 alert 박스 위치 재계산
       this.$nextTick(() => {
-        this.updateZoneBoxes();
+        this.updateAlertBoxes();
       });
     },
 
@@ -582,14 +584,50 @@ export default {
         this.alertHistory = response.data.result.map(alert => {
           let minTemp = '-';
           let maxTemp = '-';
-          const info = alert.alert_info_json ? JSON.parse(alert.alert_info_json) : {};
+          let avgTemp = '-';
+          let info = {};
+          
+          // alert_info_json 안전하게 파싱
           try {
-            
-            minTemp = (typeof info.min_roi_value === 'number') ? info.min_roi_value.toFixed(1) : '-';
-            maxTemp = (typeof info.max_roi_value === 'number') ? info.max_roi_value.toFixed(1) : '-';
+            if (alert.alert_info_json && typeof alert.alert_info_json === 'string') {
+              // JSON 문자열이 잘린 경우를 대비하여 안전하게 파싱
+              const jsonStr = alert.alert_info_json.trim();
+              if (jsonStr.endsWith('}') || jsonStr.endsWith(']')) {
+                info = JSON.parse(jsonStr);
+              } else {
+                // JSON이 잘린 경우, 마지막 완전한 객체나 배열을 찾아서 파싱 시도
+                const lastCompleteJson = this.findLastCompleteJson(jsonStr);
+                if (lastCompleteJson) {
+                  info = JSON.parse(lastCompleteJson);
+                } else {
+                  console.warn('JSON이 잘려있어 파싱할 수 없습니다:', jsonStr.substring(0, 100) + '...');
+                  info = {};
+                }
+              }
+            } else if (alert.alert_info_json && typeof alert.alert_info_json === 'object') {
+              info = alert.alert_info_json;
+            }
           } catch (e) {
-            // no-op
+            console.error('alert_info_json 파싱 오류:', e, '원본 데이터:', alert.alert_info_json);
+            info = {};
           }
+          
+          try {
+            // temperature_stats에서 온도 데이터 추출
+            if (info.temperature_stats) {
+              minTemp = (typeof info.temperature_stats.min === 'number') ? info.temperature_stats.min.toFixed(1) : '-';
+              maxTemp = (typeof info.temperature_stats.max === 'number') ? info.temperature_stats.max.toFixed(1) : '-';
+              avgTemp = (typeof info.temperature_stats.average === 'number') ? info.temperature_stats.average.toFixed(1) : '-';
+            } else {
+              // 기존 방식으로 fallback
+              minTemp = (typeof info.min_roi_value === 'number') ? info.min_roi_value.toFixed(1) : '-';
+              maxTemp = (typeof info.max_roi_value === 'number') ? info.max_roi_value.toFixed(1) : '-';
+              avgTemp = '-';
+            }
+          } catch (e) {
+            console.error('온도 데이터 파싱 오류:', e);
+          }
+          
           return {
             id: alert.id,
             time: this.formatDate(alert.alert_accur_time),
@@ -598,6 +636,7 @@ export default {
             level: alert.alert_level,
             maxTemp,
             minTemp,
+            avgTemp,
             roiNumber: info.zone_type,
             snapshotImages: alert.snapshotImages,
             alert_info_json: alert.alert_info_json
@@ -608,7 +647,7 @@ export default {
         if (this.alertHistory.length > 0) {
           this.selectedAlertIndex = 0; // 최신 경보를 기본 선택
           this.parseSnapshotImages(this.alertHistory[0].snapshotImages);
-          this.updateZoneBoxes();
+          this.updateAlertBoxes();
         }
 
         // 최신 경보단계로 gaugeChart 값 반영 (한글 문구로)
@@ -753,8 +792,24 @@ export default {
         this.selectedAlertIndex = index;
         const selectedAlert = this.alertHistory[index];
         console.log('Selected alert:', selectedAlert);
+        
+        // temperature_stats 정보 출력
+        try {
+          const alertInfo = selectedAlert.alert_info_json ? JSON.parse(selectedAlert.alert_info_json) : {};
+          if (alertInfo.temperature_stats) {
+            console.log('Temperature stats:', {
+              min: alertInfo.temperature_stats.min,
+              max: alertInfo.temperature_stats.max,
+              average: alertInfo.temperature_stats.average,
+              difference: alertInfo.temperature_stats.difference
+            });
+          }
+        } catch (e) {
+          console.error('Error parsing temperature stats:', e);
+        }
+        
         this.parseSnapshotImages(selectedAlert.snapshotImages);
-        this.updateZoneBoxes();
+        this.updateAlertBoxes();
       }
     },
 
@@ -767,7 +822,37 @@ export default {
           return;
         }
 
-        const snapshotImages = JSON.parse(snapshotImagesJson);
+        let snapshotImages = [];
+        
+        // snapshotImagesJson 안전하게 파싱
+        try {
+          if (typeof snapshotImagesJson === 'string') {
+            // JSON 문자열이 잘린 경우를 대비하여 안전하게 파싱
+            const jsonStr = snapshotImagesJson.trim();
+            if (jsonStr.endsWith('}') || jsonStr.endsWith(']')) {
+              snapshotImages = JSON.parse(jsonStr);
+            } else {
+              // JSON이 잘린 경우, 마지막 완전한 객체나 배열을 찾아서 파싱 시도
+              const lastCompleteJson = this.findLastCompleteJson(jsonStr);
+              if (lastCompleteJson) {
+                snapshotImages = JSON.parse(lastCompleteJson);
+              } else {
+                console.warn('JSON이 잘려있어 파싱할 수 없습니다:', jsonStr.substring(0, 100) + '...');
+                this.thermalImageSrc = null;
+                this.visualImageSrc = null;
+                return;
+              }
+            }
+          } else if (Array.isArray(snapshotImagesJson)) {
+            snapshotImages = snapshotImagesJson;
+          }
+        } catch (e) {
+          console.error('parseSnapshotImages에서 JSON 파싱 오류:', e, '원본 데이터:', snapshotImagesJson);
+          this.thermalImageSrc = null;
+          this.visualImageSrc = null;
+          return;
+        }
+        
         console.log('Parsed snapshot images:', snapshotImages);
 
         if (!Array.isArray(snapshotImages) || snapshotImages.length === 0) {
@@ -830,66 +915,275 @@ export default {
         height: 480
       };
       
-      // 이미지 렌더링 완료 후 zone 박스 업데이트
+      // 이미지 렌더링 완료 후 alert 박스 업데이트
       this.$nextTick(() => {
         setTimeout(() => {
-          this.updateZoneBoxes();
+          this.updateAlertBoxes();
         }, 100);
       });
     },
 
-    updateZoneBoxes() {
+    updateAlertBoxes() {
       if (this.alertHistory.length === 0 || this.selectedAlertIndex >= this.alertHistory.length) {
-        this.zoneBoxes = [];
+        this.alertBoxes = [];
         return;
       }
 
       const selectedAlert = this.alertHistory[this.selectedAlertIndex];
       try {
-        const alertInfo = selectedAlert.alert_info_json ? JSON.parse(selectedAlert.alert_info_json) : {};
-        const zoneList = alertInfo.zone_list || [];
+        let alertInfo = {};
+        
+        // alert_info_json 안전하게 파싱
+        try {
+          if (selectedAlert.alert_info_json && typeof selectedAlert.alert_info_json === 'string') {
+            // JSON 문자열이 잘린 경우를 대비하여 안전하게 파싱
+            const jsonStr = selectedAlert.alert_info_json.trim();
+            if (jsonStr.endsWith('}') || jsonStr.endsWith(']')) {
+              alertInfo = JSON.parse(jsonStr);
+            } else {
+              // JSON이 잘린 경우, 마지막 완전한 객체나 배열을 찾아서 파싱 시도
+              const lastCompleteJson = this.findLastCompleteJson(jsonStr);
+              if (lastCompleteJson) {
+                alertInfo = JSON.parse(lastCompleteJson);
+              } else {
+                console.warn('JSON이 잘려있어 파싱할 수 없습니다:', jsonStr.substring(0, 100) + '...');
+                alertInfo = {};
+              }
+            }
+          } else if (selectedAlert.alert_info_json && typeof selectedAlert.alert_info_json === 'object') {
+            alertInfo = selectedAlert.alert_info_json;
+          }
+        } catch (e) {
+          console.error('updateAlertBoxes에서 alert_info_json 파싱 오류:', e, '원본 데이터:', selectedAlert.alert_info_json);
+          alertInfo = {};
+        }
+        
         this.selectedAlertZoneType = alertInfo.zone_type;
 
-        // zone_list에서 박스 정보 추출
-        this.zoneBoxes = zoneList.map(zone => {
-          if (typeof zone === 'object' && zone !== null) {
-            return {
-              left: zone.left  + 3|| zone.x1 || 0,
-              top: zone.top || zone.y1 || 0,
-              right: zone.right - 4 || zone.x2 || 0,
-              bottom: zone.bottom || zone.y2 || 0,
-              zone_type: zone.zone_type || zone.type || '1'
-            };
+        // roi_polygon의 alert_boxes에서 20x20 박스 정보 추출
+        if (alertInfo.roi_polygon && alertInfo.roi_polygon.alert_boxes && Array.isArray(alertInfo.roi_polygon.alert_boxes)) {
+          this.alertBoxes = alertInfo.roi_polygon.alert_boxes.map(box => ({
+            ...box,
+            // 폴리곤 좌표를 박스 스타일로 변환 (오버레이 내 상대 좌표로 변환)
+            left: box.polygon[0][0],       // 절대 좌표 그대로 사용
+            top: box.polygon[0][1],        // 절대 좌표 그대로 사용
+            right: box.polygon[2][0],      // 절대 좌표 그대로 사용
+            bottom: box.polygon[2][1],     // 절대 좌표 그대로 사용
+            temp_diff: box.temp_diff || 0,
+            alert_level: box.alert_level || 0
+          }));
+          
+          console.log('Alert boxes updated from roi_polygon (오버레이 내 상대 좌표):', this.alertBoxes);
+          
+          // 첫 번째 박스의 좌표 정보 로깅
+          if (this.alertBoxes.length > 0) {
+            const firstBox = this.alertBoxes[0];
+            console.log('첫 번째 박스 좌표 정보:', {
+              box_id: firstBox.box_id,
+              polygon: firstBox.polygon,
+              left: firstBox.left,
+              top: firstBox.top,
+              right: firstBox.right,
+              bottom: firstBox.bottom,
+              width: firstBox.right - firstBox.left,
+              height: firstBox.bottom - firstBox.top
+            });
           }
-          return null;
-        }).filter(zone => zone !== null);
+        } else if (alertInfo.rect && Array.isArray(alertInfo.rect) && alertInfo.rect.length === 4) {
+          // 기존 rect 정보로 fallback (단일 박스)
+          const [x, y, width, height] = alertInfo.rect;
+          this.alertBoxes = [{
+            box_id: 'main_roi',
+            left: x,
+            top: y,
+            right: x + width,
+            bottom: y + height,
+            temp_diff: 0,
+            alert_level: alertInfo.alert_level || 0,
+            polygon: [[x, y], [x + width, y], [x + width, y + height], [x, y + height]]
+          }];
+          
+          console.log('Alert boxes updated from rect (fallback):', this.alertBoxes);
+        } else {
+          this.alertBoxes = [];
+          console.log('No alert boxes data found');
+        }
 
-        console.log('Zone boxes updated:', this.zoneBoxes);
         console.log('Selected alert zone type:', this.selectedAlertZoneType);
       } catch (error) {
-        console.error('Error parsing zone list:', error);
-        this.zoneBoxes = [];
+        console.error('Error parsing alert boxes:', error);
+        this.alertBoxes = [];
       }
     },
 
-    getZoneBoxStyle(zone) {
-      // 640x480 고정 크기에 맞춰 오버레이 위치 계산
-      // 오버레이가 이미지와 정확히 겹치므로 zone 좌표를 직접 사용
+    getAlertBoxStyle(box) {
+      // 640x480 고정 크기에 맞춰 오버레이 위치 계산 (오버레이 내 상대 좌표)
+      const left = box.left;
+      const top = box.top;
+      const width = box.right - box.left;
+      const height = box.bottom - box.top;
+      
+      // 온도차에 따른 배경색 계산 (노란색 -> 붉은색)
+      const tempDiff = box.temp_diff || 0;
+      const backgroundColor = this.getTemperatureColor(tempDiff);
+      
+      // 디버깅을 위한 로그
+      console.log(`Box ${box.box_id} style 계산:`, {
+        original_coords: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
+        calculated_style: { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` }
+      });
+      
       return {
         position: 'absolute',
-        left: `${zone.left}px`,
-        top: `${zone.top}px`,
-        width: `${zone.right - zone.left}px`,
-        height: `${zone.bottom - zone.top}px`
+        left: `${left}px`,
+        top: `${top}px`,
+        width: `${width}px`,
+        height: `${height}px`,
+        backgroundColor: backgroundColor,
+        border: '1px solid rgba(255, 255, 255, 0.8)',
+        opacity: 0.7,
+        cursor: 'pointer',
+        transition: 'all 0.3s ease'
       };
     },
 
-    // Zone 박스 클릭 이벤트
-    onZoneBoxClick(zone) {
-      console.log('Zone box clicked:', zone);
-      this.selectedRoiNumber = zone.zone_type;
-      this.showRoiDataDialog = true;
-      this.loadRoiTimeSeriesData(zone.zone_type);
+    getTemperatureColor(tempDiff) {
+      // 온도차에 따른 색상 변화: 노란색 -> 주황색 -> 붉은색
+      if (tempDiff <= 2) {
+        return 'rgba(255, 255, 0, 0.3)'; // 연한 노란색
+      } else if (tempDiff <= 5) {
+        return 'rgba(255, 255, 0, 0.5)'; // 노란색
+      } else if (tempDiff <= 8) {
+        return 'rgba(255, 165, 0, 0.6)'; // 주황색
+      } else if (tempDiff <= 10) {
+        return 'rgba(255, 69, 0, 0.7)'; // 붉은 주황색
+      } else {
+        return 'rgba(255, 0, 0, 0.8)'; // 붉은색
+      }
+    },
+
+    // Alert 박스 클릭 이벤트
+    onAlertBoxClick(box) {
+      console.log('Alert box clicked:', box);
+      this.selectedAlertBoxId = box.box_id;
+      
+      // 박스 정보를 팝업으로 표시
+      this.$toast.info(`박스 ${box.box_id}: 온도차 ${box.temp_diff.toFixed(1)}°C, 경보레벨 ${box.alert_level}`);
+      
+      // ROI 시계열 데이터 로드 (박스가 속한 ROI의 zone_type 사용)
+      if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.alertHistory.length) {
+        const selectedAlert = this.alertHistory[this.selectedAlertIndex];
+        try {
+          const alertInfo = selectedAlert.alert_info_json ? JSON.parse(selectedAlert.alert_info_json) : {};
+          if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
+            const roiNumber = alertInfo.roi_polygon.main_roi.zone_type;
+            this.selectedRoiNumber = roiNumber;
+            this.showRoiDataDialog = true;
+            this.loadRoiTimeSeriesData(roiNumber);
+          }
+        } catch (e) {
+          console.error('Error parsing ROI data for box click:', e);
+        }
+      }
+    },
+
+    findLastCompleteJson(jsonStr) {
+      try {
+        // JSON 문자열이 잘린 경우, 마지막 완전한 객체나 배열을 찾아서 반환
+        let braceCount = 0;
+        let bracketCount = 0;
+        let inString = false;
+        let escapeNext = false;
+        let lastCompleteIndex = -1;
+        
+        for (let i = 0; i < jsonStr.length; i++) {
+          const char = jsonStr[i];
+          
+          if (escapeNext) {
+            escapeNext = false;
+            continue;
+          }
+          
+          if (char === '\\') {
+            escapeNext = true;
+            continue;
+          }
+          
+          if (char === '"' && !escapeNext) {
+            inString = !inString;
+            continue;
+          }
+          
+          if (!inString) {
+            if (char === '{') {
+              braceCount++;
+            } else if (char === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                lastCompleteIndex = i;
+              }
+            } else if (char === '[') {
+              bracketCount++;
+            } else if (char === ']') {
+              bracketCount--;
+              if (bracketCount === 0) {
+                lastCompleteIndex = i;
+              }
+            }
+          }
+        }
+        
+        if (lastCompleteIndex > 0) {
+          return jsonStr.substring(0, lastCompleteIndex + 1);
+        }
+        
+        return null;
+      } catch (error) {
+        console.error('findLastCompleteJson 오류:', error);
+        return null;
+      }
+    },
+
+    getRoiDisplayName(alert) {
+      try {
+        let alertInfo = {};
+        
+        // alert_info_json 안전하게 파싱
+        try {
+          if (alert.alert_info_json && typeof alert.alert_info_json === 'string') {
+            // JSON 문자열이 잘린 경우를 대비하여 안전하게 파싱
+            const jsonStr = alert.alert_info_json.trim();
+            if (jsonStr.endsWith('}') || jsonStr.endsWith(']')) {
+              alertInfo = JSON.parse(jsonStr);
+            } else {
+              // JSON이 잘린 경우, 마지막 완전한 객체나 배열을 찾아서 파싱 시도
+              const lastCompleteJson = this.findLastCompleteJson(jsonStr);
+              if (lastCompleteJson) {
+                alertInfo = JSON.parse(lastCompleteJson);
+              } else {
+                console.warn('JSON이 잘려있어 파싱할 수 없습니다:', jsonStr.substring(0, 100) + '...');
+                alertInfo = {};
+              }
+            }
+          } else if (alert.alert_info_json && typeof alert.alert_info_json === 'object') {
+            alertInfo = alert.alert_info_json;
+          }
+        } catch (e) {
+          console.error('getRoiDisplayName에서 alert_info_json 파싱 오류:', e, '원본 데이터:', alert.alert_info_json);
+          alertInfo = {};
+        }
+        
+        // roi_polygon의 main_roi에서 zone_type 추출
+        if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
+          return alertInfo.roi_polygon.main_roi.zone_type || alert.roiNumber || '-';
+        }
+        
+        // 기존 방식으로 fallback
+        return alert.roiNumber || '-';
+      } catch (error) {
+        console.error('Error parsing ROI display name:', error);
+        return alert.roiNumber || '-';
+      }
     },
 
     // ROI 시계열 데이터 로드
@@ -927,44 +1221,66 @@ export default {
             eventDate = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
           }
           
-          console.log('Using event date (Korea time):', eventDate.toISOString());
+          // 한국 시간을 UTC로 변환 (API는 UTC 시간을 기대)
+          const utcDate = new Date(eventDate.getTime() - (9 * 60 * 60 * 1000));
           
-          // API 호출
-          const response = await getRoiTimeSeriesData({
+          console.log('Original event date (Korea time):', eventDate.toISOString());
+          console.log('Converted to UTC for API:', utcDate.toISOString());
+          
+          // API 호출 전 파라미터 로깅
+          const apiParams = {
             roiNumber: roiNumber,
             eventDate: eventDate.toISOString()
-          });
+          };
+          console.log('API 호출 파라미터:', apiParams);
+          
+          // API 호출
+          const response = await getRoiTimeSeriesData(apiParams);
           
           console.log('ROI Time Series API Response:', response);
+          console.log('Response status:', response?.status);
+          console.log('Response data:', response?.data);
           
-          if (response && response.data && response.data.result) {
-            const result = response.data.result;
-            
-            // API 응답 데이터를 차트용 데이터로 변환 (최대, 평균, 최소 온도 포함)
-            this.roiTimeSeriesData = result.timeSeriesData.map(item => ({
-              time: item.time,
-              maxTemp: parseFloat(item.max || item.avg || 0),
-              avgTemp: parseFloat(item.avg || 0),
-              minTemp: parseFloat(item.min || item.avg || 0),
-              roiNumber: item.roiNumber
-            }));
-            
-            // 통계 정보 업데이트
-            this.roiTemperatureStats = {
-              maxTemp: parseFloat(result.statistics.maxTemp),
-              minTemp: parseFloat(result.statistics.minTemp),
-              avgTemp: parseFloat(result.statistics.avgTemp)
-            };
-            
-            console.log('Processed ROI time series data:', this.roiTimeSeriesData);
-            console.log('Temperature stats:', this.roiTemperatureStats);
-            
-            // 차트 초기화
-            this.$nextTick(() => {
-              this.initRoiTimeSeriesChart();
-            });
+          // 응답 상태 코드 확인
+          if (response && response.status === 200) {
+            if (response.data && response.data.result) {
+              const result = response.data.result;
+              
+              // API 응답 데이터를 차트용 데이터로 변환 (최대, 평균, 최소 온도 포함)
+              this.roiTimeSeriesData = result.timeSeriesData.map(item => ({
+                time: item.time,
+                maxTemp: parseFloat(item.max || item.avg || 0),
+                avgTemp: parseFloat(item.avg || 0),
+                minTemp: parseFloat(item.min || item.avg || 0),
+                roiNumber: item.roiNumber
+              }));
+              
+              // 통계 정보 업데이트
+              this.roiTemperatureStats = {
+                maxTemp: parseFloat(result.statistics.maxTemp),
+                minTemp: parseFloat(result.statistics.minTemp),
+                avgTemp: parseFloat(result.statistics.avgTemp)
+              };
+              
+              console.log('Processed ROI time series data:', this.roiTimeSeriesData);
+              console.log('Temperature stats:', this.roiTemperatureStats);
+              
+              // 차트 초기화
+              this.$nextTick(() => {
+                this.initRoiTimeSeriesChart();
+              });
+            } else {
+              console.log('API 응답에 result 데이터가 없습니다:', response.data);
+              this.roiTimeSeriesData = [];
+              this.roiTemperatureStats = { maxTemp: 0, minTemp: 0, avgTemp: 0 };
+            }
+          } else if (response && response.status === 304) {
+            console.log('API 응답 304 (Not Modified) - 데이터가 변경되지 않았거나 없습니다');
+            console.log('Response headers:', response.headers);
+            this.roiTimeSeriesData = [];
+            this.roiTemperatureStats = { maxTemp: 0, minTemp: 0, avgTemp: 0 };
           } else {
-            console.log('No data available for ROI', roiNumber);
+            console.log('API 응답 오류 또는 예상치 못한 상태 코드:', response?.status);
             this.roiTimeSeriesData = [];
             this.roiTemperatureStats = { maxTemp: 0, minTemp: 0, avgTemp: 0 };
           }
@@ -1559,7 +1875,7 @@ export default {
   background: #000;
 }
 
-.zone-overlay {
+.alert-boxes-overlay {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -1572,31 +1888,25 @@ export default {
   border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-.zone-box {
+.alert-box {
   position: absolute;
-  border: 2px solid #00ff00;
-  background-color: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.8);
   pointer-events: auto;
   cursor: pointer;
   z-index: 6;
   transition: all 0.3s ease;
+  opacity: 0.7;
   
   &:hover {
-    border-color: #ffff00;
-    background-color: rgba(255, 255, 0, 0.2);
-    box-shadow: 0 0 8px rgba(255, 255, 0, 0.4);
+    opacity: 0.9;
+    transform: scale(1.05);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
   }
   
-  &.active-zone {
-    border-color: #ff0000;
-    background-color: rgba(255, 0, 0, 0.3);
-    box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
-    
-    &:hover {
-      border-color: #ff6666;
-      background-color: rgba(255, 102, 102, 0.4);
-      box-shadow: 0 0 12px rgba(255, 102, 102, 0.6);
-    }
+  &.active-box {
+    border-color: #fff;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
+    opacity: 0.9;
   }
 }
 
