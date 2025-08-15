@@ -168,7 +168,7 @@ export default {
     alertHistory: [],
     env: process.env.NODE_ENV,
     alertRefreshTimer: null,
-    autoRefreshAlertHistory: true,
+    autoRefreshAlertHistory: false,
     currentTime: '',
     timeInterval: null,
     location_info: '수자원공사 섬진강댐',
@@ -960,8 +960,48 @@ export default {
         
         this.selectedAlertZoneType = alertInfo.zone_type;
 
-        // roi_polygon의 alert_boxes에서 20x20 박스 정보 추출
-        if (alertInfo.roi_polygon && alertInfo.roi_polygon.alert_boxes && Array.isArray(alertInfo.roi_polygon.alert_boxes)) {
+        // scenario에 따른 처리 분기
+        if (alertInfo.scenario === 'scenario2') {
+          // 시나리오2: bar_region 영역만 그림
+          if (alertInfo.bar_region) {
+            // bar_region의 start_y, end_y가 있는지 확인하고 사용
+            const start_y = alertInfo.bar_region.start_y !== undefined ? alertInfo.bar_region.start_y : 0;
+            const end_y = alertInfo.bar_region.end_y !== undefined ? alertInfo.bar_region.end_y : 480;
+            
+            this.alertBoxes = [{
+              box_id: `scenario2_bar_${alertInfo.bar_index || 0}`,
+              left: alertInfo.bar_region.start_x,
+              top: start_y,  // bar_region의 start_y 사용
+              right: alertInfo.bar_region.end_x,
+              bottom: end_y,  // bar_region의 end_y 사용
+              temp_diff: alertInfo.temperature_stats?.difference || 0,
+              alert_level: alertInfo.alert_level || 1,
+              polygon: [
+                [alertInfo.bar_region.start_x, start_y],
+                [alertInfo.bar_region.end_x, start_y],
+                [alertInfo.bar_region.end_x, end_y],
+                [alertInfo.bar_region.start_x, end_y]
+              ],
+              scenario: 'scenario2',
+              bar_region: alertInfo.bar_region,
+              temperature_stats: alertInfo.temperature_stats
+            }];
+            
+            console.log('Scenario2 bar_region box created:', this.alertBoxes[0]);
+            console.log('  좌표 정보:', {
+              left: alertInfo.bar_region.start_x,
+              top: start_y,
+              right: alertInfo.bar_region.end_x,
+              bottom: end_y,
+              width: alertInfo.bar_region.end_x - alertInfo.bar_region.start_x,
+              height: end_y - start_y
+            });
+          } else {
+            this.alertBoxes = [];
+            console.log('Scenario2: bar_region 정보가 없습니다');
+          }
+        } else if (alertInfo.roi_polygon && alertInfo.roi_polygon.alert_boxes && Array.isArray(alertInfo.roi_polygon.alert_boxes)) {
+          // 시나리오1: roi_polygon의 alert_boxes에서 20x20 박스 정보 추출
           this.alertBoxes = alertInfo.roi_polygon.alert_boxes.map(box => ({
             ...box,
             // 폴리곤 좌표를 박스 스타일로 변환 (오버레이 내 상대 좌표로 변환)
@@ -970,10 +1010,11 @@ export default {
             right: box.polygon[2][0],      // 절대 좌표 그대로 사용
             bottom: box.polygon[2][1],     // 절대 좌표 그대로 사용
             temp_diff: box.temp_diff || 0,
-            alert_level: box.alert_level || 0
+            alert_level: box.alert_level || 0,
+            scenario: 'scenario1'
           }));
           
-          console.log('Alert boxes updated from roi_polygon (오버레이 내 상대 좌표):', this.alertBoxes);
+          console.log('Alert boxes updated from roi_polygon (시나리오1, 20x20 박스):', this.alertBoxes);
           
           // 첫 번째 박스의 좌표 정보 로깅
           if (this.alertBoxes.length > 0) {
@@ -1000,7 +1041,8 @@ export default {
             bottom: y + height,
             temp_diff: 0,
             alert_level: alertInfo.alert_level || 0,
-            polygon: [[x, y], [x + width, y], [x + width, y + height], [x, y + height]]
+            polygon: [[x, y], [x + width, y], [x + width, y + height], [x, y + height]],
+            scenario: 'unknown'
           }];
           
           console.log('Alert boxes updated from rect (fallback):', this.alertBoxes);
@@ -1023,28 +1065,41 @@ export default {
       const width = box.right - box.left;
       const height = box.bottom - box.top;
       
-      // 온도차에 따른 배경색 계산 (노란색 -> 붉은색)
-      const tempDiff = box.temp_diff || 0;
-      const backgroundColor = this.getTemperatureColor(tempDiff);
-      
-      // 디버깅을 위한 로그
-      console.log(`Box ${box.box_id} style 계산:`, {
-        original_coords: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
-        calculated_style: { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` }
-      });
-      
-      return {
-        position: 'absolute',
-        left: `${left}px`,
-        top: `${top}px`,
-        width: `${width}px`,
-        height: `${height}px`,
-        backgroundColor: backgroundColor,
-        border: '1px solid rgba(255, 255, 255, 0.8)',
-        opacity: 0.7,
-        cursor: 'pointer',
-        transition: 'all 0.3s ease'
-      };
+      // 시나리오에 따른 스타일 분기
+      if (box.scenario === 'scenario2') {
+        // 시나리오2: 수직 막대 스타일 (bar_region)
+        const backgroundColor = this.getScenario2Color(box.alert_level || 1);
+        
+        return {
+          position: 'absolute',
+          left: `${left}px`,
+          top: `${top}px`,
+          width: `${width}px`,
+          height: `${height}px`,
+          backgroundColor: backgroundColor,
+          border: '2px solid rgba(255, 255, 255, 0.9)',
+          opacity: 0.6,
+          cursor: 'pointer',
+          transition: 'all 0.3s ease'
+        };
+      } else {
+        // 시나리오1: 20x20 박스 스타일
+        const tempDiff = box.temp_diff || 0;
+        const backgroundColor = this.getTemperatureColor(tempDiff);
+        
+        return {
+          position: 'absolute',
+          left: `${left}px`,
+          top: `${top}px`,
+          width: `${width}px`,
+          height: `${height}px`,
+          backgroundColor: backgroundColor,
+          border: '1px solid rgba(255, 255, 255, 0.8)',
+          opacity: 0.7,
+          cursor: 'pointer',
+          transition: 'all 0.3s ease'
+        };
+      }
     },
 
     getTemperatureColor(tempDiff) {
@@ -1062,27 +1117,58 @@ export default {
       }
     },
 
+    getScenario2Color() {
+      // 시나리오2 수직 막대 배경을 주황색으로 고정
+      return 'rgba(255, 255, 0, 1)'; // 주황색 (고정)
+      
+      // 기존 경보 레벨별 색상 (주석 처리)
+      /*
+      switch (alertLevel) {
+        case 1:
+          return 'rgba(255, 255, 0, 0.4)'; // 노란색 (주의)
+        case 2:
+          return 'rgba(255, 165, 0, 0.5)'; // 주황색 (경고)
+        case 3:
+          return 'rgba(255, 69, 0, 0.6)'; // 붉은 주황색 (위험)
+        case 4:
+          return 'rgba(255, 0, 0, 0.7)'; // 붉은색 (심각)
+        default:
+          return 'rgba(255, 255, 0, 0.4)'; // 기본값 (노란색)
+      }
+      */
+    },
+
     // Alert 박스 클릭 이벤트
     onAlertBoxClick(box) {
       console.log('Alert box clicked:', box);
       this.selectedAlertBoxId = box.box_id;
       
-      // 박스 정보를 팝업으로 표시
-      this.$toast.info(`박스 ${box.box_id}: 온도차 ${box.temp_diff.toFixed(1)}°C, 경보레벨 ${box.alert_level}`);
-      
-      // ROI 시계열 데이터 로드 (박스가 속한 ROI의 zone_type 사용)
-      if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.alertHistory.length) {
-        const selectedAlert = this.alertHistory[this.selectedAlertIndex];
-        try {
-          const alertInfo = selectedAlert.alert_info_json ? JSON.parse(selectedAlert.alert_info_json) : {};
-          if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
-            const roiNumber = alertInfo.roi_polygon.main_roi.zone_type;
-            this.selectedRoiNumber = roiNumber;
-            this.showRoiDataDialog = true;
-            this.loadRoiTimeSeriesData(roiNumber);
+      // 시나리오에 따른 처리 분기
+      if (box.scenario === 'scenario2') {
+        // 시나리오2: 수직 막대 정보 표시
+        const tempStats = box.temperature_stats || {};
+        this.$toast.info(`시나리오2 수직 막대: 온도차 ${tempStats.difference?.toFixed(1) || 0}°C, 평균온도 ${tempStats.average?.toFixed(1) || 0}°C, 경보레벨 ${box.alert_level}`);
+        
+        // 시나리오2는 ROI 시계열 데이터가 없으므로 다이얼로그 표시하지 않음
+        console.log('Scenario2 box clicked - no ROI time series data available');
+      } else {
+        // 시나리오1: 20x20 박스 정보 표시
+        this.$toast.info(`박스 ${box.box_id}: 온도차 ${box.temp_diff.toFixed(1)}°C, 경보레벨 ${box.alert_level}`);
+        
+        // ROI 시계열 데이터 로드 (박스가 속한 ROI의 zone_type 사용)
+        if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.alertHistory.length) {
+          const selectedAlert = this.alertHistory[this.selectedAlertIndex];
+          try {
+            const alertInfo = selectedAlert.alert_info_json ? JSON.parse(selectedAlert.alert_info_json) : {};
+            if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
+              const roiNumber = alertInfo.roi_polygon.main_roi.zone_type;
+              this.selectedRoiNumber = roiNumber;
+              this.showRoiDataDialog = true;
+              this.loadRoiTimeSeriesData(roiNumber);
+            }
+          } catch (e) {
+            console.error('Error parsing ROI data for box click:', e);
           }
-        } catch (e) {
-          console.error('Error parsing ROI data for box click:', e);
         }
       }
     },

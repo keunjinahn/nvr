@@ -476,7 +476,7 @@ class VideoAlertChecker:
             logger.info(f"온도 매트릭스 생성 완료: {width}x{height}")
             
             # 온도 매트릭스를 CSV 파일로 저장
-            self.save_temperature_matrix_to_csv(temp_matrix, width, height)
+            #self.save_temperature_matrix_to_csv(temp_matrix, width, height)
             
             return temp_matrix
             
@@ -1211,11 +1211,15 @@ class VideoAlertChecker:
 
     def scenario2_judge(self):
         """
-        시나리오2: 시나리오2.txt 파일의 소스코드를 분석하여 검출
-        수직 막대 형태의 영역으로 처리
+        시나리오2: ROI 영역 내에서 수직 막대 형태의 영역으로 처리
         """
         try:
             logger.info("시나리오2 판단 시작")
+            
+            # 강제 종료 체크
+            if self.force_exit:
+                logger.info("강제 종료 요청됨, 시나리오2 중단")
+                return False
             
             # 최신 온도 데이터 조회
             temp_data_record = self.get_latest_temperature_data()
@@ -1238,15 +1242,57 @@ class VideoAlertChecker:
                 logger.error("시나리오2: 온도 매트릭스 생성 실패")
                 return False
             
-            # 시나리오2 알고리즘 실행
-            # 수직 막대 형태의 영역으로 처리 (640x480 이미지 기준)
-            vertical_bars = self.create_vertical_bars(temp_matrix)
+            # ROI 영역 리스트 가져오기
+            if not self.zone_list:
+                logger.warning("시나리오2: zone_list가 없어 기본 ROI 영역을 사용합니다")
+                # 기본 ROI 영역 설정 (640x480 전체 영역을 4개 구역으로 분할)
+                default_zones = [
+                    {'zone_type': '1', 'rect': [0, 0, 320, 240]},      # 좌상단 (0,0 ~ 319,239)
+                    {'zone_type': '2', 'rect': [320, 0, 320, 240]},    # 우상단 (320,0 ~ 639,239)
+                    {'zone_type': '3', 'rect': [0, 240, 320, 240]},    # 좌하단 (0,240 ~ 319,479)
+                    {'zone_type': '4', 'rect': [320, 240, 320, 240]}   # 우하단 (320,240 ~ 639,479)
+                ]
+                zones_to_check = default_zones
+            else:
+                zones_to_check = self.zone_list
             
-            # 각 수직 막대 영역에 대해 C2M 거리 계산 및 이상 감지
+            # 각 ROI 영역 내에서 수직 막대 분석
             alert_detected = False
-            for bar_idx, bar_data in enumerate(vertical_bars):
-                if self.analyze_vertical_bar(bar_data, bar_idx):
-                    alert_detected = True
+            for zone_info in zones_to_check:
+                # 강제 종료 체크
+                if self.force_exit:
+                    logger.info("강제 종료 요청됨, 시나리오2 중단")
+                    return False
+                
+                # zone_segment_json에서 실제 ROI 좌표 추출
+                if 'left' in zone_info and 'top' in zone_info and 'right' in zone_info and 'bottom' in zone_info:
+                    # zone_segment_json의 실제 좌표 사용
+                    actual_rect = [
+                        zone_info['left'],      # x
+                        zone_info['top'],       # y
+                        zone_info['right'] - zone_info['left'],  # width
+                        zone_info['bottom'] - zone_info['top']   # height
+                    ]
+                    logger.info(f"시나리오2 Zone {zone_info.get('zone_type', 'unknown')}: zone_segment_json 좌표 사용 - {actual_rect}")
+                    logger.info(f"  ROI 영역: left={zone_info['left']}, top={zone_info['top']}, right={zone_info['right']}, bottom={zone_info['bottom']}")
+                else:
+                    # 기존 rect 정보 사용 (fallback)
+                    actual_rect = zone_info.get('rect', [0, 0, 320, 240])
+                    logger.info(f"시나리오2 Zone {zone_info.get('zone_type', 'unknown')}: 기존 rect 좌표 사용 - {actual_rect}")
+                
+                logger.info(f"시나리오2 Zone {zone_info.get('zone_type', 'unknown')}: ROI 영역 내에서 수직 막대 생성 시작 (ROI: {actual_rect})")
+                
+                # ROI 영역 내에서 수직 막대 생성 (고정 너비 5px)
+                vertical_bars = self.create_vertical_bars_in_roi(temp_matrix, actual_rect, zone_info.get('zone_type', 'unknown'))
+                
+                if not vertical_bars:
+                    logger.warning(f"시나리오2 Zone {zone_info.get('zone_type', 'unknown')}: 수직 막대 생성 실패")
+                    continue
+                
+                # 각 수직 막대 영역에 대해 이상 감지
+                for bar_idx, bar_data in enumerate(vertical_bars):
+                    if self.analyze_vertical_bar(bar_data, bar_idx, zone_info):
+                        alert_detected = True
             
             if not alert_detected:
                 logger.info("시나리오2: 경보 조건을 만족하지 않습니다")
@@ -1260,7 +1306,7 @@ class VideoAlertChecker:
 
     def create_vertical_bars(self, temp_matrix, num_bars=8):
         """
-        온도 매트릭스를 수직 막대 영역으로 분할
+        온도 매트릭스를 수직 막대 영역으로 분할 (전체 이미지 기준)
         """
         try:
             height, width = temp_matrix.shape
@@ -1297,7 +1343,72 @@ class VideoAlertChecker:
             logger.error(f"수직 막대 영역 생성 오류: {str(e)}")
             return []
 
-    def analyze_vertical_bar(self, bar_data, bar_idx):
+    def create_vertical_bars_in_roi(self, temp_matrix, roi_rect, zone_type):
+        """
+        ROI 영역 내에서 수직 막대 영역을 생성 (고정 너비 5px)
+        """
+        try:
+            x, y, w, h = roi_rect
+            height, width = temp_matrix.shape
+            
+            # ROI 영역이 이미지 범위를 벗어나는지 확인
+            if x < 0 or y < 0 or x + w > width or y + h > height:
+                logger.warning(f"Zone {zone_type}: ROI 영역이 이미지 범위를 벗어남 - {roi_rect}")
+                return []
+            
+            # ROI 영역 내에서 수직 막대 생성 (고정 너비 5px)
+            fixed_bar_width = 5  # 고정 너비 5px
+            num_bars = max(1, w // fixed_bar_width)  # ROI 너비에 맞춰 막대 개수 조정
+            
+            if w < fixed_bar_width:
+                logger.warning(f"Zone {zone_type}: ROI 너비가 너무 작아 수직 막대를 생성할 수 없음 - {w} < {fixed_bar_width}")
+                return []
+            
+            vertical_bars = []
+            for i in range(num_bars):
+                start_x = x + (i * fixed_bar_width)
+                end_x = min(start_x + fixed_bar_width, x + w)  # ROI 경계를 넘지 않도록
+                
+                # ROI 영역 내의 수직 막대 온도 데이터 추출
+                roi_bar_temp = temp_matrix[y:y+h, start_x:end_x]
+                
+                # NaN 값 제거하고 유효한 온도 데이터만 추출
+                valid_temps = roi_bar_temp[~np.isnan(roi_bar_temp)]
+                
+                if len(valid_temps) > 0:
+                    bar_data = {
+                        'bar_index': i,
+                        'zone_type': zone_type,
+                        'start_x': start_x,
+                        'end_x': end_x,
+                        'start_y': y,        # 수직 막대의 시작 Y 좌표 (zone의 top)
+                        'end_y': y + h,      # 수직 막대의 끝 Y 좌표 (zone의 bottom)
+                        'roi_x': x,
+                        'roi_y': y,
+                        'roi_width': w,
+                        'roi_height': h,
+                        'temperatures': valid_temps.tolist(),
+                        'min_temp': float(np.min(valid_temps)),
+                        'max_temp': float(np.max(valid_temps)),
+                        'avg_temp': float(np.mean(valid_temps)),
+                        'temp_diff': float(np.max(valid_temps) - np.min(valid_temps))
+                    }
+                    vertical_bars.append(bar_data)
+            
+            logger.info(f"Zone {zone_type}: ROI 내 수직 막대 영역 생성 완료 - {len(vertical_bars)}개 (고정 너비 5px, ROI: {roi_rect})")
+            
+            # 생성된 수직 막대들의 상세 정보 로깅
+            for i, bar in enumerate(vertical_bars):
+                logger.info(f"  Bar {i}: x={bar['start_x']}-{bar['end_x']}, y={bar['start_y']}-{bar['end_y']}, "
+                          f"width={bar['end_x']-bar['start_x']}px, height={bar['end_y']-bar['start_y']}px")
+            
+            return vertical_bars
+            
+        except Exception as e:
+            logger.error(f"Zone {zone_type}: ROI 내 수직 막대 영역 생성 오류: {str(e)}")
+            return []
+
+    def analyze_vertical_bar(self, bar_data, bar_idx, zone_info=None):
         """
         수직 막대 영역 분석 및 이상 감지
         """
@@ -1306,22 +1417,39 @@ class VideoAlertChecker:
             # 기준값: 온도차가 8도 이상이거나 평균 온도가 40도 이상인 경우
             
             alert_detected = False
+            zone_type = zone_info.get('zone_type', 'unknown') if zone_info else 'unknown'
             
             # 온도차 검사 (8도 이상)
-            if bar_data['temp_diff'] >= 8.0:
-                logger.info(f"시나리오2 경보 감지: Bar {bar_idx} 온도차 {bar_data['temp_diff']:.1f}°C >= 8°C")
+            # if bar_data['temp_diff'] >= 8.0:
+            #     logger.info(f"시나리오2 경보 감지: Zone {zone_type} Bar {bar_idx} 온도차 {bar_data['temp_diff']:.1f}°C >= 8°C")
                 
-                # 경보 생성 (스냅샷 데이터 ID 전달)
-                self.create_scenario2_alert(bar_data, 'temperature_diff', bar_data['temp_diff'], self.current_snapshot_data_id)
-                alert_detected = True
+            #     # 경보 생성 (스냅샷 데이터 ID 전달)
+            #     self.create_scenario2_alert(bar_data, 'temperature_diff', bar_data['temp_diff'], self.current_snapshot_data_id)
+            #     alert_detected = True
             
-            # 평균 온도 검사 (40도 이상)
-            if bar_data['avg_temp'] >= 40.0:
-                logger.info(f"시나리오2 경보 감지: Bar {bar_idx} 평균온도 {bar_data['avg_temp']:.1f}°C >= 40°C")
+            # 평균 온도 검사 (DB에서 조회한 시나리오2 단계값 사용)
+            if self.alert_settings and 'alarmLevels' in self.alert_settings and 'scenario2' in self.alert_settings['alarmLevels']:
+                scenario2_levels = self.alert_settings['alarmLevels']['scenario2']
+                logger.info(f"시나리오2 단계값 조회: {scenario2_levels}")
                 
-                # 경보 생성 (스냅샷 데이터 ID 전달)
-                self.create_scenario2_alert(bar_data, 'high_temperature', bar_data['avg_temp'], self.current_snapshot_data_id)
-                alert_detected = True
+                # 각 단계별로 평균 온도 검사
+                for level, threshold in enumerate(scenario2_levels):
+                    if bar_data['avg_temp'] >= threshold:
+                        logger.info(f"시나리오2 경보 감지: Zone {zone_type} Bar {bar_idx} 평균온도 {bar_data['avg_temp']:.1f}°C >= {threshold}°C (Level {level})")
+                        
+                        # 경보 생성 (스냅샷 데이터 ID 전달)
+                        self.create_scenario2_alert(bar_data, 'high_temperature', bar_data['avg_temp'], self.current_snapshot_data_id, level, zone_info)
+                        alert_detected = True
+                        break  # 첫 번째 만족하는 단계에서 중단
+            else:
+                logger.warning("시나리오2 단계값을 찾을 수 없어 기본값 40도 사용")
+                # 기본값으로 40도 사용 (fallback)
+                if bar_data['avg_temp'] >= 40.0:
+                    logger.info(f"시나리오2 경보 감지: Zone {zone_type} Bar {bar_idx} 평균온도 {bar_data['avg_temp']:.1f}°C >= 40°C (기본값)")
+                    
+                    # 경보 생성 (스냅샷 데이터 ID 전달)
+                    self.create_scenario2_alert(bar_data, 'high_temperature', bar_data['avg_temp'], self.current_snapshot_data_id, 0, zone_info)
+                    alert_detected = True
             
             return alert_detected
             
@@ -1329,7 +1457,7 @@ class VideoAlertChecker:
             logger.error(f"수직 막대 영역 분석 오류: {str(e)}")
             return False
 
-    def create_scenario2_alert(self, bar_data, alert_type, threshold_value, snapshot_data_id=None):
+    def create_scenario2_alert(self, bar_data, alert_type, threshold_value, snapshot_data_id=None, alert_level=1, zone_info=None):
         """
         시나리오2 경보 생성 및 DB 저장
         """
@@ -1341,17 +1469,59 @@ class VideoAlertChecker:
             # 스냅샷 이미지 캡처
             snapshot_images = self.capture_video_snapshots()
             
+            # bar_data 디버깅 로그 추가
+            logger.info(f"시나리오2 경보 생성 - bar_data 상세 정보:")
+            logger.info(f"  start_x: {bar_data.get('start_x', 'N/A')}")
+            logger.info(f"  end_x: {bar_data.get('end_x', 'N/A')}")
+            logger.info(f"  start_y: {bar_data.get('start_y', 'N/A')}")
+            logger.info(f"  end_y: {bar_data.get('end_y', 'N/A')}")
+            logger.info(f"  roi_x: {bar_data.get('roi_x', 'N/A')}")
+            logger.info(f"  roi_y: {bar_data.get('roi_y', 'N/A')}")
+            logger.info(f"  roi_width: {bar_data.get('roi_width', 'N/A')}")
+            logger.info(f"  roi_height: {bar_data.get('roi_height', 'N/A')}")
+            
+            # ROI 정보 추가
+            roi_info = {}
+            if zone_info:
+                if 'left' in zone_info and 'top' in zone_info and 'right' in zone_info and 'bottom' in zone_info:
+                    roi_info = {
+                        'zone_type': zone_info.get('zone_type', 'unknown'),
+                        'rect': [
+                            zone_info['left'],
+                            zone_info['top'],
+                            zone_info['right'] - zone_info['left'],
+                            zone_info['bottom'] - zone_info['top']
+                        ],
+                        'zone_segment_coords': {
+                            'left': zone_info['left'],
+                            'top': zone_info['top'],
+                            'right': zone_info['right'],
+                            'bottom': zone_info['bottom']
+                        }
+                    }
+                else:
+                    roi_info = {
+                        'zone_type': zone_info.get('zone_type', 'unknown'),
+                        'rect': zone_info.get('rect', [0, 0, 320, 240])
+                    }
+            
             # 경보 정보 구성
             alert_info = {
                 'scenario': 'scenario2',
                 'alert_type': alert_type,
                 'threshold_value': threshold_value,
+                'alert_level': alert_level,  # 경보 레벨 추가
+                'zone_type': zone_info.get('zone_type', 'unknown') if zone_info else 'unknown',
                 'bar_index': bar_data['bar_index'],
                 'bar_region': {
                     'start_x': bar_data['start_x'],
                     'end_x': bar_data['end_x'],
-                    'width': bar_data['end_x'] - bar_data['start_x']
+                    'start_y': bar_data['start_y'],
+                    'end_y': bar_data['end_y'],
+                    'width': bar_data['end_x'] - bar_data['start_x'],
+                    'height': bar_data['end_y'] - bar_data['start_y']
                 },
+                'roi_info': roi_info,
                 'temperature_stats': {
                     'min': bar_data['min_temp'],
                     'max': bar_data['max_temp'],
@@ -1362,6 +1532,15 @@ class VideoAlertChecker:
                 'vertical_bar': True
             }
             
+            # 생성된 alert_info의 bar_region 로깅
+            logger.info(f"생성된 alert_info.bar_region:")
+            logger.info(f"  start_x: {alert_info['bar_region']['start_x']}")
+            logger.info(f"  end_x: {alert_info['bar_region']['end_x']}")
+            logger.info(f"  start_y: {alert_info['bar_region']['start_y']}")
+            logger.info(f"  end_y: {alert_info['bar_region']['end_y']}")
+            logger.info(f"  width: {alert_info['bar_region']['width']}")
+            logger.info(f"  height: {alert_info['bar_region']['height']}")
+            
             # DB에 경보 저장
             query = """
                 INSERT INTO tb_alert_history 
@@ -1371,15 +1550,22 @@ class VideoAlertChecker:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
+            # fk_detect_zone_id 설정 (zone_info에서 zone_id 추출)
+            fk_detect_zone_id = 1  # 기본값
+            if zone_info and 'zone_id' in zone_info:
+                fk_detect_zone_id = zone_info['zone_id']
+            elif zone_info and 'id' in zone_info:
+                fk_detect_zone_id = zone_info['id']
+            
             now = datetime.now()
             values = (
                 1,  # fk_camera_id
                 now,  # alert_accur_time
                 'SCENARIO2',  # alert_type
-                1,  # alert_level
+                alert_level,  # alert_level (파라미터로 전달받은 값 사용)
                 'P001',  # alert_status
                 json.dumps(alert_info, ensure_ascii=False),  # alert_info_json
-                1,  # fk_detect_zone_id
+                fk_detect_zone_id,  # fk_detect_zone_id (zone_info에서 추출)
                 0,  # fk_process_user_id
                 now,  # create_date
                 now,  # update_date
@@ -1439,8 +1625,8 @@ class VideoAlertChecker:
                         break
                     
                     # 시나리오1과 시나리오2 실행
-                    self.scenario1_judge()
-                    #self.scenario2_judge()
+                    #self.scenario1_judge()
+                    self.scenario2_judge()
                    
                     # 강제 종료 체크
                     if self.force_exit:
