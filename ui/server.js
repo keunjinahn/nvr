@@ -75,12 +75,22 @@ app.get('/test-backend', async (req, res) => {
 
     // 간단한 연결 테스트 (ping과 유사)
     const response = await fetch(`${target}/api/auth/check`);
+    console.log(`[Test] Backend response status: ${response.status}`);
+
     if (response.ok) {
       res.json({
         status: 'success',
         message: 'Backend server is reachable',
         target: target,
         response: response.status
+      });
+    } else if (response.status === 401) {
+      res.json({
+        status: 'success',
+        message: 'Backend server is reachable (401 Unauthorized is expected without auth token)',
+        target: target,
+        response: response.status,
+        note: 'This is normal - the backend is working but requires authentication'
       });
     } else {
       res.json({
@@ -124,8 +134,11 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(port, () => {
+  console.log('='.repeat(50));
   console.log(`UI server is running on port ${port}`);
-  console.log(`API target: ${getApiTarget()}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`API target: ${getApiTarget()}`);
+  console.log(`Backend URL: ${getApiTarget()}`);
+  console.log('='.repeat(50));
   console.log(`Please make sure you have run 'npm run build' first`);
 }); 
