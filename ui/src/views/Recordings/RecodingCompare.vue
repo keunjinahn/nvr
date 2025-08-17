@@ -168,7 +168,7 @@ import moment from 'moment';
 import { getRecordingHistory} from '@/api/recordingService.api.js';
 import { getCameras } from '@/api/cameras.api';
 import Hls from 'hls.js';
-import { getApiBaseUrl } from '@/config/api.config.es6.js';
+import { getApiBaseUrl } from '@/config/api.config.js';
 
 const API_BASE_URL = getApiBaseUrl();
 export default {

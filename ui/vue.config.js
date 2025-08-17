@@ -10,8 +10,13 @@ try {
 
 process.env.VUE_APP_SERVER_PORT = configJson.port || 9091;
 
-// API 설정 import
-const { getApiTarget } = require('./src/config/api.config.js');
+// 환경별 API 설정
+const getApiTarget = () => {
+  return process.env.NODE_ENV === 'production'
+    ? 'http://20.41.121.184:9091'
+    : 'http://localhost:9091';
+};
+
 
 module.exports = {
   transpileDependencies: ['vuetify'],

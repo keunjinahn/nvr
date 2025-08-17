@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { getSocketBaseUrl } from '@/config/api.config.es6.js';
+import { getSocketBaseUrl } from '@/config/api.config.js';
 
 export default io(
   process.env.NODE_ENV === 'development'
