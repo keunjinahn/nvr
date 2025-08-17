@@ -51,21 +51,23 @@ const proxyMiddleware = createProxyMiddleware({
   }
 });
 
-// 각 경로별로 프록시 미들웨어 적용
-app.use('/api', proxyMiddleware);
-app.use('/config', proxyMiddleware);
-app.use('/auth', proxyMiddleware);
-app.use('/cameras', proxyMiddleware);
-app.use('/recordings', proxyMiddleware);
-app.use('/events', proxyMiddleware);
-app.use('/users', proxyMiddleware);
-app.use('/system', proxyMiddleware);
-app.use('/backup', proxyMiddleware);
-app.use('/notifications', proxyMiddleware);
-app.use('/alerts', proxyMiddleware);
-app.use('/schedules', proxyMiddleware);
-app.use('/subscribe', proxyMiddleware);
-app.use('/statistic', proxyMiddleware);
+// 모든 API 경로를 프록시 처리
+app.use(['/api', '/auth', '/config', '/cameras', '/recordings', '/events', '/users', '/system', '/backup', '/notifications', '/alerts', '/schedules', '/subscribe', '/statistic'], (req, res, next) => {
+  console.log(`[Proxy] Intercepting: ${req.method} ${req.path}`);
+
+  // 경로 리라이팅: /auth/login → /api/auth/login
+  let targetPath = req.path;
+  if (!req.path.startsWith('/api/')) {
+    targetPath = `/api${req.path}`;
+  }
+
+  console.log(`[Proxy] Rewriting: ${req.path} → ${targetPath}`);
+  console.log(`[Proxy] Target: ${getApiTarget()}${targetPath}`);
+
+  // 프록시 미들웨어로 전달
+  req.url = targetPath;
+  return proxyMiddleware(req, res, next);
+});
 
 // 백엔드 서버 연결 테스트 엔드포인트
 app.get('/test-backend', async (req, res) => {
