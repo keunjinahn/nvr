@@ -22,28 +22,15 @@ const getApiTarget = () => {
     : 'http://localhost:9091';
 };
 
-// API 프록시 설정 - 모든 API 경로 처리
+// API 프록시 미들웨어 설정
 const proxyMiddleware = createProxyMiddleware({
   target: getApiTarget(),  // 환경별 API 서버 주소
   changeOrigin: true,
-  pathRewrite: {
-    '^/api': '/api',  // /api 경로는 그대로 유지
-    '^/config': '/api/config',  // /config → /api/config
-    '^/auth': '/api/auth',      // /auth → /api/auth
-    '^/cameras': '/api/cameras', // /cameras → /api/cameras
-    '^/recordings': '/api/recordings', // /recordings → /api/recordings
-    '^/events': '/api/events',   // /events → /api/events
-    '^/users': '/api/users',     // /users → /api/users
-    '^/system': '/api/system',   // /system → /api/system
-    '^/backup': '/api/backup',   // /backup → /api/backup
-    '^/notifications': '/api/notifications', // /notifications → /api/notifications
-    '^/alerts': '/api/alerts',   // /alerts → /api/alerts
-    '^/schedules': '/api/schedules', // /schedules → /api/schedules
-    '^/subscribe': '/api/subscribe', // /subscribe → /api/subscribe
-    '^/statistic': '/api/statistic'  // /statistic → /api/statistic
-  },
   onProxyReq: (proxyReq, req, res) => {
     console.log(`[Proxy] ${req.method} ${req.url} → ${getApiTarget()}${proxyReq.path}`);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log(`[Proxy] Response: ${proxyRes.statusCode} for ${req.method} ${req.url}`);
   },
   onError: (err, req, res) => {
     console.error('Proxy Error:', err);
@@ -51,9 +38,11 @@ const proxyMiddleware = createProxyMiddleware({
   }
 });
 
-// 모든 API 경로를 프록시 처리
+// 모든 API 경로를 하나의 프록시로 처리
 app.use(['/api', '/auth', '/config', '/cameras', '/recordings', '/events', '/users', '/system', '/backup', '/notifications', '/alerts', '/schedules', '/subscribe', '/statistic'], (req, res, next) => {
   console.log(`[Proxy] Intercepting: ${req.method} ${req.path}`);
+  console.log(`[Proxy] Original URL: ${req.url}`);
+  console.log(`[Proxy] Original path: ${req.path}`);
 
   // 경로 리라이팅: /auth/login → /api/auth/login
   let targetPath = req.path;
@@ -66,6 +55,8 @@ app.use(['/api', '/auth', '/config', '/cameras', '/recordings', '/events', '/use
 
   // 프록시 미들웨어로 전달
   req.url = targetPath;
+  console.log(`[Proxy] Modified req.url: ${req.url}`);
+
   return proxyMiddleware(req, res, next);
 });
 
