@@ -4,13 +4,16 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = express();
 const port = process.env.PORT || 9092;
 
+// API 설정 import
+const { getApiTarget } = require('./src/config/api.config.js');
+
 // 현재 디렉토리의 dist 폴더를 정적 파일 디렉토리로 설정
 const distPath = path.join(__dirname, 'dist');
 console.log('Serving static files from:', distPath);
 
 // API 프록시 설정
 app.use('/api', createProxyMiddleware({
-  target: 'http://20.41.121.184:9091',  // 프로덕션 API 서버 주소로 변경
+  target: getApiTarget(),  // 환경별 API 서버 주소
   changeOrigin: true,
   pathRewrite: {
     '^/api': '/api'

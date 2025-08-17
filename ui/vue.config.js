@@ -10,13 +10,16 @@ try {
 
 process.env.VUE_APP_SERVER_PORT = configJson.port || 9091;
 
+// API 설정 import
+const { getApiTarget } = require('./src/config/api.config.js');
+
 module.exports = {
   transpileDependencies: ['vuetify'],
   devServer: {
     port: 9092,
     proxy: {
       '/api': {
-        target: 'http://20.41.121.184:9091',
+        target: getApiTarget(),
         changeOrigin: true,
         pathRewrite: {
           '^/api': '/api'
