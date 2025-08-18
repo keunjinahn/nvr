@@ -993,7 +993,7 @@ class VideoAlertChecker:
                     self.create_scenario1_alert(
                         temp_data_record['id'],
                         zone_info,
-                        'temperature_diff_20x20',
+                        'S001',
                         len(alert_boxes),  # 경보 조건을 만족하는 박스 개수
                         1,  # 기본 alert_level
                         alert_boxes  # 20x20 박스 분석 결과
@@ -1037,7 +1037,7 @@ class VideoAlertChecker:
                             self.create_scenario1_alert(
                                 temp_data_record['id'],
                                 overall_zone_info,
-                                'overall_change_percent',
+                                'S002',
                                 temp_change_percent,
                                 3,  # 최고 레벨로 설정
                                 None  # alert_boxes는 없음
@@ -1182,7 +1182,7 @@ class VideoAlertChecker:
             values = (
                 1,  # fk_camera_id
                 now,  # alert_accur_time
-                'SCENARIO1',  # alert_type
+                alert_type,  # alert_type
                 alert_level,  # alert_level (0~3)
                 'P001',  # alert_status
                 alert_info_json,  # alert_info_json (이미 직렬화됨)
@@ -1438,7 +1438,7 @@ class VideoAlertChecker:
                         logger.info(f"시나리오2 경보 감지: Zone {zone_type} Bar {bar_idx} 평균온도 {bar_data['avg_temp']:.1f}°C >= {threshold}°C (Level {level})")
                         
                         # 경보 생성 (스냅샷 데이터 ID 전달)
-                        self.create_scenario2_alert(bar_data, 'high_temperature', bar_data['avg_temp'], self.current_snapshot_data_id, level, zone_info)
+                        self.create_scenario2_alert(bar_data, 'S003', bar_data['avg_temp'], self.current_snapshot_data_id, level, zone_info)
                         alert_detected = True
                         break  # 첫 번째 만족하는 단계에서 중단
             else:
@@ -1448,7 +1448,7 @@ class VideoAlertChecker:
                     logger.info(f"시나리오2 경보 감지: Zone {zone_type} Bar {bar_idx} 평균온도 {bar_data['avg_temp']:.1f}°C >= 40°C (기본값)")
                     
                     # 경보 생성 (스냅샷 데이터 ID 전달)
-                    self.create_scenario2_alert(bar_data, 'high_temperature', bar_data['avg_temp'], self.current_snapshot_data_id, 0, zone_info)
+                    self.create_scenario2_alert(bar_data, 'S003', bar_data['avg_temp'], self.current_snapshot_data_id, 0, zone_info)
                     alert_detected = True
             
             return alert_detected
@@ -1561,7 +1561,7 @@ class VideoAlertChecker:
             values = (
                 1,  # fk_camera_id
                 now,  # alert_accur_time
-                'SCENARIO2',  # alert_type
+                alert_type,  # alert_type
                 alert_level,  # alert_level (파라미터로 전달받은 값 사용)
                 'P001',  # alert_status
                 json.dumps(alert_info, ensure_ascii=False),  # alert_info_json
@@ -1625,7 +1625,7 @@ class VideoAlertChecker:
                         break
                     
                     # 시나리오1과 시나리오2 실행
-                    #self.scenario1_judge()
+                    self.scenario1_judge()
                     self.scenario2_judge()
                    
                     # 강제 종료 체크

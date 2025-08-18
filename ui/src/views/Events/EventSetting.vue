@@ -95,39 +95,78 @@
             // 객체 설정
             div(v-if="currentMenu === 'object'")
               v-row
+                // v-col(cols="12" md="6")
+                //   label.form-input-label 감지 대상
+                //   v-select(
+                //     v-model="settings.object.detectionType"
+                //       :items="detectionTypes"
+                //       prepend-inner-icon="mdi-account-group"
+                //       background-color="var(--cui-bg-card)"
+                //       color="var(--cui-text-default)"
+                //       solo
+                //     )
+                //       template(v-slot:prepend-inner)
+                //         v-icon.text-muted {{ icons['mdiAccountGroup'] }}
+
+                // v-col(cols="12" md="6")
+                //   label.form-input-label 감지 정확도
+                //   v-select(
+                //       v-model="settings.object.accuracy"
+                //       :items="accuracyLevels"
+                //       prepend-inner-icon="mdi-target"
+                //       background-color="var(--cui-bg-card)"
+                //       color="var(--cui-text-default)"
+                //       solo
+                //     )
+                //       template(v-slot:prepend-inner)
+                //         v-icon.text-muted {{ icons['mdiTarget'] }}
+
+                // v-col(cols="12" md="6")
+                //   .tw-flex.tw-justify-between.tw-items-center
+                //     label.form-input-label 객체 추적 사용
+                //     v-switch(
+                //       v-model="settings.object.enableTracking"
+                //       color="var(--cui-primary)"
+                //     )
+                
+                // 열화상 카메라 설정 구분선
+                v-col(cols="12")
+                  v-divider.my-4
+                  .section-title 열화상 카메라 설정
+                
                 v-col(cols="12" md="6")
-                  label.form-input-label 감지 대상
-                  v-select(
-                    v-model="settings.object.detectionType"
-                    :items="detectionTypes"
-                    prepend-inner-icon="mdi-account-group"
+                  label.form-input-label 열화상 카메라 IP 주소
+                  v-text-field(
+                    v-model="settings.object.thermalCamera.ip"
+                    placeholder="예: 192.168.0.91"
+                    prepend-inner-icon="mdi-ip-network"
                     background-color="var(--cui-bg-card)"
                     color="var(--cui-text-default)"
                     solo
                   )
                     template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiAccountGroup'] }}
+                      v-icon.text-muted mdi-ip-network
 
                 v-col(cols="12" md="6")
-                  label.form-input-label 감지 정확도
-                  v-select(
-                    v-model="settings.object.accuracy"
-                    :items="accuracyLevels"
-                    prepend-inner-icon="mdi-target"
+                  label.form-input-label 열화상 카메라 포트
+                  v-text-field(
+                    v-model="settings.object.thermalCamera.port"
+                    placeholder="예: 33000"
+                    prepend-inner-icon="mdi-connection"
                     background-color="var(--cui-bg-card)"
                     color="var(--cui-text-default)"
                     solo
                   )
                     template(v-slot:prepend-inner)
-                      v-icon.text-muted {{ icons['mdiTarget'] }}
+                      v-icon.text-muted mdi-connection
 
-                v-col(cols="12" md="6")
-                  .tw-flex.tw-justify-between.tw-items-center
-                    label.form-input-label 객체 추적 사용
-                    v-switch(
-                      v-model="settings.object.enableTracking"
-                      color="var(--cui-primary)"
-                    )
+                // v-col(cols="12" md="6")
+                //   .tw-flex.tw-justify-between.tw-items-center
+                //     label.form-input-label 열화상 카메라 사용
+                //     v-switch(
+                //       v-model="settings.object.thermalCamera.enabled"
+                //       color="var(--cui-primary)"
+                //     )
 
             // 현장정보 입력
             div(v-if="currentMenu === 'system'")
@@ -188,6 +227,66 @@
                       @click="removeMapImage"
                       class="mt-2"
                     ) 이미지 제거
+
+                v-col(cols="12" md="6")
+                  label.form-input-label 녹화 파일 자동 삭제
+                  v-text-field(
+                    v-model="settings.system.recodingFileDeleteDays"
+                    type="number"
+                    suffix="일 후"
+                    prepend-inner-icon="mdi-delete-clock"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                    hint="0일로 설정하면 자동 삭제를 사용하지 않습니다"
+                    persistent-hint
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-delete-clock
+
+                v-col(cols="12" md="6")
+                  label.form-input-label 녹화 비트레이트
+                  v-select(
+                    v-model="settings.system.recodingBitrate"
+                    :items="['512k', '1024k', '2048k', '4096k']"
+                    prepend-inner-icon="mdi-video"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-video
+
+            // 열화상 카메라 설정
+            div(v-if="currentMenu === 'thermal-camera'")
+              v-row
+                v-col(cols="12" md="6")
+                  label.form-input-label 열화상 카메라 IP 주소
+                  v-text-field(
+                    v-model="settings.thermalCamera.ip"
+                    placeholder="예: 192.168.0.91"
+                    prepend-inner-icon="mdi-ip-network"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-ip-network
+
+                v-col(cols="12" md="6")
+                  label.form-input-label 열화상 카메라 포트
+                  v-text-field(
+                    v-model="settings.thermalCamera.port"
+                    placeholder="예: 33000"
+                    prepend-inner-icon="mdi-connection"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-connection
+
+
 </template>
 
 <script>
@@ -213,7 +312,9 @@ import {
   mdiPhone,
   mdiAccount,
   mdiVideo,
-  mdiDeleteClock
+  mdiDeleteClock,
+  mdiConnection,
+  mdiIpNetwork
 } from '@mdi/js'
 import { getEventSetting, updateEventSetting, createEventSetting } from '@/api/eventSetting.api.js'
 
@@ -243,7 +344,9 @@ export default {
       mdiPhone,
       mdiAccount,
       mdiVideo,
-      mdiDeleteClock
+      mdiDeleteClock,
+      mdiConnection,
+      mdiIpNetwork
     },
     currentMenu: 'system',
     mapImageFile: null,
@@ -261,6 +364,13 @@ export default {
         subtitle: '시스템 설정',
         icon: mdiCog
       },
+      {
+        id: 'object',
+        title: '열화상 카메라',
+        subtitle: '열화상 카메라 설정',
+        icon: mdiVideo
+      },
+
       {
         id: 'empty1',
         title: '',
@@ -312,7 +422,12 @@ export default {
         minSize: 100,
         accuracy: '높음',
         trackingDuration: 10,
-        enableTracking: true
+        enableTracking: true,
+        thermalCamera: {
+          ip: '175.201.204.165',
+          port: '33000',
+          enabled: true
+        }
       },
               system: {
           location_info: '',
@@ -321,6 +436,7 @@ export default {
           recodingFileDeleteDays: 30,
           map: null
         },
+
       site: {
         name: '',
         location: '',
@@ -380,7 +496,12 @@ export default {
           minSize: object.minSize ?? 100,
           accuracy: object.accuracy ?? '높음',
           trackingDuration: object.trackingDuration ?? 10,
-          enableTracking: object.enableTracking ?? true
+          enableTracking: object.enableTracking ?? true,
+          thermalCamera: {
+            ip: (object.thermalCamera && object.thermalCamera.ip) ? object.thermalCamera.ip : '175.201.204.165',
+            port: (object.thermalCamera && object.thermalCamera.port) ? object.thermalCamera.port : '33000',
+            enabled: (object.thermalCamera && object.thermalCamera.enabled !== undefined) ? object.thermalCamera.enabled : true
+          }
         },
         system: {
           location_info: system.location_info ?? '',
@@ -389,6 +510,7 @@ export default {
           recodingFileDeleteDays: system.recodingFileDeleteDays ?? 30,
           map: system.map ?? null
         },
+
         site: {
           name: '',
           location: '',
@@ -418,7 +540,12 @@ export default {
           minSize: 100,
           accuracy: '높음',
           trackingDuration: 10,
-          enableTracking: true
+          enableTracking: true,
+          thermalCamera: {
+            ip: '175.201.204.165',
+            port: '33000',
+            enabled: true
+          }
         },
         system: {
           location_info: '',
@@ -696,6 +823,21 @@ export default {
     border-radius: 8px;
     margin-top: 8px;
   }
+}
+
+// 열화상 카메라 설정 섹션 스타일
+.section-title {
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--cui-text-default);
+  margin: 16px 0 8px 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--cui-border-color);
+}
+
+.v-divider {
+  border-color: var(--cui-border-color) !important;
+  margin: 24px 0 !important;
 }
 
 .v-file-input {

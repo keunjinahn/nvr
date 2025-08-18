@@ -13,7 +13,7 @@ process.env.VUE_APP_SERVER_PORT = configJson.port || 9091;
 // 환경별 API 설정
 const getApiTarget = () => {
   return process.env.NODE_ENV === 'production'
-    ? 'http://20.41.121.184:9091'
+    ? 'http://192.168.0.24:9091'
     : 'http://localhost:9091';
 };
 

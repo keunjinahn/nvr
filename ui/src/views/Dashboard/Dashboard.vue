@@ -49,7 +49,13 @@
         .no-map-image(v-else)
           .no-map-text 지도 이미지가 없습니다
   .cell.cell-topright
-    .box-title 열화상 영상
+    .box-title
+      span 열화상 영상
+      v-btn(
+        color="secondary"
+        size="small"
+        @click="showPTZControl"
+      ) 팬틸트
     .video-container
       vue-aspect-ratio(ar="4:3")
         VideoCard(
@@ -63,6 +69,173 @@
           @cameraStatus="cameraStatus"
         )
         .no-camera(v-else) No thermal camera available
+
+  // PTZ 제어 팝업 다이얼로그
+  v-dialog(
+    v-model="ptzDialog"
+    max-width="600"
+    persistent
+  )
+    v-card
+      v-card-title.headline
+        span PTZ 카메라 제어
+        v-spacer
+        v-btn.close-btn(
+          color="white"
+          @click="ptzDialog = false"
+        ) X
+      
+      v-card-text
+        .ptz-control-container
+          // 연결 정보
+          .connection-info
+            v-row
+              v-col(cols="6")
+                v-text-field(
+                  v-model="ptzConfig.ip"
+                  label="카메라 IP"
+                  outlined
+                  dense
+                  :error-messages="ipError"
+                  @input="validateIP"
+                )
+              v-col(cols="3")
+                v-text-field(
+                  v-model="ptzConfig.port"
+                  label="포트"
+                  outlined
+                  dense
+                  :error-messages="portError"
+                  @input="validatePort"
+                )
+              v-col(cols="3")
+                v-text-field(
+                  v-model="ptzConfig.speed"
+                  label="속도 (1-63)"
+                  outlined
+                  dense
+                  type="number"
+                  min="1"
+                  max="63"
+                )
+            
+            // 연결 상태 표시
+            .connection-status(v-if="connectionStatus")
+              v-alert(
+                :type="connectionStatus.type"
+                :text="connectionStatus.message"
+                dense
+                outlined
+              )
+          
+          // PTZ 제어 버튼
+          .ptz-buttons
+            .ptz-row
+              v-btn(
+                fab
+                large
+                color="secondary"
+                @mousedown="ptzMove('up')"
+                @mouseup="ptzStop"
+                @mouseleave="ptzStop"
+              )
+                v-icon(:icon="ptzIcons.up")
+                .ptz-label 상
+            .ptz-row
+              v-btn(
+                fab
+                large
+                color="secondary"
+                @mousedown="ptzMove('left')"
+                @mouseup="ptzStop"
+                @mouseleave="ptzStop"
+              )
+                v-icon(:icon="ptzIcons.left")
+                .ptz-label 좌
+              v-btn(
+                fab
+                large
+                color="secondary"
+                @mousedown="ptzMove('right')"
+                @mouseup="ptzStop"
+                @mouseleave="ptzStop"
+              )
+                v-icon(:icon="ptzIcons.right")
+                .ptz-label 우
+            .ptz-row
+              v-btn(
+                fab
+                large
+                color="secondary"
+                @mousedown="ptzMove('down')"
+                @mouseup="ptzStop"
+                @mouseleave="ptzStop"
+              )
+                v-icon(:icon="ptzIcons.down")
+                .ptz-label 하
+          
+          // 줌 및 포커스 제어
+          .zoom-focus-controls
+            v-row
+              v-col(cols="6")
+                .control-group
+                  .control-label 줌 제어
+                  .control-buttons
+                    v-btn(
+                      color="secondary"
+                      @mousedown="ptzZoom('in')"
+                      @mouseup="ptzStop"
+                      @mouseleave="ptzStop"
+                    )
+                      v-icon(:icon="ptzIcons.zoomIn" size="small")
+                      span.ml-2 줌 인
+                    v-btn(
+                      color="secondary"
+                      @mousedown="ptzZoom('out')"
+                      @mouseup="ptzStop"
+                      @mouseleave="ptzStop"
+                    )
+                      v-icon(:icon="ptzIcons.zoomOut" size="small")
+                      span.ml-2 줌 아웃
+              v-col(cols="6")
+                .control-group
+                  .control-label 포커스 제어
+                  .control-buttons
+                    v-btn(
+                      color="secondary"
+                      @mousedown="ptzFocus('in')"
+                      @mouseup="ptzStop"
+                      @mouseleave="ptzStop"
+                    )
+                      v-icon(:icon="ptzIcons.focusIn" size="small")
+                      span.ml-2 포커스 인
+                    v-btn(
+                      color="secondary"
+                      @mousedown="ptzFocus('out')"
+                      @mouseup="ptzStop"
+                      @mouseleave="ptzStop"
+                    )
+                      v-icon(:icon="ptzIcons.focusOut" size="small")
+                      span.ml-2 포커스 아웃
+          
+          // 와이퍼 제어
+          .wiper-controls
+            .control-group
+              .control-label 와이퍼 제어
+              .control-buttons
+                v-btn(
+                  color="success"
+                  @click="ptzWiper('on')"
+                )
+                  v-icon(:icon="ptzIcons.wiperOn" size="small")
+                  span.ml-2 와이퍼 ON
+                v-btn(
+                  color="error"
+                  @click="ptzWiper('off')"
+                )
+                  v-icon(:icon="ptzIcons.wiperOff" size="small")
+                  span.ml-2 와이퍼 OFF
+
   .cell.cell-bottomleft
     .bottomleft-inner-col
       .bottomleft-inner-top
@@ -128,7 +301,23 @@ import socket from '@/mixins/socket';
 import * as XLSX from 'xlsx';
 import * as echarts from 'echarts';
 import { getAlerts} from '@/api/alerts.api';
-import { getEventSetting } from '@/api/eventSetting.api.js'
+import { getEventSetting } from '@/api/eventSetting.api.js';
+import { ptzMove, ptzStop, ptzZoom, ptzFocus, ptzWiper } from '@/api/ptz.api';
+
+// PTZ 아이콘 import
+import { 
+  mdiChevronUp, 
+  mdiChevronDown, 
+  mdiChevronLeft, 
+  mdiChevronRight,
+  mdiMagnifyPlus,
+  mdiMagnifyMinus,
+  mdiFocus,
+  mdiFocusOutline,
+  mdiWater,
+  mdiWaterOff,
+  mdiClose
+} from '@mdi/js';
 use([
   CanvasRenderer,
   BarChart,
@@ -173,6 +362,31 @@ data() {
     mapImagePreview: null,
     selectedStatusButton: null,
     latestAlertInfo: null,
+    // PTZ 제어 관련 데이터
+    ptzDialog: false,
+    ptzConfig: {
+      ip: '175.201.204.165',
+      port: '33000',
+      speed: 32
+    },
+    // IP/Port 유효성 검사 관련 데이터
+    ipError: '',
+    portError: '',
+    connectionStatus: null,
+    // PTZ 아이콘
+    ptzIcons: {
+      up: mdiChevronUp,
+      down: mdiChevronDown,
+      left: mdiChevronLeft,
+      right: mdiChevronRight,
+      zoomIn: mdiMagnifyPlus,
+      zoomOut: mdiMagnifyMinus,
+      focusIn: mdiFocus,
+      focusOut: mdiFocusOutline,
+      wiperOn: mdiWater,
+      wiperOff: mdiWaterOff,
+      close: mdiClose
+    },
   };
 },
 computed: {
@@ -428,6 +642,195 @@ methods: {
     this.selectedZoneIdx = idx;
     this.selectedZone = this.zones[idx];
   },
+  // PTZ 제어 관련 메서드
+  async showPTZControl() {
+    try {
+      console.log('PTZ 팝업 열기 시작...');
+      
+      // EventSetting에서 열화상 카메라 설정 조회
+      const eventSetting = await getEventSetting();
+      console.log('EventSetting 조회 결과:', eventSetting);
+      
+      if (eventSetting && eventSetting.object_json) {
+        try {
+          const objectConfig = JSON.parse(eventSetting.object_json);
+          console.log('object_json 파싱 결과:', objectConfig);
+          
+          if (objectConfig.thermalCamera) {
+            console.log('thermalCamera 설정 발견:', objectConfig.thermalCamera);
+            
+            // IP 설정
+            if (objectConfig.thermalCamera.ip) {
+              this.ptzConfig.ip = objectConfig.thermalCamera.ip;
+              console.log('IP 설정 완료:', this.ptzConfig.ip);
+            } else {
+              console.log('IP 설정이 없어 기본값 사용:', this.ptzConfig.ip);
+            }
+            
+            // Port 설정
+            if (objectConfig.thermalCamera.port) {
+              this.ptzConfig.port = objectConfig.thermalCamera.port;
+              console.log('Port 설정 완료:', this.ptzConfig.port);
+            } else {
+              console.log('Port 설정이 없어 기본값 사용:', this.ptzConfig.port);
+            }
+            
+            // Speed 설정 (있는 경우)
+            if (objectConfig.thermalCamera.speed) {
+              this.ptzConfig.speed = objectConfig.thermalCamera.speed;
+              console.log('Speed 설정 완료:', this.ptzConfig.speed);
+            }
+            
+            console.log('최종 PTZ 설정:', this.ptzConfig);
+          } else {
+            console.log('thermalCamera 설정이 object_json에 없음, 기본값 사용');
+          }
+        } catch (parseError) {
+          console.error('object_json 파싱 실패:', parseError);
+          console.log('기본 PTZ 설정 사용');
+        }
+      } else {
+        console.log('object_json이 없음, 기본값 사용');
+      }
+      
+      // 연결 상태 초기화
+      this.connectionStatus = null;
+      this.ipError = '';
+      this.portError = '';
+      
+    } catch (error) {
+      console.error('EventSetting 조회 실패:', error);
+      console.log('기본 PTZ 설정 사용');
+    }
+    
+    this.ptzDialog = true;
+    console.log('PTZ 팝업 열기 완료');
+  },
+
+  // IP 유효성 검사
+  validateIP() {
+    const ipRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    
+    if (!this.ptzConfig.ip) {
+      this.ipError = 'IP 주소를 입력해주세요';
+      this.connectionStatus = { type: 'warning', message: 'IP 주소를 입력해주세요' };
+    } else if (!ipRegex.test(this.ptzConfig.ip)) {
+      this.ipError = '올바른 IP 주소 형식이 아닙니다';
+      this.connectionStatus = { type: 'warning', message: '올바른 IP 주소 형식이 아닙니다' };
+    } else {
+      this.ipError = '';
+      this.updateConnectionStatus();
+    }
+  },
+
+  // Port 유효성 검사
+  validatePort() {
+    const port = parseInt(this.ptzConfig.port);
+    
+    if (!this.ptzConfig.port) {
+      this.portError = '포트를 입력해주세요';
+      this.connectionStatus = { type: 'warning', message: '포트를 입력해주세요' };
+    } else if (isNaN(port) || port < 1 || port > 65535) {
+      this.portError = '포트는 1-65535 사이의 숫자여야 합니다';
+      this.connectionStatus = { type: 'warning', message: '포트는 1-65535 사이의 숫자여야 합니다' };
+    } else {
+      this.portError = '';
+      this.updateConnectionStatus();
+    }
+  },
+
+  // 연결 상태 업데이트
+  updateConnectionStatus() {
+    if (!this.ipError && !this.portError) {
+      this.connectionStatus = { 
+        type: 'success', 
+        message: `연결 준비 완료: ${this.ptzConfig.ip}:${this.ptzConfig.port}` 
+      };
+    }
+  },
+
+  async ptzMove(direction) {
+    // IP와 Port 유효성 검사
+    if (this.ipError || this.portError) {
+      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+      return;
+    }
+    
+    try {
+      await ptzMove(direction, this.ptzConfig.speed, this.ptzConfig.ip, this.ptzConfig.port);
+      console.log(`PTZ Move: ${direction} with speed ${this.ptzConfig.speed}`);
+    } catch (error) {
+      console.error('PTZ Move Error:', error);
+      this.$toast.error('PTZ 제어 명령 전송 실패');
+    }
+  },
+
+  async ptzStop() {
+    // IP와 Port 유효성 검사
+    if (this.ipError || this.portError) {
+      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+      return;
+    }
+    
+    try {
+      await ptzStop(this.ptzConfig.ip, this.ptzConfig.port);
+      console.log('PTZ Stop command sent');
+    } catch (error) {
+      console.error('PTZ Stop Error:', error);
+    }
+  },
+
+  async ptzZoom(direction) {
+    // IP와 Port 유효성 검사
+    if (this.ipError || this.portError) {
+      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+      return;
+    }
+    
+    try {
+      await ptzZoom(direction, this.ptzConfig.ip, this.ptzConfig.port);
+      console.log(`PTZ Zoom: ${direction}`);
+    } catch (error) {
+      console.error('PTZ Zoom Error:', error);
+      this.$toast.error('줌 제어 명령 전송 실패');
+    }
+  },
+
+  async ptzFocus(direction) {
+    // IP와 Port 유효성 검사
+    if (this.ipError || this.portError) {
+      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+      this.connectionStatus = { type: 'error', message: 'IP 주소와 포트를 올바르게 입력해주세요' };
+      return;
+    }
+    
+    try {
+      await ptzFocus(direction, this.ptzConfig.ip, this.ptzConfig.port);
+      console.log(`PTZ Focus: ${direction}`);
+    } catch (error) {
+      console.error('PTZ Focus Error:', error);
+      this.$toast.error('포커스 제어 명령 전송 실패');
+    }
+  },
+
+  async ptzWiper(action) {
+    // IP와 Port 유효성 검사
+    if (this.ipError || this.portError) {
+      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+      this.connectionStatus = { type: 'error', message: 'IP 주소와 포트를 올바르게 입력해주세요' };
+      return;
+    }
+    
+    try {
+      await ptzWiper(action, this.ptzConfig.ip, this.ptzConfig.port);
+      console.log(`PTZ Wiper: ${action}`);
+      this.$toast.success(`와이퍼 ${action === 'on' ? 'ON' : 'OFF'} 명령 전송 완료`);
+    } catch (error) {
+      console.error('PTZ Wiper Error:', error);
+      this.$toast.error('와이퍼 제어 명령 전송 실패');
+    }
+  },
+
   async loadCameras() {
     try {
       const response = await getCameras();
@@ -979,6 +1382,157 @@ methods: {
 .video-container .video-card {
   width: 100%;
   height: 100%;
+}
+
+// PTZ 제어 관련 스타일
+.box-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 10px;
+  
+  .v-btn {
+    background: #6c757d;  // secondary 색상
+    color: white;
+    font-size: 12px;
+    padding: 4px 12px;
+    height: 28px;
+    margin-left: auto;  // 버튼을 오른쪽 끝으로 밀어냄
+    
+    &:hover {
+      background: #5a6268;  // secondary hover 색상
+    }
+  }
+}
+
+.video-header {
+  margin-bottom: 10px;
+  
+  .video-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 16px;
+    font-weight: bold;
+    color: #fff;
+    
+    .v-btn {
+      background: #6c757d;  // secondary 색상
+      color: white;
+      font-size: 12px;
+      padding: 4px 12px;
+      height: 28px;
+      
+      &:hover {
+        background: #5a6268;  // secondary hover 색상
+      }
+    }
+  }
+}
+
+.ptz-control-container {
+  // 닫기 버튼 스타일
+  .close-btn {
+    background-color: #221c1c !important;
+    border: 0px solid white !important;
+    min-width: 32px !important;
+    min-height: 32px !important;
+    border-radius: 4px !important;
+    font-weight: bold !important;
+    font-size: 16px !important;
+    
+    &:hover {
+      background-color: #cccccc !important;
+    }
+  }
+  
+  .connection-info {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #545454;
+    border-radius: 8px;
+  }
+  
+  .ptz-buttons {
+    text-align: center;
+    margin-bottom: 20px;
+    
+    .ptz-row {
+      display: flex;
+      justify-content: center;
+      margin: 15px 0;
+      
+      .v-btn {
+        margin: 0 8px;
+        
+        &.v-btn--fab {
+          width: 80px;
+          height: 80px;
+          position: relative;
+          
+          .ptz-label {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            font-weight: bold;
+            color: #d6d6d6;
+            white-space: nowrap;
+          }
+        }
+      }
+      
+      // 중간 행 (좌우 버튼)의 간격을 더 크게
+      &:nth-child(2) {
+        .v-btn {
+          margin: 0 40px;  // 좌우 버튼 간격 더 증가
+        }
+      }
+    }
+  }
+  
+  .zoom-focus-controls {
+    margin-bottom: 20px;
+    
+    .control-group {
+      .control-label {
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #333;
+      }
+      
+      .control-buttons {
+        display: flex;
+        gap: 10px;
+        
+        .v-btn {
+          flex: 1;
+        }
+      }
+    }
+  }
+  
+  .wiper-controls {
+    .control-group {
+      .control-label {
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: #333;
+      }
+      
+      .control-buttons {
+        display: flex;
+        gap: 10px;
+        
+        .v-btn {
+          flex: 1;
+        }
+      }
+    }
+  }
 }
 
 .time-layer {
