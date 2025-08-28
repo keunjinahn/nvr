@@ -132,10 +132,10 @@
                 // 열화상 카메라 설정 구분선
                 v-col(cols="12")
                   v-divider.my-4
-                  .section-title 열화상 카메라 설정
+                  .section-title 실화상 카메라 설정
                 
                 v-col(cols="12" md="6")
-                  label.form-input-label 열화상 카메라 IP 주소
+                  label.form-input-label 실화상 카메라 IP 주소
                   v-text-field(
                     v-model="settings.object.thermalCamera.ip"
                     placeholder="예: 192.168.0.91"
@@ -148,7 +148,7 @@
                       v-icon.text-muted mdi-ip-network
 
                 v-col(cols="12" md="6")
-                  label.form-input-label 열화상 카메라 포트
+                  label.form-input-label 실실화상 카메라 포트
                   v-text-field(
                     v-model="settings.object.thermalCamera.port"
                     placeholder="예: 33000"
@@ -366,8 +366,8 @@ export default {
       },
       {
         id: 'object',
-        title: '열화상 카메라',
-        subtitle: '열화상 카메라 설정',
+        title: '실화상 카메라',
+        subtitle: '실화상 카메라 설정',
         icon: mdiVideo
       },
 

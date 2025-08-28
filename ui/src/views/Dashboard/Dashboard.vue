@@ -245,8 +245,8 @@
             thead
               tr
                 th ROI
-                th Min Temp
                 th Max Temp
+                th Min Temp
                 th Avg Temp
                 th Graph
                 th Download
@@ -258,9 +258,9 @@
                 @click="showChart(zone)"
               )
                 td {{ zone.zone_desc }}
-                td 최대온도: {{ zone.maxTemp }}
-                td 최소온도: {{ zone.minTemp }}
-                td 평균온도: {{ zone.avgTemp }}
+                td 최대온도: {{ zone.minTemp }}
+                td 최소온도: {{ zone.maxTemp }}
+                td 평균온도: {{ zone.avgTemp }} 
                 td 경보단계: {{ zone.alertLevel }}
                 td
                   span.icon-chart 📈

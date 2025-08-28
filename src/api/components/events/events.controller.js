@@ -5,10 +5,80 @@ import * as EventsModel from './events.model.js';
 import path from 'path';
 import fs from 'fs';
 import net from 'net';
+import ConfigService from '../../../services/config/config.service.js';
 
-// Camera configuration
-const CAMERA_IP = '175.201.204.165';
-const CAMERA_PORT = 32000;
+// Camera configuration from config.ini
+const getCameraConfig = () => {
+  try {
+    // ConfigService에서 카메라 설정 가져오기
+    console.log('[getCameraConfig] ConfigService.camera:', ConfigService.camera);
+    console.log('[getCameraConfig] ConfigService.recordings:', ConfigService.recordings);
+
+    // ConfigService.camera가 비어있으면 config.ini에서 직접 읽기 시도
+    let cameraConfig = ConfigService.camera || {};
+
+    if (!cameraConfig.ip || !cameraConfig.port) {
+      console.warn('[getCameraConfig] Camera config not loaded from ConfigService, trying to read from config.ini directly');
+
+      try {
+        // config.ini 파일에서 직접 읽기 (간단한 파싱)
+        // CUI_STORAGE_CONFIG_FILE은 config.json용이므로 config.ini를 직접 지정
+        const configPath = './config.ini';
+
+        if (fs.existsSync(configPath)) {
+          const configContent = fs.readFileSync(configPath, 'utf8');
+          const lines = configContent.split('\n');
+          let currentSection = '';
+          let cameraSection = {};
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+              currentSection = trimmedLine.slice(1, -1);
+            } else if (currentSection === 'CAMERA' && trimmedLine.includes('=')) {
+              const [key, value] = trimmedLine.split('=').map(s => s.trim());
+              cameraSection[key] = value;
+            }
+          }
+
+          if (cameraSection.ip && cameraSection.port) {
+            cameraConfig = {
+              ip: cameraSection.ip,
+              port: parseInt(cameraSection.port),
+              rtsp: cameraSection.rtsp
+            };
+            console.log('[getCameraConfig] Successfully read camera config from config.ini:', cameraConfig);
+          } else {
+            console.warn('[getCameraConfig] CAMERA section incomplete in config.ini:', cameraSection);
+          }
+        } else {
+          console.warn('[getCameraConfig] config.ini file not found at:', configPath);
+        }
+      } catch (readError) {
+        console.error('[getCameraConfig] Error reading config.ini directly:', readError);
+      }
+    }
+
+    console.log('[getCameraConfig] Final camera config:', cameraConfig);
+
+    if (!cameraConfig.ip || !cameraConfig.port) {
+      console.warn('[getCameraConfig] Camera config is incomplete, using defaults');
+      console.warn('[getCameraConfig] Available ConfigService properties:', Object.keys(ConfigService));
+    }
+
+    return {
+      ip: cameraConfig.ip || '175.201.204.166', // 기본값
+      port: cameraConfig.port || 32000 // 기본값
+    };
+  } catch (error) {
+    console.error('[getCameraConfig] Error reading config:', error);
+    // 기본값 반환
+    return {
+      ip: '175.201.204.166',
+      port: 32000
+    };
+  }
+};
 
 // ROI Packet functions
 function buildRoiPacket(cmd, data) {
@@ -362,7 +432,8 @@ export const addDetectionZone = async (req, res) => {
 
     if (result) {
       try {
-        await sendRoiSetting(req.body.roiIndex, startX, startY, endX, endY, CAMERA_IP, CAMERA_PORT, req.body.roiEnable);
+        const cameraConfig = getCameraConfig();
+        await sendRoiSetting(req.body.roiIndex, startX, startY, endX, endY, cameraConfig.ip, cameraConfig.port, req.body.roiEnable);
       } catch (roiError) {
         console.error('[addDetectionZone] ROI setting error:', roiError);
         // Continue even if ROI setting fails
@@ -407,7 +478,8 @@ export const updateDetectionZone = async (req, res) => {
     if (!result) return res.status(404).json({ error: 'Not found' });
 
     try {
-      await sendRoiSetting(req.body.roiIndex, startX, startY, endX, endY, CAMERA_IP, CAMERA_PORT, req.body.roiEnable);
+      const cameraConfig = getCameraConfig();
+      await sendRoiSetting(req.body.roiIndex, startX, startY, endX, endY, cameraConfig.ip, cameraConfig.port, req.body.roiEnable);
     } catch (roiError) {
       console.error('[updateDetectionZone] ROI setting error:', roiError);
       // Continue even if ROI setting fails
@@ -429,7 +501,8 @@ export const deleteDetectionZone = async (req, res) => {
     const roiIndex = req.query.roiIndex;
     if (roiEnable !== undefined && roiIndex !== undefined) {
       try {
-        await sendRoiSetting(roiIndex, 0, 0, 0, 0, CAMERA_IP, CAMERA_PORT, roiEnable);
+        const cameraConfig = getCameraConfig();
+        await sendRoiSetting(roiIndex, 0, 0, 0, 0, cameraConfig.ip, cameraConfig.port, roiEnable);
       } catch (roiError) {
         console.error('[deleteDetectionZone] ROI setting error:', roiError);
         // Continue even if ROI setting fails

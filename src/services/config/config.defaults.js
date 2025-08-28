@@ -74,7 +74,25 @@ export const minNodeVersion = '16.12.0';
 
 export class ConfigSetup {
   constructor(config = {}) {
-    return {
+    console.log('=== ConfigSetup Constructor Debug ===');
+    console.log('Input config:', config);
+    console.log('config?.camera:', config?.camera);
+    console.log('config?.recordings:', config?.recordings);
+
+    // setupCamera 호출 결과를 별도로 저장하고 로깅
+    const cameraConfig = ConfigSetup.setupCamera(config?.camera);
+    console.log('=== setupCamera Result ===');
+    console.log('cameraConfig:', cameraConfig);
+    console.log('cameraConfig.ip:', cameraConfig?.ip);
+    console.log('========================');
+
+    // ConfigService.camera에 직접 설정 (config.json에는 포함하지 않음)
+    if (typeof ConfigService !== 'undefined') {
+      ConfigService.camera = cameraConfig;
+      console.log('ConfigService.camera set to:', ConfigService.camera);
+    }
+
+    const result = {
       ...ConfigSetup.setupUi(config),
       options: ConfigSetup.setupOptions(config?.options),
       recordings: ConfigSetup.setupRecordings(config?.recordings),
@@ -85,6 +103,12 @@ export class ConfigSetup {
       mqtt: ConfigSetup.setupMqtt(config?.mqtt),
       cameras: ConfigSetup.setupCameras(config?.cameras),
     };
+
+    console.log('ConfigSetup result:', result);
+    console.log('Final camera config:', result.camera);
+    console.log('=====================================');
+
+    return result;
   }
 
   static setupUi(config = {}) {
@@ -208,21 +232,97 @@ export class ConfigSetup {
     );
   }
 
+  static setupCamera(camera = {}) {
+    console.log('=== setupCamera Debug ===');
+    console.log('Input camera config:', camera);
+    console.log('camera?.ip:', camera?.ip);
+    console.log('camera?.port:', camera?.port);
+    console.log('camera?.rtsp:', camera?.rtsp);
+
+    // config.ini 파일에서 직접 [CAMERA] 섹션 읽기
+    let cameraConfig = { ...camera };
+
+    try {
+      const fs = require('fs-extra');
+      // config.ini 파일을 직접 지정 (CUI_STORAGE_CONFIG_FILE은 config.json용)
+      const configPath = './config.ini';
+      console.log('[setupCamera] Config file path:', configPath);
+
+      if (fs.existsSync(configPath)) {
+        const configContent = fs.readFileSync(configPath, 'utf8');
+        console.log('[setupCamera] Config file content (first 500 chars):', configContent.substring(0, 500));
+
+        // INI 파일 파싱
+        const lines = configContent.split('\n');
+        let currentSection = '';
+        let cameraSection = {};
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+
+          // 섹션 헤더 확인
+          if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+            currentSection = trimmedLine.slice(1, -1);
+            console.log('[setupCamera] Found section:', currentSection);
+          }
+          // CAMERA 섹션의 키-값 쌍 파싱
+          else if (currentSection === 'CAMERA' && trimmedLine.includes('=')) {
+            const [key, value] = trimmedLine.split('=').map(s => s.trim());
+            cameraSection[key] = value;
+            console.log('[setupCamera] Found camera config:', key, '=', value);
+          }
+        }
+
+        console.log('[setupCamera] Parsed camera section:', cameraSection);
+
+        // config.ini에서 읽은 값으로 cameraConfig 업데이트
+        if (cameraSection.ip) {
+          cameraConfig.ip = cameraSection.ip;
+        }
+        if (cameraSection.port) {
+          cameraConfig.port = parseInt(cameraSection.port);
+        }
+        if (cameraSection.rtsp) {
+          cameraConfig.rtsp = cameraSection.rtsp;
+        }
+
+        console.log('[setupCamera] Updated camera config from config.ini:', cameraConfig);
+      } else {
+        console.warn('[setupCamera] Config file not found at:', configPath);
+      }
+    } catch (error) {
+      console.error('[setupCamera] Error reading config.ini:', error);
+    }
+
+    const result = {
+      ip: cameraConfig.ip || '175.201.204.166',
+      port: parseInt(cameraConfig.port) || 32000,
+      rtsp: cameraConfig.rtsp || `rtsp://root:bw84218899!@${cameraConfig.ip || '175.201.204.166'}:554/cam0_0`
+    };
+
+    console.log('Final camera config result:', result);
+    console.log('=============================');
+
+    return result;
+  }
+
   static setupRecordings(recordings = {}) {
     return {
       path: recordings?.path || './outputs/nvr/recordings',
-      retention: recordings?.retention || 30,
+      retention: recordings?.retention || 3600,
       maxFileSize: recordings?.maxFileSize || '10GB',
       hls: {
         enabled: recordings?.hls_enabled === 'true' || recordings?.hls?.enabled || false,
-        segmentDuration: parseInt(recordings?.hls_segmentDuration) || recordings?.hls?.segmentDuration || 30,
-        maxSegments: parseInt(recordings?.hls_maxSegments) || recordings?.hls?.maxSegments || 2880,
+        segmentDuration: parseInt(recordings?.hls_segmentDuration) || recordings?.hls?.segmentDuration || 3600, // 기본값 1시간
+        maxSegments: parseInt(recordings?.hls_maxSegments) || recordings?.hls?.maxSegments || 24, // 24시간 = 24개
         deleteSegments: recordings?.hls_deleteSegments === 'true' || recordings?.hls?.deleteSegments || true,
         quality: recordings?.hls_quality || recordings?.hls?.quality || 'medium',
         bitrate: recordings?.hls_bitrate || recordings?.hls?.bitrate || '1024k',
-        segmentSize: recordings?.hls_segmentSize || recordings?.hls?.segmentSize || '4MB',
+        segmentSize: recordings?.hls_segmentSize || recordings?.hls?.segmentSize || '4MB', // 기본값 4MB
         autoCleanup: recordings?.hls_autoCleanup === 'true' || recordings?.hls?.autoCleanup || true,
-        cleanupInterval: parseInt(recordings?.hls_cleanupInterval) || recordings?.hls?.cleanupInterval || 3600,
+        cleanupInterval: parseInt(recordings?.hls_cleanupInterval) || recordings?.hls?.cleanupInterval || 3600, // 기본값 1시간
+        segmentType: recordings?.hls_segmentType || recordings?.hls?.segmentType || 'mpegts', // 명시적으로 mpegts 타입 지정
+        flags: recordings?.hls_flags || recordings?.hls?.flags || 'delete_segments+append_list', // 세그먼트 자동 삭제 활성화
       },
     };
   }

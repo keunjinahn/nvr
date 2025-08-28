@@ -444,13 +444,13 @@ export default {
       console.log('===> handleSelectionChange :',item.id);
       if (item.selected) {
         if (!this.selectedVideo1) {
-          this.selectedVideo1 = `${API_BASE_URL}/api/recordings/hls/${item.id}`;
+          this.selectedVideo1 = `${API_BASE_URL}/recordings/hls/${item.id}`;
           // HLS 플레이어 생성
           this.$nextTick(() => {
             this.createHLSPlayer1();
           });
         } else if (!this.selectedVideo2) {
-          this.selectedVideo2 = `${API_BASE_URL}/api/recordings/hls/${item.id}`;
+          this.selectedVideo2 = `${API_BASE_URL}/recordings/hls/${item.id}`;
           // HLS 플레이어 생성
           this.$nextTick(() => {
             this.createHLSPlayer2();
@@ -460,14 +460,14 @@ export default {
           this.$toast.warning('최대 2개의 영상만 선택할 수 있습니다.');
         }
       } else {
-        if (this.selectedVideo1 === `${API_BASE_URL}/api/recordings/hls/${item.id}`) {
+        if (this.selectedVideo1 === `${API_BASE_URL}/recordings/hls/${item.id}`) {
           this.selectedVideo1 = null;
           // HLS 플레이어 정리
           if (this.hlsPlayer1) {
             this.hlsPlayer1.destroy();
             this.hlsPlayer1 = null;
           }
-        } else if (this.selectedVideo2 === `${API_BASE_URL}/api/recordings/hls/${item.id}`) {
+        } else if (this.selectedVideo2 === `${API_BASE_URL}/recordings/hls/${item.id}`) {
           this.selectedVideo2 = null;
           // HLS 플레이어 정리
           if (this.hlsPlayer2) {
@@ -1203,11 +1203,32 @@ export default {
 
         hls.on(Hls.Events.ERROR, (event, data) => {
           console.error(`HLS Player ${playerIndex} error:`, data);
+          
+          // 상세한 에러 정보 로깅
+          if (data.details) {
+            console.error(`HLS Player ${playerIndex} error details:`, {
+              type: data.type,
+              details: data.details,
+              fatal: data.fatal,
+              url: data.url,
+              error: data.error
+            });
+          }
+          
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                console.log(`HLS Player ${playerIndex} network error, trying to recover...`);
-                hls.startLoad();
+                if (data.details === 'manifestParsingError') {
+                  console.error(`HLS Player ${playerIndex} manifest parsing error - URL: ${data.url}`);
+                  this.$toast.error(`HLS 플레이리스트 파싱 오류: ${data.url}`);
+                  // 재시도 대신 플레이어 재생성
+                  setTimeout(() => {
+                    this.reinitializeHLSPlayer(playerIndex, videoUrl);
+                  }, 2000);
+                } else {
+                  console.log(`HLS Player ${playerIndex} network error, trying to recover...`);
+                  hls.startLoad();
+                }
                 break;
               case Hls.ErrorTypes.MEDIA_ERROR:
                 console.log(`HLS Player ${playerIndex} media error, trying to recover...`);
@@ -1276,6 +1297,36 @@ export default {
       } else {
         console.error(`HLS is not supported in this browser for player ${playerIndex}`);
         this.$toast.error('이 브라우저에서는 HLS 재생을 지원하지 않습니다.');
+      }
+    },
+
+    // HLS 플레이어 재초기화 메서드
+    reinitializeHLSPlayer(playerIndex, videoUrl) {
+      console.log(`Reinitializing HLS Player ${playerIndex} with URL: ${videoUrl}`);
+      
+      try {
+        // 기존 플레이어 정리
+        if (playerIndex === 1 && this.hlsPlayer1) {
+          this.hlsPlayer1.destroy();
+          this.hlsPlayer1 = null;
+        } else if (playerIndex === 2 && this.hlsPlayer2) {
+          this.hlsPlayer2.destroy();
+          this.hlsPlayer2 = null;
+        }
+        
+        // 비디오 엘리먼트 초기화
+        const videoElement = playerIndex === 1 ? this.$refs.video1 : this.$refs.video2;
+        if (videoElement) {
+          videoElement.src = '';
+          videoElement.load();
+          
+          // 새로운 HLS 플레이어 초기화
+          setTimeout(() => {
+            this.initializeHLSPlayer(videoElement, videoUrl, playerIndex);
+          }, 500);
+        }
+      } catch (error) {
+        console.error(`Error reinitializing HLS Player ${playerIndex}:`, error);
       }
     },
 
