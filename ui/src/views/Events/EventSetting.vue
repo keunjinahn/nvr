@@ -257,6 +257,94 @@
                     template(v-slot:prepend-inner)
                       v-icon.text-muted mdi-video
 
+                // 배경이미지 설정 섹션
+                v-col(cols="12")
+                  v-divider.my-4
+                  .section-title 배경이미지 설정
+                
+                v-col(cols="12" md="4")
+                  label.form-input-label 배경이미지 1
+                  v-file-input(
+                    v-model="backgroundImageFiles[0]"
+                    accept="image/*"
+                    prepend-inner-icon="mdi-image"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                    hide-details
+                    @change="(file) => handleBackgroundImageChange(file, 0)"
+                    placeholder="배경이미지 1을 선택하세요"
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-image
+
+                v-col(cols="12" md="4")
+                  label.form-input-label 배경이미지 2
+                  v-file-input(
+                    v-model="backgroundImageFiles[1]"
+                    accept="image/*"
+                    prepend-inner-icon="mdi-image"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                    hide-details
+                    @change="(file) => handleBackgroundImageChange(file, 1)"
+                    placeholder="배경이미지 2를 선택하세요"
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-image
+
+                v-col(cols="12" md="4")
+                  label.form-input-label 배경이미지 3
+                  v-file-input(
+                    v-model="backgroundImageFiles[2]"
+                    accept="image/*"
+                    prepend-inner-icon="mdi-image"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                    hide-details
+                    @change="(file) => handleBackgroundImageChange(file, 2)"
+                    placeholder="배경이미지 3을 선택하세요"
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-image
+
+                // 배경이미지 미리보기
+                v-col(cols="12")
+                  .background-preview-container
+                    label.form-input-label 배경이미지 미리보기
+                    // 디버그 정보 (개발 중에만 표시)
+                    div(class="debug-info mb-2")
+                      small.text-muted 
+                        | 상태: {{ backgroundImagePreviews.filter(p => p).length }}/3 이미지 업로드됨
+                      br
+                      small.text-muted 
+                        | 미리보기 배열: {{ JSON.stringify(backgroundImagePreviews.map(p => p ? '있음' : '없음')) }}
+                      br
+                      small.text-muted 
+                        | slideshowImages: {{ settings.system.slideshowImages ? settings.system.slideshowImages.filter(p => p).length : 0 }}/3 이미지
+                    v-row
+                      v-col(cols="12" md="4" v-for="(preview, index) in backgroundImagePreviews" :key="index")
+                        div(class="background-preview-item" :class="{ 'has-image': preview, 'no-image': !preview }")
+                          div(v-if="preview" class="image-content")
+                            v-img(
+                              :src="preview"
+                              max-height="150"
+                              contain
+                              class="background-preview-image"
+                            )
+                            v-btn(
+                              color="error"
+                              small
+                              @click="removeBackgroundImage(index)"
+                              class="mt-2"
+                            ) 이미지 제거
+                          div(v-else class="no-image-placeholder")
+                            v-icon(size="48" color="var(--cui-text-muted)") mdi-image-plus
+                            div.text-muted.mt-2 이미지 없음
+                            div.text-muted.mt-1 (슬롯 {{ index + 1 }})
+
             // 열화상 카메라 설정
             div(v-if="currentMenu === 'thermal-camera'")
               v-row
@@ -314,7 +402,8 @@ import {
   mdiVideo,
   mdiDeleteClock,
   mdiConnection,
-  mdiIpNetwork
+  mdiIpNetwork,
+  mdiImage
 } from '@mdi/js'
 import { getEventSetting, updateEventSetting, createEventSetting } from '@/api/eventSetting.api.js'
 
@@ -346,11 +435,14 @@ export default {
       mdiVideo,
       mdiDeleteClock,
       mdiConnection,
-      mdiIpNetwork
+      mdiIpNetwork,
+      mdiImage
     },
     currentMenu: 'system',
     mapImageFile: null,
     mapImagePreview: null,
+    backgroundImageFiles: [null, null, null], // 배경이미지 파일 배열
+    backgroundImagePreviews: [null, null, null], // 배경이미지 미리보기 배열
     menus: [
       // {
       //   id: 'temperature',
@@ -434,7 +526,8 @@ export default {
           address: '',
           recodingBitrate: '1024k',
           recodingFileDeleteDays: 30,
-          map: null
+          map: null,
+          backimages: [] // 배경이미지 저장 필드 추가
         },
 
       site: {
@@ -476,6 +569,15 @@ export default {
         this.mapImagePreview = system.map;
       }
 
+             // 저장된 배경이미지가 있으면 미리보기 설정
+       if (system.backimages && Array.isArray(system.backimages)) {
+         this.backgroundImagePreviews = [...system.backimages];
+         console.log('저장된 배경이미지 로드됨:', this.backgroundImagePreviews);
+       } else {
+         this.backgroundImagePreviews = [null, null, null];
+         console.log('배경이미지 초기화됨:', this.backgroundImagePreviews);
+       }
+
       this.settings = {
         temperature: {
           threshold: temp.threshold ?? 20,
@@ -508,7 +610,9 @@ export default {
           address: system.address ?? '',
           recodingBitrate: system.recodingBitrate ?? '1024k',
           recodingFileDeleteDays: system.recodingFileDeleteDays ?? 30,
-          map: system.map ?? null
+          map: system.map ?? null,
+          backimages: system.backimages ?? [null, null, null], // 배경이미지 데이터 로드 (3개 슬롯)
+          slideshowImages: system.slideshowImages ?? [null, null, null] // slideshowImages 데이터 로드
         },
 
         site: {
@@ -552,7 +656,9 @@ export default {
           address: '',
           recodingBitrate: '1024k',
           recodingFileDeleteDays: 30,
-          map: null
+          map: null,
+          backimages: [null, null, null],
+          slideshowImages: [null, null, null]
         },
         site: {
           name: '',
@@ -612,6 +718,110 @@ export default {
       this.mapImagePreview = null;
       this.settings.system.map = null;
     },
+
+         handleBackgroundImageChange(file, index) {
+       if (file) {
+         // 파일 크기 체크 (16MB 제한)
+         const maxSize = 16 * 1024 * 1024; // 16MB
+         if (file.size > maxSize) {
+           this.$toast && this.$toast.error('파일 크기가 16MB를 초과합니다. 더 작은 이미지를 선택해주세요.');
+           this.backgroundImageFiles[index] = null;
+           return;
+         }
+
+         // 이미지 파일 타입 체크
+         if (!file.type.startsWith('image/')) {
+           this.$toast && this.$toast.error('이미지 파일만 선택할 수 있습니다.');
+           this.backgroundImageFiles[index] = null;
+           return;
+         }
+
+         const reader = new FileReader();
+         reader.onload = (e) => {
+           // Base64 인코딩된 이미지 데이터
+           const base64Data = e.target.result;
+           
+           // Vue 반응성을 위해 배열을 새로 할당
+           this.backgroundImagePreviews = [...this.backgroundImagePreviews];
+           this.backgroundImagePreviews[index] = base64Data;
+           
+           this.settings.system.backimages = [...this.settings.system.backimages];
+           this.settings.system.backimages[index] = base64Data;
+           
+           // slideshowImages 형식으로도 저장 (Login.vue, FirstStart.vue에서 사용)
+           if (!this.settings.system.slideshowImages) {
+             this.settings.system.slideshowImages = [];
+           }
+           this.settings.system.slideshowImages = [...this.settings.system.slideshowImages];
+           this.settings.system.slideshowImages[index] = {
+             src: base64Data,
+             alt: `배경이미지 ${index + 1}`,
+             fileName: file.name
+           };
+           
+           console.log('배경이미지 Base64 인코딩 완료:', {
+             fileName: file.name,
+             fileSize: file.size,
+             fileType: file.type,
+             base64Length: base64Data.length,
+             index: index
+           });
+           
+           console.log('현재 backgroundImagePreviews 상태:', this.backgroundImagePreviews);
+           console.log('현재 settings.system.backimages 상태:', this.settings.system.backimages);
+           console.log('현재 slideshowImages 상태:', this.settings.system.slideshowImages);
+         };
+         
+         reader.onerror = () => {
+           this.$toast && this.$toast.error('배경이미지 파일 읽기에 실패했습니다.');
+           this.backgroundImageFiles[index] = null;
+         };
+         
+         // Base64로 인코딩
+         reader.readAsDataURL(file);
+       } else {
+         // 파일이 제거된 경우
+         this.backgroundImagePreviews = [...this.backgroundImagePreviews];
+         this.backgroundImagePreviews[index] = null;
+         
+         this.settings.system.backimages = [...this.settings.system.backimages];
+         this.settings.system.backimages[index] = null;
+         
+         // slideshowImages에서도 제거
+         if (this.settings.system.slideshowImages) {
+           this.settings.system.slideshowImages = [...this.settings.system.slideshowImages];
+           this.settings.system.slideshowImages[index] = null;
+         }
+         
+         console.log('파일 제거됨 - 현재 상태:', {
+           backgroundImagePreviews: this.backgroundImagePreviews,
+           backimages: this.settings.system.backimages,
+           slideshowImages: this.settings.system.slideshowImages
+         });
+       }
+     },
+
+                   removeBackgroundImage(index) {
+        this.backgroundImageFiles[index] = null;
+        
+        // Vue 반응성을 위해 배열을 새로 할당
+        this.backgroundImagePreviews = [...this.backgroundImagePreviews];
+        this.backgroundImagePreviews[index] = null;
+        
+        this.settings.system.backimages = [...this.settings.system.backimages];
+        this.settings.system.backimages[index] = null;
+        
+        // slideshowImages에서도 제거
+        if (this.settings.system.slideshowImages) {
+          this.settings.system.slideshowImages = [...this.settings.system.slideshowImages];
+          this.settings.system.slideshowImages[index] = null;
+        }
+        
+        console.log(`배경이미지 ${index + 1} 제거됨`);
+        console.log('현재 backgroundImagePreviews 상태:', this.backgroundImagePreviews);
+        console.log('현재 settings.system.backimages 상태:', this.settings.system.backimages);
+        console.log('현재 slideshowImages 상태:', this.settings.system.slideshowImages);
+      },
 
     async saveSettings() {
       try {
@@ -868,6 +1078,66 @@ export default {
   .v-input__append-inner {
     .v-icon {
       color: rgba(255, 255, 255, 0.54) !important;
+    }
+  }
+}
+
+.background-preview-container {
+  margin-top: 16px;
+  
+  .debug-info {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--cui-border-color);
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 16px;
+    
+    .text-muted {
+      color: var(--cui-text-muted) !important;
+      font-size: 0.8rem;
+    }
+  }
+  
+  .background-preview-item {
+    border: 1px solid var(--cui-border-color);
+    border-radius: 8px;
+    margin-top: 8px;
+    padding: 16px;
+    text-align: center;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    &.has-image {
+      border-color: var(--cui-primary);
+      background-color: rgba(var(--cui-primary-rgb), 0.05);
+      
+      .image-content {
+        width: 100%;
+      }
+      
+      .background-preview-image {
+        border-radius: 8px;
+        border: 1px solid var(--cui-border-color);
+        background-color: var(--cui-bg-card);
+        margin-bottom: 8px;
+      }
+    }
+    
+    &.no-image {
+      border-style: dashed;
+      border-color: var(--cui-border-color);
+      background-color: rgba(255, 255, 255, 0.02);
+      
+      .no-image-placeholder {
+        color: var(--cui-text-muted);
+        font-size: 0.9rem;
+        
+        .v-icon {
+          margin-bottom: 8px;
+        }
+      }
     }
   }
 }
