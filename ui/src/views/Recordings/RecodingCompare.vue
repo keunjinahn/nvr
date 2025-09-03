@@ -33,38 +33,17 @@
           
           // 세 번째 박스 (컨트롤 + 카메라 목록 + 달력)
           .tw-flex-1.tw-flex
-            // 왼쪽 박스 (컨트롤 + 카메라 목록)
+            // 왼쪽 박스 (컨트롤만)
             .tw-flex-1.tw-flex.tw-flex-col.tw-gap-4
               // 컨트롤 버튼 박스
               .button-box.button-box-dark.tw-p-4
                 .tw-flex.tw-flex-col.tw-gap-2
-                  v-btn.play-all-btn.common-dark-btn(color="gray" @click="playAllVideos")
-                    v-icon(left class="common-dark-btn__icon") {{ icons.mdiPlay }}
-                    span 모두 재생
-                  v-btn.play-all-btn.common-dark-btn(color="gray" @click="togglePauseAllVideos")
+                  v-btn.control-btn.common-dark-btn(color="gray" @click="togglePauseAllVideos")
                     v-icon(left class="common-dark-btn__icon") {{ isPaused ? icons.mdiPlay : icons.mdiPause }}
                     span {{ isPaused ? '재생' : '일시정지' }}
-                  v-btn.play-all-btn.common-dark-btn(color="gray" @click="stopAllVideos")
+                  v-btn.control-btn.common-dark-btn(color="gray" @click="stopAllVideos")
                     v-icon(left class="common-dark-btn__icon") {{ icons.mdiStop }}
                     span 중지
-              
-              // 카메라 목록 테이블
-              .button-box.button-box-dark.tw-p-4.tw-flex-1
-                v-data-table(
-                  :headers="cameraHeaders"
-                  :items="cameras"
-                  :loading="loading"
-                  hide-default-header
-                  hide-default-footer
-                  :items-per-page="-1"
-                  class="elevation-1"
-                )
-                  template(#item.selected="{ item }")
-                    v-checkbox(
-                      v-model="item.selected"
-                    )
-                  template(#item.name="{ item }")
-                    span {{ item.name }}
             
             // 오른쪽 박스 (달력)
             .tw-w-96.tw-ml-4
@@ -84,18 +63,73 @@
                 <!-- v-btn.export-btn.tw-mb-2.tw-w-full(color="secondary" @click="onExportRecording") 녹화내보내기 -->
                 v-btn.snapshot-btn.tw-w-full(color="secondary" @click="onSaveSnapshot") 정지이미지 저장
 
+        // 🕐 타임라인 영역 표시
+        .tw-mt-4
+          .timeline-section.tw-bg-gray-800.tw-p-4.tw-rounded-lg
+            // 타임라인 제목 및 정보
+            .timeline-header.tw-flex.tw-justify-between.tw-items-center.tw-mb-4
+              h3.tw-text-white.tw-text-lg.tw-font-semibold 🕐 타임라인 영역
+              .timeline-info.tw-text-gray-300.tw-text-sm
+                span(v-if="timelineStartTime && timelineEndTime")
+                  | 전체 영상 시간: {{ formatTime(timelineStartTime) }} ~ {{ formatTime(timelineEndTime) }}
+                  | (총 {{ formatDuration(timelineDuration) }})
+                span(v-else) 영상을 선택하면 타임라인이 표시됩니다
+            
+            // NLE 타임라인 박스
+            .nle-timeline-box.tw-bg-gray-700.tw-p-4.tw-rounded-lg.tw-flex.tw-items-center.tw-relative
+              // NLE 슬라이더
+              .timeline-slider.tw-flex-1.tw-relative(@click="handleTimelineClick")
+                // 시간 눈금 (24시간)
+                .timeline-hours.tw-relative.tw-h-6.tw-mb-2
+                  span(
+                    v-for="h in 25"
+                    :key="h"
+                    :style="{ position: 'absolute', left: `calc(${(h-1)/24*100}% - 15px)` }"
+                    class="tw-text-xs tw-text-gray-400 tw-font-medium"
+                  ) {{ h-1 }}:00
+                
+                // 비디오 타임라인
+                .timeline-videos.tw-relative.tw-h-8
+                  .timeline-row(
+                    v-for="(video, idx) in selectedVideos || []" 
+                    :key="video.id"
+                    class="tw-mb-2"
+                  )
+                    .timeline-label.tw-absolute.tw-left-0.tw-top-0.tw-w-20.tw-text-xs.tw-text-white.tw-font-medium
+                      | {{ getShortCameraName(video.cameraName) }}
+                    .timeline-bar.tw-relative.tw-h-3.tw-bg-gray-600.tw-rounded.tw-ml-20.tw-mr-2
+                      // 비디오별 구간 표시
+                      .timeline-segment.tw-absolute.tw-h-full.tw-rounded.tw-bg-blue-500.tw-border-2.tw-border-blue-300(
+                        v-for="segment in video.segments || []"
+                        :key="segment.startTime + '-' + segment.endTime"
+                        :style="segmentStyle(segment)"
+                        :title="`${formatTime(segment.startTime)} ~ ${formatTime(segment.endTime)}`"
+                      )
+                
+                // 수직 스크롤 바 (현재 위치)
+                .vertical-bar(
+                  :style="verticalBarStyle" 
+                  @mousedown="startVerticalBarDrag"
+                  class="tw-absolute tw-top-0 tw-w-1 tw-h-full tw-bg-red-500 tw-cursor-pointer tw-z-10"
+                  :title="`현재 위치: ${formattedPlayheadTime}`"
+                )
+              
+              // 현재 시간 표시
+              .current-time.tw-absolute.tw-top-2.tw-right-4.tw-text-white.tw-text-lg.tw-font-bold
+                | {{ formattedPlayheadTime }}
+
+        // 데이터 테이블 (체크박스 제거, row 클릭 이벤트 추가)
         v-card.mt-4
           v-data-table(
-            :headers="headers"
+            :headers="tableHeaders"
             :items="formattedRecordingHistory"
             :loading="loading"
-            :items-per-page="10"
-            class="elevation-1"
+            :items-per-page="4"
+            class="elevation-1 recording-table"
+            @click:row="handleTableRowClick"
           )
-            template(#item.selected="{ item }")
-              v-checkbox(
-                v-model="item.selected"
-              )
+            template(#item.cameraName="{ item }")
+              span {{ getShortCameraName(item.cameraName) }}
             
             template(#item.formattedStartTime="{ item }")
               span {{ formatTime2(item.formattedStartTime) }}
@@ -104,7 +138,17 @@
               span {{ formatTime2(item.formattedEndTime) }}
             
             template(#item.filename="{ item }")
-              span {{ item.filename }}
+              span {{ getShortFilename(item.filename) }}
+            
+            template(#item.fileSize="{ item }")
+              span {{ formatFileSize(item.fileSize) }}
+            
+            template(#item.fileType="{ item }")
+              v-chip(
+                color="primary"
+                small
+                label
+              ) {{ (item.fileType || 'mp4').toUpperCase() }}
             
             template(#item.status="{ item }")
               v-chip(
@@ -118,40 +162,11 @@
                 v-icon(color="grey" size="40") {{ icons.mdiVideo }}
                 .mt-2 녹화 기록이 없습니다.
 
-        // 하단 전체 너비 NLE 타임라인 박스
-        .tw-mt-4
-          .nle-timeline-box.tw-bg-gray-800.tw-p-4.tw-rounded-lg.tw-flex.tw-items-center.tw-relative
-            // NLE 슬라이더
-            .timeline-slider.tw-flex-1.tw-relative(@click="handleTimelineClick")
-              .timeline-hours.tw-relative.tw-h-4
-                span(
-                  v-for="h in 13"
-                  :key="h"
-                  :style="{ position: 'absolute', left: `calc(${(h-1)/12*100}% - 10px)` }"
-                  class="tw-text-xs tw-text-gray-400"
-                ) {{ (h-1)*2 }}
-              .timeline-videos
-                .timeline-row(v-for="(video, idx) in selectedVideos || []" :key="video.id")
-                  <!-- .timeline-label.tw-w-10.tw-text-xs.tw-text-white {{ video.cameraName || 'Unknown Camera' }} -->
-                  .timeline-bar.tw-relative.tw-h-2.tw-bg-gray-700.tw-rounded.tw-ml-0
-                    // 비디오별 구간 표시
-                    .timeline-segment.tw-absolute.tw-h-full.tw-rounded(
-                      v-for="segment in video.segments || []"
-                      :key="segment.startTime + '-' + segment.endTime"
-                      :style="segmentStyle(segment)"
-                    )
-              // 수직 스크롤 바
-              .vertical-bar(:style="verticalBarStyle" @mousedown="startVerticalBarDrag")
-            // 현재 시간 표시
-            .current-time.tw-absolute.tw-top-2.tw-right-4.tw-text-white.tw-text-lg
-              | {{ formattedPlayheadTime }}
-
 </template>
 
 <script>
 import { 
   mdiVideo, 
-  mdiCamera, 
   mdiFile, 
   mdiCalendar, 
   mdiMagnify, 
@@ -165,9 +180,7 @@ import {
   mdiPause
 } from '@mdi/js'
 import moment from 'moment';
-import { getRecordingHistory} from '@/api/recordingService.api.js';
-import { getCameras } from '@/api/cameras.api';
-import Hls from 'hls.js';
+import { getRecordingHistory, getRecordingSegments } from '@/api/recordingService.api.js';
 import { getApiBaseUrl } from '@/config/api.config.js';
 
 const API_BASE_URL = getApiBaseUrl();
@@ -179,12 +192,11 @@ export default {
   props: {},
 
   data: () => ({
-    icons: {
-      mdiVideo,
-      mdiCamera,
-      mdiFile,
-      mdiCalendar,
-      mdiMagnify,
+        icons: {
+      mdiVideo, 
+      mdiFile, 
+      mdiCalendar, 
+      mdiMagnify, 
       mdiRefresh,
       mdiCheckboxMarkedCircle,
       mdiClose,
@@ -198,12 +210,15 @@ export default {
     recordingHistory: [],
     selectedVideo1: null,
     selectedVideo2: null,
-    headers: [
-      { text: '선택', value: 'selected', sortable: false, width: '80px' },
+
+    // 테이블용 헤더 (체크박스 제거)
+    tableHeaders: [
       { text: '카메라', value: 'cameraName', sortable: true },
       { text: '시작 시간', value: 'formattedStartTime', sortable: true },
       { text: '종료 시간', value: 'formattedEndTime', sortable: true },
       { text: '파일명', value: 'filename', sortable: true },
+      { text: '파일 크기', value: 'fileSize', sortable: true },
+      { text: '타입', value: 'fileType', sortable: true },
       { text: '상태', value: 'status', sortable: true }
     ],
     statusOptions: [
@@ -221,16 +236,11 @@ export default {
     searchFilters: {
       dateRange: [],
       dateRangeText: '',
-      camera: null,
       status: null
     },
     expandedVideo: 0,
     isPaused: true,
-    cameraHeaders: [
-      { text: '선택', value: 'selected', sortable: false, width: '80px' },
-      { text: '카메라', value: 'name', sortable: true }
-    ],
-    cameras: [],
+
     selectedDate: new Date().toISOString().substr(0, 10),
     playhead: 0, // 0~1 (0=00:00, 1=24:00)
     dragging: false,
@@ -238,43 +248,41 @@ export default {
     thumbnailUrl: '',
     verticalBarPercent: 50, // 0~100, 디폴트 중앙
     draggingVerticalBar: false,
-    hlsPlayer1: null,
-    hlsPlayer2: null,
     timelineUpdateTimer: null, // 타임라인 업데이트 타이머
     isTimelineUpdating: false, // 타임라인 업데이트 중 플래그
+    
+    // 🕐 타임라인 영역 관련 변수들
+    timelineStartTime: null, // 전체 영상 시작 시간
+    timelineEndTime: null,   // 전체 영상 종료 시간
+    timelineDuration: 0,     // 전체 영상 지속 시간 (초)
   }),
 
   computed: {
     formattedRecordingHistory() {
       if (!this.recordingHistory || this.recordingHistory.length === 0) {
-        // 녹화 데이터가 없으면 비디오 화면 초기화
-        this.$nextTick(() => {
-          this.$refs.videoPlayer?.forEach(player => {
-            if (player) {
-              player.reset();
-            }
-          });
-        });
         return [];
       }
 
-      // 녹화 데이터가 있으면 자동으로 체크하여 비디오 화면에 표시
+      // API 응답 데이터를 테이블 표시용으로 포맷팅
       const formattedData = this.recordingHistory.map((record) => ({
         ...record,
+        // 기존 필드들 유지
+        id: record.id,
+        cameraId: record.cameraId,
+        cameraName: record.cameraName,
+        filename: record.filename,
+        startTime: record.startTime,
+        endTime: record.endTime,
+        duration: record.duration,
+        fileSize: record.fileSize,
+        status: record.status,
+        filePath: record.filePath,
+        streamUrl: record.streamUrl,
+        fileType: record.fileType,
+        // 포맷팅된 시간 필드 추가
         formattedStartTime: this.formatTime(record.startTime),
-        formattedEndTime: this.formatTime(record.endTime),
-        selected: true  // 자동으로 체크
+        formattedEndTime: this.formatTime(record.endTime)
       }));
-
-      // 비디오 플레이어 업데이트
-      this.$nextTick(() => {
-        formattedData.forEach((record, index) => {
-          const player = this.$refs.videoPlayer?.[index];
-          if (player && record.selected) {
-            player.loadVideo(record);
-          }
-        });
-      });
 
       return formattedData;
     },
@@ -299,6 +307,73 @@ export default {
         zIndex: 10,
         cursor: 'ew-resize'
       };
+    },
+
+    // 카메라별로 그룹화하고 시간순으로 정렬된 녹화 기록
+    groupedRecordingHistory() {
+      if (!this.recordingHistory || this.recordingHistory.length === 0) {
+        return {};
+      }
+
+      // 카메라별로 그룹화
+      const grouped = {};
+      this.recordingHistory.forEach(record => {
+        const cameraName = record.cameraName || 'Unknown Camera';
+        if (!grouped[cameraName]) {
+          grouped[cameraName] = [];
+        }
+        grouped[cameraName].push(record);
+      });
+
+      // 각 카메라별로 시간순 정렬
+      Object.keys(grouped).forEach(cameraName => {
+        grouped[cameraName].sort((a, b) => {
+          const timeA = new Date(a.startTime).getTime();
+          const timeB = new Date(b.startTime).getTime();
+          return timeA - timeB;
+        });
+      });
+
+      return grouped;
+    },
+
+    // 카메라별 그룹화된 녹화 기록을 배열로 변환 (UI 표시용)
+    cameraGroups() {
+      const grouped = this.groupedRecordingHistory;
+      return Object.keys(grouped).map(cameraName => ({
+        cameraName,
+        recordings: grouped[cameraName]
+      }));
+    },
+
+    // 🕐 타임라인 영역 계산 속성들
+    // 전체 영상의 시작 시간 (가장 빠른 시작 시간)
+    computedTimelineStartTime() {
+      if (!this.recordingHistory || this.recordingHistory.length === 0) {
+        return null;
+      }
+      
+      const startTimes = this.recordingHistory.map(record => new Date(record.startTime));
+      return new Date(Math.min(...startTimes));
+    },
+
+    // 전체 영상의 종료 시간 (가장 늦은 종료 시간)
+    computedTimelineEndTime() {
+      if (!this.recordingHistory || this.recordingHistory.length === 0) {
+        return null;
+      }
+      
+      const endTimes = this.recordingHistory.map(record => new Date(record.endTime));
+      return new Date(Math.max(...endTimes));
+    },
+
+    // 전체 영상의 지속 시간 (초)
+    computedTimelineDuration() {
+      if (!this.computedTimelineStartTime || !this.computedTimelineEndTime) {
+        return 0;
+      }
+      
+      return Math.round((this.computedTimelineEndTime - this.computedTimelineStartTime) / 1000);
     }
   },
 
@@ -315,16 +390,28 @@ export default {
       deep: true
     },
     selectedVideo1() {
-      this.createHLSPlayer1();
+      this.setupVideoPlayer1();
     },
     selectedVideo2() {
-      this.createHLSPlayer2();
+      this.setupVideoPlayer2();
+    },
+    
+    // 🕐 녹화 기록이 변경될 때 타임라인 정보 업데이트
+    recordingHistory: {
+      handler(newHistory) {
+        if (newHistory && newHistory.length > 0) {
+          this.updateTimelineInfo();
+        }
+      },
+      deep: true
     }
   },
 
   created() {
-    // this.loadRecordingHistory();
-    this.loadCameras();
+    // 초기 날짜로 녹화 기록 로드
+    if (this.selectedDate) {
+      this.fetchRecordingHistoryForDate(this.selectedDate);
+    }
   },
 
   mounted() {
@@ -336,43 +423,36 @@ export default {
     // 중앙에 위치
     this.verticalBarPercent = 50;
     
-    // HLS 지원 확인
-    if (!Hls.isSupported() && !document.createElement('video').canPlayType('application/vnd.apple.mpegurl')) {
-      this.$toast.warning('이 브라우저에서는 HLS 재생을 지원하지 않습니다. 최신 브라우저를 사용해주세요.');
+    // MP4 비디오 지원 확인
+    const video = document.createElement('video');
+    if (!video.canPlayType('video/mp4')) {
+      this.$toast.warning('이 브라우저에서는 MP4 재생을 지원하지 않습니다. 최신 브라우저를 사용해주세요.');
     }
   },
 
   beforeDestroy() {
-    if (this.$refs.videoPlayer) {
-      this.$refs.videoPlayer.pause();
+    // 비디오 플레이어 정리
+    if (this.$refs.videoPlayer1) {
+      this.$refs.videoPlayer1.pause();
+      this.$refs.videoPlayer1.src = '';
+      this.$refs.videoPlayer1.load();
     }
-    // Cleanup thumbnail URLs
-    Object.values(this.thumbnails).forEach(url => {
-      if (url && url.startsWith('blob:')) {
-        URL.revokeObjectURL(url);
-      }
-    });
+    if (this.$refs.videoPlayer2) {
+      this.$refs.videoPlayer2.pause();
+      this.$refs.videoPlayer2.src = '';
+      this.$refs.videoPlayer2.load();
+    }
+    
     // 메모리 정리
-    this.thumbnails = {};
-    this.imageData.clear();
-    // ImageBitmap 객체 정리
-    Object.values(this.thumbnails).forEach(imageBitmap => {
-      if (imageBitmap instanceof ImageBitmap) {
-        imageBitmap.close();
-      }
-    });
+    if (this.imageData) {
+      this.imageData.clear();
+    }
+    
+    // 이벤트 리스너 제거
     document.removeEventListener('mousemove', this.onDrag);
     document.removeEventListener('mouseup', this.stopDrag);
-    // 키보드 이벤트 리스너 제거
     document.removeEventListener('keydown', this.handleKeyDown);
-    if (this.hlsPlayer1) {
-      this.hlsPlayer1.destroy();
-      this.hlsPlayer1 = null;
-    }
-    if (this.hlsPlayer2) {
-      this.hlsPlayer2.destroy();
-      this.hlsPlayer2 = null;
-    }
+    
     // 타임라인 업데이트 타이머 정리
     this.stopTimelineUpdate();
   },
@@ -428,6 +508,9 @@ export default {
             selected: false
             };
           });
+          
+          // 🕐 녹화 기록 로드 후 타임라인 정보 업데이트
+          this.updateTimelineInfo();
         } else {
           this.recordingHistory = [];
           console.error('Invalid response format:', response);
@@ -444,83 +527,80 @@ export default {
       console.log('===> handleSelectionChange :',item.id);
       if (item.selected) {
         if (!this.selectedVideo1) {
-          this.selectedVideo1 = `${API_BASE_URL}/recordings/hls/${item.id}`;
-          // HLS 플레이어 생성
+          // MP4 파일 직접 스트리밍으로 변경
+          this.selectedVideo1 = `${API_BASE_URL}/recordings/stream/${item.id}`;
+          // 일반 HTML5 비디오 플레이어 사용 (HLS 플레이어 불필요)
           this.$nextTick(() => {
-            this.createHLSPlayer1();
+            this.setupVideoPlayer1();
           });
         } else if (!this.selectedVideo2) {
-          this.selectedVideo2 = `${API_BASE_URL}/recordings/hls/${item.id}`;
-          // HLS 플레이어 생성
+          // MP4 파일 직접 스트리밍으로 변경
+          this.selectedVideo2 = `${API_BASE_URL}/recordings/stream/${item.id}`;
+          // 일반 HTML5 비디오 플레이어 사용 (HLS 플레이어 불필요)
           this.$nextTick(() => {
-            this.createHLSPlayer2();
+            this.setupVideoPlayer2();
           });
         } else {
           item.selected = false;
           this.$toast.warning('최대 2개의 영상만 선택할 수 있습니다.');
         }
       } else {
-        if (this.selectedVideo1 === `${API_BASE_URL}/recordings/hls/${item.id}`) {
+        if (this.selectedVideo1 === `${API_BASE_URL}/recordings/stream/${item.id}`) {
           this.selectedVideo1 = null;
-          // HLS 플레이어 정리
-          if (this.hlsPlayer1) {
-            this.hlsPlayer1.destroy();
-            this.hlsPlayer1 = null;
+          // 비디오 플레이어 정리
+          if (this.$refs.videoPlayer1) {
+            this.$refs.videoPlayer1.src = '';
+            this.$refs.videoPlayer1.load();
           }
-        } else if (this.selectedVideo2 === `${API_BASE_URL}/recordings/hls/${item.id}`) {
+        } else if (this.selectedVideo2 === `${API_BASE_URL}/recordings/stream/${item.id}`) {
           this.selectedVideo2 = null;
-          // HLS 플레이어 정리
-          if (this.hlsPlayer2) {
-            this.hlsPlayer2.destroy();
-            this.hlsPlayer2 = null;
+          // 비디오 플레이어 정리
+          if (this.$refs.videoPlayer2) {
+            this.$refs.videoPlayer2.src = '';
+            this.$refs.videoPlayer2.load();
           }
         }
       }
     },
 
-    playAllVideos() {
-      // 재생 전에 수직바 위치를 기준으로 비디오 시간 설정
-      if (!this.syncVideosToTimelinePosition()) {
-        return; // 범위 밖에 있으면 재생하지 않음
+    // 새로운 MP4 비디오 플레이어 설정 메서드
+    setupVideoPlayer1() {
+      if (this.$refs.videoPlayer1 && this.selectedVideo1) {
+        const videoElement = this.$refs.videoPlayer1;
+        videoElement.src = this.selectedVideo1;
+        videoElement.load();
+        
+        // 비디오 로드 완료 시 이벤트 리스너
+        videoElement.addEventListener('loadeddata', () => {
+          console.log('Video 1 loaded successfully');
+        });
+        
+        videoElement.addEventListener('error', (e) => {
+          console.error('Video 1 load error:', e);
+          this.$toast.error('비디오 1을 로드할 수 없습니다.');
+        });
       }
-      
-      // 각 비디오별로 개별적으로 재생 가능 여부 확인
-      this.selectedVideos.forEach((video, index) => {
-        if (!video.startTime || !video.endTime) return;
-        
-        const totalSeconds = 86400;
-        const currentTimeSeconds = (this.verticalBarPercent / 100) * totalSeconds;
-        
-        const startDate = new Date(video.startTime);
-        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
-                           startDate.getUTCMinutes() * 60 + 
-                           startDate.getUTCSeconds();
-        
-        const endDate = new Date(video.endTime);
-        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
-                         endDate.getUTCMinutes() * 60 + 
-                         endDate.getUTCSeconds();
-        
-        // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
-        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
-          const videoRef = this.$refs[`videoPlayer${index + 1}`];
-          if (videoRef) {
-            const videoElement = Array.isArray(videoRef) ? videoRef[0] : videoRef;
-            if (videoElement) {
-              // HLS 플레이어가 있으면 HLS 방식으로 재생
-              const hlsPlayer = index === 0 ? this.hlsPlayer1 : this.hlsPlayer2;
-              if (hlsPlayer && hlsPlayer.media) {
-                hlsPlayer.media.play();
-              } else {
-                videoElement.play();
-              }
-            }
-          }
-        }
-      });
-      
-      this.startTimelineUpdate();
     },
+
+    setupVideoPlayer2() {
+      if (this.$refs.videoPlayer2 && this.selectedVideo2) {
+        const videoElement = this.$refs.videoPlayer2;
+        videoElement.src = this.selectedVideo2;
+        videoElement.load();
+        
+        // 비디오 로드 완료 시 이벤트 리스너
+        videoElement.addEventListener('loadeddata', () => {
+          console.log('Video 2 loaded successfully');
+        });
+        
+        videoElement.addEventListener('error', (e) => {
+          console.error('Video 2 load error:', e);
+          this.$toast.error('비디오 2를 로드할 수 없습니다.');
+        });
+      }
+    },
+
+
 
     togglePauseAllVideos() {
       if (this.isPaused) {
@@ -529,53 +609,27 @@ export default {
           return; // 범위 밖에 있으면 재생하지 않음
         }
         
-        // 각 비디오별로 개별적으로 재생 가능 여부 확인
-        this.selectedVideos.forEach((video, index) => {
-          if (!video.startTime || !video.endTime) return;
-          
-          const totalSeconds = 86400;
-          const currentTimeSeconds = (this.verticalBarPercent / 100) * totalSeconds;
-          
-          const startDate = new Date(video.startTime);
-          const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
-                             startDate.getUTCMinutes() * 60 + 
-                             startDate.getUTCSeconds();
-          
-          const endDate = new Date(video.endTime);
-          const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
-                           endDate.getUTCMinutes() * 60 + 
-                           endDate.getUTCSeconds();
-          
-          // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
-          if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
-            const videoRef = this.$refs[`videoPlayer${index + 1}`];
-            if (videoRef) {
-              const videoElement = Array.isArray(videoRef) ? videoRef[0] : videoRef;
-              if (videoElement) {
-                // HLS 플레이어가 있으면 HLS 방식으로 재생
-                const hlsPlayer = index === 0 ? this.hlsPlayer1 : this.hlsPlayer2;
-                if (hlsPlayer && hlsPlayer.media) {
-                  hlsPlayer.media.play();
-                } else {
-                  videoElement.play();
-                }
-              }
-            }
-          }
-        });
+        // 두 비디오 모두 재생
+        if (this.$refs.videoPlayer1) {
+          this.$refs.videoPlayer1.play().catch(error => {
+            console.error('Error playing video 1:', error);
+          });
+        }
+        
+        if (this.$refs.videoPlayer2) {
+          this.$refs.videoPlayer2.play().catch(error => {
+            console.error('Error playing video 2:', error);
+          });
+        }
         
         this.startTimelineUpdate();
       } else {
-        // HLS 플레이어가 있으면 HLS 방식으로 일시정지
-        if (this.hlsPlayer1 && this.hlsPlayer1.media) {
-          this.hlsPlayer1.media.pause();
-        } else if (this.$refs.videoPlayer1) {
+        // 두 비디오 모두 일시정지
+        if (this.$refs.videoPlayer1) {
           this.$refs.videoPlayer1.pause();
         }
         
-        if (this.hlsPlayer2 && this.hlsPlayer2.media) {
-          this.hlsPlayer2.media.pause();
-        } else if (this.$refs.videoPlayer2) {
+        if (this.$refs.videoPlayer2) {
           this.$refs.videoPlayer2.pause();
         }
         
@@ -585,27 +639,13 @@ export default {
     },
 
     stopAllVideos() {
-      // HLS 플레이어가 있으면 HLS 방식으로 중지
-      if (this.hlsPlayer1 && this.hlsPlayer1.media) {
-        this.hlsPlayer1.media.pause();
-        if (this.hlsPlayer1.media.seekable && this.hlsPlayer1.media.seekable.length > 0) {
-          this.hlsPlayer1.media.currentTime = this.hlsPlayer1.media.seekable.start(0);
-        } else {
-          this.hlsPlayer1.media.currentTime = 0;
-        }
-      } else if (this.$refs.videoPlayer1) {
+      // 두 비디오 모두 중지
+      if (this.$refs.videoPlayer1) {
         this.$refs.videoPlayer1.pause();
         this.$refs.videoPlayer1.currentTime = 0;
       }
       
-      if (this.hlsPlayer2 && this.hlsPlayer2.media) {
-        this.hlsPlayer2.media.pause();
-        if (this.hlsPlayer2.media.seekable && this.hlsPlayer2.media.seekable.length > 0) {
-          this.hlsPlayer2.media.currentTime = this.hlsPlayer2.media.seekable.start(0);
-        } else {
-          this.hlsPlayer2.media.currentTime = 0;
-        }
-      } else if (this.$refs.videoPlayer2) {
+      if (this.$refs.videoPlayer2) {
         this.$refs.videoPlayer2.pause();
         this.$refs.videoPlayer2.currentTime = 0;
       }
@@ -648,43 +688,61 @@ export default {
       return statusOption ? statusOption.text : status;
     },
 
+    formatFileSize(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    },
+
+    getShortFilename(filename) {
+      if (!filename) return 'Unknown File';
+      
+      // 전체 경로에서 파일명만 추출
+      const pathParts = filename.split('/');
+      const fileName = pathParts[pathParts.length - 1];
+      
+      // segment_000.mp4 형태로 표시
+      return fileName;
+    },
+
+    getShortCameraName(cameraName) {
+      if (!cameraName) return 'Unknown Camera';
+      
+      // 카메라 이름을 간단하게 표시 (예: "댐영상1" -> "댐1")
+      if (cameraName.includes('댐영상')) {
+        return cameraName.replace('댐영상', '댐');
+      }
+      
+      return cameraName;
+    },
+
     handleVideoError(event) {
       console.error('Video error:', event);
       const videoElement = event.target;
       
-      // HLS 플레이어 에러 처리
-      if (videoElement.src && videoElement.src.includes('/hls/')) {
-        this.$toast.error('HLS 스트림을 재생할 수 없습니다. 잠시 후 다시 시도해주세요.');
-        
-        // HLS 플레이어 재시도 로직
-        setTimeout(() => {
-          if (videoElement === this.$refs.videoPlayer1 && this.selectedVideo1) {
-            this.createHLSPlayer1();
-          } else if (videoElement === this.$refs.videoPlayer2 && this.selectedVideo2) {
-            this.createHLSPlayer2();
-          }
-        }, 2000);
-      } else {
-        this.$toast.error('비디오를 재생할 수 없습니다.');
-      }
+      // MP4 파일 에러 처리
+      this.$toast.error('비디오를 재생할 수 없습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.');
+      
+      // 재시도 로직
+      setTimeout(() => {
+        if (videoElement === this.$refs.videoPlayer1 && this.selectedVideo1) {
+          this.setupVideoPlayer1();
+        } else if (videoElement === this.$refs.videoPlayer2 && this.selectedVideo2) {
+          this.setupVideoPlayer2();
+        }
+      }, 2000);
     },
 
     handleVideoLoaded(event) {
       // 비디오가 로드되면 첫 프레임으로 이동
       const video = event.target;
       
-      // HLS 플레이어의 경우 currentTime 설정을 조심스럽게 처리
-      if (video.src && video.src.includes('/hls/')) {
-        // HLS 플레이어는 메타데이터 로드 후에 currentTime 설정
-        if (video.readyState >= 1) {
-          // HLS 플레이어의 경우 seekable 범위 확인
-          if (video.seekable && video.seekable.length > 0) {
-            video.currentTime = video.seekable.start(0);
-          } else {
-            video.currentTime = 0;
-          }
-        }
-      } else {
+      // MP4 파일의 경우 메타데이터 로드 후에 currentTime 설정
+      if (video.readyState >= 1) {
         video.currentTime = 0;
       }
     },
@@ -730,132 +788,116 @@ export default {
       this.expandedVideo = this.expandedVideo === idx ? 0 : idx;
     },
 
-    async loadCameras() {
-      try {
-        const response = await getCameras();
-        if (response && response.data && response.data.result) {
-          this.cameras = response.data.result.map(camera => ({
-            ...camera,
-            selected: true
-          }));
-        }
-      } catch (error) {
-        console.error('Error loading cameras:', error);
-        this.cameras = [];
-      }
-    },
 
-    handleCameraSelectionChange(item) {
-      // 카메라 선택 변경 처리
-      console.log('Selected cameras:', this.cameras.filter(cam => cam.selected),',item:',item);
-      // 선택된 카메라가 있으면 현재 선택된 날짜에 대한 녹화 기록을 조회
-      const selectedCameras = this.cameras.filter(cam => cam.selected);
-      if (selectedCameras.length > 0 && this.selectedDate) {
-        this.fetchRecordingHistoryForDate(this.selectedDate, selectedCameras);
-      }
-    },
 
     async handleDateChange(date) {
       // 날짜 변경 처리
       console.log('Selected date:', date);
-      // 선택된 카메라가 있으면 해당 날짜에 대한 녹화 기록을 조회
-      const selectedCameras = this.cameras.filter(cam => cam.selected);
-      if (selectedCameras.length > 0) {
-        await this.fetchRecordingHistoryForDate(date, selectedCameras);
-      }
+      // 날짜만으로 녹화 기록을 조회 (카메라 선택과 무관)
+      await this.fetchRecordingHistoryForDate(date);
     },
 
-    async fetchRecordingHistoryForDate(date, selectedCameras) {
+    async fetchRecordingHistoryForDate(date) {
       this.loading = true;
       try {
-        // 선택된 카메라의 ID 목록
+        // 비디오 플레이어 초기화
         this.selectedVideos = [];
-        const cameraIds = selectedCameras.map(cam => cam.id);
-        // 날짜 범위 설정 (선택된 날짜의 시작부터 끝까지)
-        const startDate = new Date(date);
-        startDate.setHours(0, 0, 0, 0);
-        const endDate = new Date(date);
-        endDate.setHours(23, 59, 59, 999);
         this.selectedVideo1 = null;
         this.selectedVideo2 = null;
         this.recordingHistory = [];
-        this.$nextTick(() => {
-          this.$refs.videoPlayer?.forEach(player => {
-            if (player) {
-              player.reset();
-            }
-          });
-        });
-
-        // 녹화 기록 조회
-        const response = await getRecordingHistory({
-          startDate: startDate.toISOString(),
-          endDate: endDate.toISOString(),
-          cameraIds: cameraIds
-        });
         
-        if (Array.isArray(response)) {
-          // startTime 기준으로 정렬하고 최근 두 개의 녹화만 사용
-          const sortedRecordings = response.sort((a, b) => {
-            const timeA = new Date(a.startTime || a.start_time).getTime();
-            const timeB = new Date(b.startTime || b.start_time).getTime();
-            return timeB - timeA; // 내림차순 정렬 (최신순)
-          });
-          const recentRecordings = sortedRecordings.slice(0, 2);
-          
-          this.recordingHistory = recentRecordings.map(record => {
-            const data = record.dataValues || record;
-            return {
-              ...data,
-              id: data.id || '',
-              cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
-              filename: data.filename || 'Unknown File',
-              startTime: data.startTime || data.start_time || new Date().toISOString(),
-              endTime: data.endTime || data.end_time || null,
-              status: data.status || 'error',
-              selected: false
-            };
-          });
-                      if(this.recordingHistory.length > 0) {
-              this.recordingHistory.forEach(item => {
-                item.selected = true;
+        // 비디오 요소 정리
+        if (this.$refs.videoPlayer1) {
+          this.$refs.videoPlayer1.src = '';
+          this.$refs.videoPlayer1.load();
+        }
+        if (this.$refs.videoPlayer2) {
+          this.$refs.videoPlayer2.src = '';
+          this.$refs.videoPlayer2.load();
+        }
+
+        // 새로운 segments API를 사용하여 MP4 파일 목록 조회
+        // 여러 카메라의 file_path를 사용하여 정확한 파일 경로로 검색
+        const filePaths = [
+          `./outputs/nvr/recordings/camera1/${date}/segment_000.mp4`,
+          `./outputs/nvr/recordings/camera2/${date}/segment_000.mp4`
+        ];
+        
+        // 첫 번째 file_path로 검색 시도
+        let response = await getRecordingSegments(date, filePaths[0]);
+        
+        // 결과가 없으면 두 번째 file_path로 시도
+        if (!response || !response.segments || response.segments.length === 0) {
+          response = await getRecordingSegments(date, filePaths[1]);
+        }
+        
+        if (response && response.segments && Array.isArray(response.segments)) {
+          // 모든 segment 파일을 표시 (최대 제한 없음)
+          this.recordingHistory = response.segments.map(segment => ({
+            id: segment.id,
+            cameraId: segment.cameraId,
+            cameraName: segment.cameraName,
+            filename: segment.filename,
+            startTime: segment.startTime,
+            endTime: segment.endTime,
+            duration: segment.duration,
+            fileSize: segment.fileSize,
+            status: segment.status,
+            filePath: segment.filePath,
+            streamUrl: segment.streamUrl,
+            fileType: segment.fileType,
+            selected: false
+          }));
+
+          // 녹화 기록이 있으면 카메라별로 그룹화하여 자동 선택
+          if (this.recordingHistory.length > 0) {
+            // 카메라별로 그룹화된 데이터를 사용하여 자동 선택
+            const cameraGroups = this.cameraGroups;
+            
+            if (cameraGroups.length > 0) {
+              // 첫 번째 카메라의 첫 번째 영상을 왼쪽 플레이어에
+              if (cameraGroups[0].recordings.length > 0) {
+                const firstVideo = cameraGroups[0].recordings[0];
+                this.selectedVideo1 = firstVideo.streamUrl;
                 this.selectedVideos.push({
-                  ...item,
-                  segments: [{ startTime: item.startTime, endTime: item.endTime }]
+                  ...firstVideo,
+                  segments: [{ startTime: firstVideo.startTime, endTime: firstVideo.endTime }]
                 });
-                this.handleSelectionChange(item);
-              });
-              // 비디오 선택 후 타임라인을 가장 빠른 비디오의 시작 위치로 설정
+              }
+              
+              // 두 번째 카메라의 첫 번째 영상을 오른쪽 플레이어에 (있는 경우)
+              if (cameraGroups.length > 1 && cameraGroups[1].recordings.length > 0) {
+                const secondVideo = cameraGroups[1].recordings[0];
+                this.selectedVideo2 = secondVideo.streamUrl;
+                this.selectedVideos.push({
+                  ...secondVideo,
+                  segments: [{ startTime: secondVideo.startTime, endTime: secondVideo.endTime }]
+                });
+              }
+              
+              // 타임라인을 가장 빠른 비디오의 시작 위치로 설정
               this.$nextTick(() => {
                 this.resetTimelineToEarliestVideo();
               });
-            } else {
-              this.selectedVideo1 = null;
-              this.selectedVideo2 = null;
-              // HLS 플레이어 정리
-              if (this.hlsPlayer1) {
-                this.hlsPlayer1.destroy();
-                this.hlsPlayer1 = null;
-              }
-              if (this.hlsPlayer2) {
-                this.hlsPlayer2.destroy();
-                this.hlsPlayer2 = null;
-              }
-              // 비디오 요소 정리
-              const videoElements = document.querySelectorAll('video');
-              videoElements.forEach(video => {
-                video.src = '';      // 비디오 소스 제거
-                video.load();        // 비디오 리로드
-                video.poster = '';   // 섬네일 이미지 제거
-              });
             }
+          }
+          
+          // 🕐 녹화 기록 로드 후 타임라인 정보 업데이트
+          this.updateTimelineInfo();
+          
+          // 총 segment 파일 수 표시
+          console.log(`Found ${response.totalSegments} MP4 segment files for ${date}`);
+          if (response.totalSegments > 0) {
+            this.$toast.success(`${date} 날짜에 ${response.totalSegments}개의 녹화 파일을 찾았습니다.`);
+          }
         } else {
           this.recordingHistory = [];
-          console.error('Invalid response format:', response);
+          console.warn('No segments found or invalid response format:', response);
         }
       } catch (error) {
-        console.error('Failed to fetch recording history:', error);
+        console.error('Failed to fetch recording segments:', error);
         this.recordingHistory = [];
+        this.$toast.error('녹화 파일을 불러오는데 실패했습니다.');
       } finally {
         this.loading = false;
       }
@@ -1001,16 +1043,16 @@ export default {
       if (this.selectedVideo1 && this.$refs.videoPlayer1) {
         const video1 = this.recordingHistory.find(r => r.selected && this.selectedVideo1.includes(r.id));
         if (video1) {
-          // HLS 플레이어가 있으면 HLS 미디어 요소 사용
-          const videoElement = this.hlsPlayer1 && this.hlsPlayer1.media ? this.hlsPlayer1.media : this.$refs.videoPlayer1;
+          // MP4 비디오 요소 사용
+          const videoElement = this.$refs.videoPlayer1;
           saveSnapshot(videoElement, `${video1.cameraName}_${video1.startTime}_snapshot.jpg`);
         }
       }
       if (this.selectedVideo2 && this.$refs.videoPlayer2) {
         const video2 = this.recordingHistory.find(r => r.selected && this.selectedVideo2.includes(r.id));
         if (video2) {
-          // HLS 플레이어가 있으면 HLS 미디어 요소 사용
-          const videoElement = this.hlsPlayer2 && this.hlsPlayer2.media ? this.hlsPlayer2.media : this.$refs.videoPlayer2;
+          // MP4 비디오 요소 사용
+          const videoElement = this.$refs.videoPlayer2;
           saveSnapshot(videoElement, `${video2.cameraName}_${video2.startTime}_snapshot.jpg`);
         }
       }
@@ -1035,8 +1077,27 @@ export default {
       // 드래그한 위치가 비디오 범위 내에 있는지 확인
       if (this.isPositionWithinVideoRange(percent)) {
         this.verticalBarPercent = percent;
-      // 각 비디오의 시간 업데이트
-      this.updateVideosTime(percent);
+        // 각 비디오의 시간 업데이트
+        this.updateVideosTime(percent);
+      } else {
+        // 범위 밖에 있으면 비디오 플레이어에서 영상 제거
+        this.verticalBarPercent = percent;
+        
+        // 현재 선택된 비디오들이 있는지 확인하고 범위 밖에 있으면 제거
+        if (this.selectedVideos.length > 0) {
+          this.selectedVideo1 = null;
+          this.selectedVideo2 = null;
+          this.selectedVideos = [];
+          
+          if (this.$refs.videoPlayer1) {
+            this.$refs.videoPlayer1.src = '';
+            this.$refs.videoPlayer1.load();
+          }
+          if (this.$refs.videoPlayer2) {
+            this.$refs.videoPlayer2.src = '';
+            this.$refs.videoPlayer2.load();
+          }
+        }
       }
     },
 
@@ -1053,14 +1114,14 @@ export default {
     },
 
     handleKeyDown(event) {
-      // 스페이스바 처리
+      // 스페이스바 처리 - 두 비디오 모두 재생/일시정지
       if (event.key === ' ') {
         event.preventDefault(); // 페이지 스크롤 방지
         this.togglePauseAllVideos();
         return;
       }
 
-      // 왼쪽/오른쪽 화살표 키만 처리
+      // 왼쪽/오른쪽 화살표 키만 처리 - 두 비디오 모두 시간 이동
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
 
       // 타임라인 업데이트 일시 중지
@@ -1080,9 +1141,29 @@ export default {
       // 새로운 위치가 비디오 범위 내에 있는지 확인
       if (this.isPositionWithinVideoRange(newPercent)) {
         this.verticalBarPercent = newPercent;
-        // 비디오 시간 업데이트
+        // 두 비디오 모두 시간 업데이트
         this.updateVideosTime(this.verticalBarPercent);
-      } 
+      } else {
+        // 범위 밖에 있으면 비디오 플레이어에서 영상 제거
+        this.verticalBarPercent = newPercent;
+        
+        // 현재 선택된 비디오들이 있는지 확인하고 범위 밖에 있으면 제거
+        if (this.selectedVideos.length > 0) {
+          this.selectedVideo1 = null;
+          this.selectedVideo2 = null;
+          this.selectedVideos = [];
+          
+          if (this.$refs.videoPlayer1) {
+            this.$refs.videoPlayer1.src = '';
+            this.$refs.videoPlayer1.load();
+          }
+          if (this.$refs.videoPlayer2) {
+            this.$refs.videoPlayer2.src = '';
+            this.$refs.videoPlayer2.load();
+          }
+        }
+      }
+      
       // 1초 후 타임라인 업데이트 재시작
       setTimeout(() => {
         if (!this.isPaused) {
@@ -1114,6 +1195,9 @@ export default {
       // 비디오 시간 업데이트
       this.updateVideosTime(percent);
 
+      // 타임라인 클릭 시 해당 시간에 속한 비디오 2개를 찾아서 표시
+      this.selectVideosAtTimelinePosition(percent);
+
       // 1초 후 타임라인 업데이트 재시작
       setTimeout(() => {
         if (!this.isPaused) {
@@ -1122,213 +1206,80 @@ export default {
       }, 1000);
     },
 
-    createHLSPlayer1() {
-      if (this.hlsPlayer1) {
-        this.hlsPlayer1.destroy();
-        this.hlsPlayer1 = null;
-      }
-      if (this.selectedVideo1 && this.$refs.videoPlayer1) {
-        this.initializeHLSPlayer(this.$refs.videoPlayer1, this.selectedVideo1, 1);
-      }
-    },
-
-    createHLSPlayer2() {
-      if (this.hlsPlayer2) {
-        this.hlsPlayer2.destroy();
-        this.hlsPlayer2 = null;
-      }
-      if (this.selectedVideo2 && this.$refs.videoPlayer2) {
-        this.initializeHLSPlayer(this.$refs.videoPlayer2, this.selectedVideo2, 2);
-      }
-    },
-
-    initializeHLSPlayer(videoElement, videoUrl, playerIndex) {
-      if (Hls.isSupported()) {
-        const hls = new Hls({
-          debug: false,
-          enableWorker: true,
-          lowLatencyMode: false, // 녹화된 영상이므로 false
-          backBufferLength: 30,
-          maxBufferLength: 30,
-          maxMaxBufferLength: 600,
-          maxBufferSize: 30 * 1000 * 1000, // 30MB
-          maxBufferHole: 0.5,
-          highBufferWatchdogPeriod: 2,
-          nudgeOffset: 0.2,
-          nudgeMaxRetry: 5,
-          maxFragLookUpTolerance: 0.25,
-          // liveSyncDurationCount: 3,   // 삭제
-          // liveMaxLatencyDurationCount: 10, // 삭제
-          // liveSyncDuration: 3,        // 삭제
-          // liveMaxLatencyDuration: 10, // 삭제
-          // liveDurationInfinity: false, // 삭제
-          progressive: false,
-          startLevel: -1, // 자동 품질 선택
-          abrEwmaDefaultEstimate: 500000, // 500kbps
-          abrBandWidthFactor: 0.95,
-          abrBandWidthUpFactor: 0.7,
-          abrMaxWithRealBitrate: true,
-          startFragPrefetch: true,
-          testBandwidth: true
-        });
-
-        hls.loadSource(videoUrl);
-        hls.attachMedia(videoElement);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          console.log(`HLS Player ${playerIndex} manifest parsed`);
-          if (playerIndex === 1) {
-            this.hlsPlayer1 = hls;
-          } else {
-            this.hlsPlayer2 = hls;
-          }
-          
-          // 비디오 요소에 이벤트 리스너 추가
-          videoElement.addEventListener('seeking', () => {
-            console.log(`HLS Player ${playerIndex} seeking`);
-          });
-          
-          videoElement.addEventListener('seeked', () => {
-            console.log(`HLS Player ${playerIndex} seeked`);
-          });
-          
-          videoElement.addEventListener('waiting', () => {
-            console.log(`HLS Player ${playerIndex} waiting for data`);
-          });
-          
-          videoElement.addEventListener('canplay', () => {
-            console.log(`HLS Player ${playerIndex} can play`);
-          });
-        });
-
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error(`HLS Player ${playerIndex} error:`, data);
-          
-          // 상세한 에러 정보 로깅
-          if (data.details) {
-            console.error(`HLS Player ${playerIndex} error details:`, {
-              type: data.type,
-              details: data.details,
-              fatal: data.fatal,
-              url: data.url,
-              error: data.error
-            });
-          }
-          
-          if (data.fatal) {
-            switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                if (data.details === 'manifestParsingError') {
-                  console.error(`HLS Player ${playerIndex} manifest parsing error - URL: ${data.url}`);
-                  this.$toast.error(`HLS 플레이리스트 파싱 오류: ${data.url}`);
-                  // 재시도 대신 플레이어 재생성
-                  setTimeout(() => {
-                    this.reinitializeHLSPlayer(playerIndex, videoUrl);
-                  }, 2000);
-                } else {
-                  console.log(`HLS Player ${playerIndex} network error, trying to recover...`);
-                  hls.startLoad();
-                }
-                break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                console.log(`HLS Player ${playerIndex} media error, trying to recover...`);
-                hls.recoverMediaError();
-                break;
-              default:
-                console.error(`HLS Player ${playerIndex} fatal error, destroying player`);
-                hls.destroy();
-                this.$toast.error(`HLS 플레이어 ${playerIndex}에서 오류가 발생했습니다.`);
-                break;
-            }
-          } else {
-            // 비치명적 오류는 로그만 출력
-            console.warn(`HLS Player ${playerIndex} non-fatal error:`, data);
-          }
-        });
-
-        hls.on(Hls.Events.FRAG_LOADED, () => {
-          // 프래그먼트 로드 완료 시 타임라인 업데이트
-          if (!this.isPaused && !this.draggingVerticalBar) {
-            this.updateTimelineFromVideos();
-          }
-        });
-
-        hls.on(Hls.Events.MANIFEST_LOADED, () => {
-          console.log(`HLS Player ${playerIndex} manifest loaded`);
-        });
-
-        hls.on(Hls.Events.LEVEL_LOADED, () => {
-          console.log(`HLS Player ${playerIndex} level loaded`);
-        });
-
-        hls.on(Hls.Events.FRAG_PARSED, () => {
-          // 프래그먼트 파싱 완료 시 타임라인 업데이트
-          if (!this.isPaused && !this.draggingVerticalBar) {
-            this.updateTimelineFromVideos();
-          }
-        });
-      } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari의 네이티브 HLS 지원
-        videoElement.src = videoUrl;
-        videoElement.addEventListener('loadedmetadata', () => {
-          console.log(`Native HLS Player ${playerIndex} loaded`);
-          if (playerIndex === 1) {
-            this.hlsPlayer1 = { 
-              destroy: () => {
-                videoElement.src = '';
-                videoElement.load();
-              },
-              media: videoElement
-            };
-          } else {
-            this.hlsPlayer2 = { 
-              destroy: () => {
-                videoElement.src = '';
-                videoElement.load();
-              },
-              media: videoElement
-            };
-          }
-        });
-        
-        videoElement.addEventListener('error', (event) => {
-          console.error(`Native HLS Player ${playerIndex} error:`, event);
-        });
-      } else {
-        console.error(`HLS is not supported in this browser for player ${playerIndex}`);
-        this.$toast.error('이 브라우저에서는 HLS 재생을 지원하지 않습니다.');
-      }
-    },
-
-    // HLS 플레이어 재초기화 메서드
-    reinitializeHLSPlayer(playerIndex, videoUrl) {
-      console.log(`Reinitializing HLS Player ${playerIndex} with URL: ${videoUrl}`);
-      
+    // 타임라인 위치에 해당하는 시간의 비디오 2개를 선택하여 표시
+    selectVideosAtTimelinePosition(percent) {
       try {
-        // 기존 플레이어 정리
-        if (playerIndex === 1 && this.hlsPlayer1) {
-          this.hlsPlayer1.destroy();
-          this.hlsPlayer1 = null;
-        } else if (playerIndex === 2 && this.hlsPlayer2) {
-          this.hlsPlayer2.destroy();
-          this.hlsPlayer2 = null;
+        // 24시간(86400초)을 기준으로 현재 시간 계산
+        const totalSeconds = 86400;
+        const currentTimeSeconds = (percent / 100) * totalSeconds;
+        
+        // 카메라별로 그룹화된 데이터 사용
+        const cameraGroups = this.cameraGroups;
+        let leftVideo = null;
+        let rightVideo = null;
+        
+        // 각 카메라에서 해당 시간대의 영상 찾기
+        for (const group of cameraGroups) {
+          const videoAtTime = this.findVideoAtTimelinePosition(group.recordings, currentTimeSeconds);
+          
+          if (videoAtTime) {
+            if (!leftVideo) {
+              leftVideo = videoAtTime;
+            } else if (!rightVideo) {
+              rightVideo = videoAtTime;
+              break; // 두 개 찾았으면 종료
+            }
+          }
         }
         
-        // 비디오 엘리먼트 초기화
-        const videoElement = playerIndex === 1 ? this.$refs.video1 : this.$refs.video2;
-        if (videoElement) {
-          videoElement.src = '';
-          videoElement.load();
-          
-          // 새로운 HLS 플레이어 초기화
-          setTimeout(() => {
-            this.initializeHLSPlayer(videoElement, videoUrl, playerIndex);
-          }, 500);
+        // 비디오 플레이어에 설정
+        this.selectedVideos = [];
+        
+        if (leftVideo) {
+          this.selectedVideo1 = leftVideo.streamUrl;
+          this.selectedVideos.push({
+            ...leftVideo,
+            segments: [{ startTime: leftVideo.startTime, endTime: leftVideo.endTime }]
+          });
+        } else {
+          // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
+          this.selectedVideo1 = null;
+          if (this.$refs.videoPlayer1) {
+            this.$refs.videoPlayer1.src = '';
+            this.$refs.videoPlayer1.load();
+          }
         }
+        
+        if (rightVideo) {
+          this.selectedVideo2 = rightVideo.streamUrl;
+          this.selectedVideos.push({
+            ...rightVideo,
+            segments: [{ startTime: rightVideo.startTime, endTime: rightVideo.endTime }]
+          });
+        } else {
+          // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
+          this.selectedVideo2 = null;
+          if (this.$refs.videoPlayer2) {
+            this.$refs.videoPlayer2.src = '';
+            this.$refs.videoPlayer2.load();
+          }
+        }
+        
+        // 두 비디오 모두 없으면 selectedVideos 배열도 비우기
+        if (!leftVideo && !rightVideo) {
+          this.selectedVideos = [];
+        }
+        
+        console.log('Timeline click - Videos set for display - Left:', leftVideo, 'Right:', rightVideo);
+        
       } catch (error) {
-        console.error(`Error reinitializing HLS Player ${playerIndex}:`, error);
+        console.error('Error selecting videos at timeline position:', error);
       }
     },
+
+
+
+
 
     startTimelineUpdate() {
       if (this.timelineUpdateTimer) {
@@ -1353,7 +1304,6 @@ export default {
         // 활성 비디오 찾기 (재생 중이고 타임라인 위치가 범위 내에 있는 비디오)
         let activeVideo = null;
         let videoElement = null;
-        let hlsPlayer = null;
         
         const totalSeconds = 86400;
         const currentTimeSeconds = (this.verticalBarPercent / 100) * totalSeconds;
@@ -1382,26 +1332,16 @@ export default {
           if (!element.paused && currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
             activeVideo = video;
             videoElement = element;
-            hlsPlayer = index === 0 ? this.hlsPlayer1 : this.hlsPlayer2;
           }
         });
         
         if (activeVideo && videoElement) {
-          // HLS 플레이어의 경우 현재 시간을 가져오는 방법이 다름
+          // MP4 비디오의 현재 시간 가져오기
           let currentVideoTime = videoElement.currentTime;
           
-          // HLS 플레이어가 있고 현재 프래그먼트 정보가 있으면 사용
-          if (hlsPlayer && hlsPlayer.media && hlsPlayer.media.currentTime) {
-            currentVideoTime = hlsPlayer.media.currentTime;
-          }
-          
-          // HLS 플레이어의 경우 현재 프래그먼트 정보도 확인
-          if (hlsPlayer && hlsPlayer.media && hlsPlayer.media.duration) {
-            // 비디오의 총 길이를 확인하여 정확한 시간 계산
-            const videoDuration = hlsPlayer.media.duration;
-            if (currentVideoTime > videoDuration) {
-              currentVideoTime = videoDuration;
-            }
+          // 비디오의 총 길이를 확인하여 정확한 시간 계산
+          if (videoElement.duration && currentVideoTime > videoElement.duration) {
+            currentVideoTime = videoElement.duration;
           }
           
           const startDate = new Date(activeVideo.startTime);
@@ -1455,9 +1395,6 @@ export default {
         const videoElement = Array.isArray(videoRef) ? videoRef[0] : videoRef;
         if (!videoElement) return;
 
-        // HLS 플레이어 참조
-        const hlsPlayer = index === 0 ? this.hlsPlayer1 : this.hlsPlayer2;
-
         // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
         if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
           // 범위 내에 있으면 해당 위치에서 재생
@@ -1469,35 +1406,28 @@ export default {
           
           // 비디오 시간 설정 (드래그 중이거나 재생 중이거나 클릭 시)
           if (this.draggingVerticalBar || !this.isPaused || this.isTimelineUpdating === false) {
-            // HLS 플레이어가 있으면 HLS 방식으로 시간 설정
-            if (hlsPlayer && hlsPlayer.media) {
-              // HLS 플레이어의 경우 seekable 범위 확인
-              if (hlsPlayer.media.seekable && hlsPlayer.media.seekable.length > 0) {
-                const seekableStart = hlsPlayer.media.seekable.start(0);
-                const seekableEnd = hlsPlayer.media.seekable.end(0);
-                const clampedTime = Math.max(seekableStart, Math.min(seekableEnd, adjustedVideoTime));
-                hlsPlayer.media.currentTime = clampedTime;
-              } else {
-                hlsPlayer.media.currentTime = adjustedVideoTime;
-              }
+            // MP4 비디오 요소의 시간 설정
+            if (videoElement.duration && adjustedVideoTime <= videoElement.duration) {
+              videoElement.currentTime = adjustedVideoTime;
+            } else if (videoElement.duration) {
+              videoElement.currentTime = Math.min(adjustedVideoTime, videoElement.duration);
             } else {
-              // 일반 HTML5 비디오 요소
               videoElement.currentTime = adjustedVideoTime;
             }
           }
         } else {
-          // 범위 밖에 있으면 시작 위치로 설정 (재생하지 않음)
+          // 범위 밖에 있으면 비디오 일시정지하고 시작 위치로 설정
+          if (videoElement && !videoElement.paused) {
+            videoElement.pause();
+          }
           if (this.draggingVerticalBar || !this.isPaused || this.isTimelineUpdating === false) {
-            if (hlsPlayer && hlsPlayer.media) {
-              // HLS 플레이어의 경우 seekable 범위 확인
-              if (hlsPlayer.media.seekable && hlsPlayer.media.seekable.length > 0) {
-                hlsPlayer.media.currentTime = hlsPlayer.media.seekable.start(0);
-              } else {
-                hlsPlayer.media.currentTime = 0;
-              }
-            } else {
-              videoElement.currentTime = 0;
-            }
+            videoElement.currentTime = 0;
+          }
+          
+          // 범위 밖에 있을 때는 해당 비디오를 selectedVideos에서 제거
+          const videoIndex = this.selectedVideos.findIndex(v => v.id === video.id);
+          if (videoIndex > -1) {
+            this.selectedVideos.splice(videoIndex, 1);
           }
         }
       });
@@ -1547,12 +1477,27 @@ export default {
 
       // 범위 내에 있을 때만 비디오 시간 설정
       if (isWithinVideoRange) {
-      this.updateVideosTime(this.verticalBarPercent);
+        this.updateVideosTime(this.verticalBarPercent);
+        return true;
       } else {
+        // 범위 밖에 있으면 비디오 플레이어에서 영상 제거
+        if (this.selectedVideos.length > 0) {
+          this.selectedVideo1 = null;
+          this.selectedVideo2 = null;
+          this.selectedVideos = [];
+          
+          if (this.$refs.videoPlayer1) {
+            this.$refs.videoPlayer1.src = '';
+            this.$refs.videoPlayer1.load();
+          }
+          if (this.$refs.videoPlayer2) {
+            this.$refs.videoPlayer2.src = '';
+            this.$refs.videoPlayer2.load();
+          }
+        }
+        
         return false;
       }
-      
-      return true;
     },
 
     resetTimelineToEarliestVideo() {
@@ -1581,9 +1526,6 @@ export default {
     },
 
     isPositionWithinVideoRange(percent) {
-      // 타임라인 업데이트 중이거나 드래그 중이 아닐 때는 실행하지 않음
-      if (this.isTimelineUpdating && !this.draggingVerticalBar) return true;
-      
       // 수직바 위치가 비디오 범위 내에 있는지 확인
       const totalSeconds = 86400; // 24시간을 초로 변환
       const currentTimeSeconds = (percent / 100) * totalSeconds;
@@ -1611,6 +1553,174 @@ export default {
       });
       
       return isWithinVideoRange;
+    },
+
+    // 테이블 행 클릭 시 카메라별로 다른 비디오 플레이어에 표시
+    handleTableRowClick(item) {
+      try {
+        console.log('Table row clicked:', item);
+        
+        // 클릭된 항목의 카메라 이름 확인
+        const clickedCameraName = item.cameraName;
+        const clickedTime = new Date(item.startTime);
+        
+        // 카메라별로 그룹화된 데이터에서 해당 시간대의 영상 찾기
+        const cameraGroups = this.cameraGroups;
+        let leftVideo = null;
+        let rightVideo = null;
+        
+        // 클릭된 카메라가 첫 번째 카메라인 경우
+        if (cameraGroups.length > 0 && cameraGroups[0].cameraName === clickedCameraName) {
+          // 클릭된 영상을 왼쪽 플레이어에 표시
+          leftVideo = item;
+          
+          // 두 번째 카메라에서 같은 시간대의 영상 찾기
+          if (cameraGroups.length > 1) {
+            rightVideo = this.findVideoAtSameTime(cameraGroups[1].recordings, clickedTime);
+          }
+        }
+        // 클릭된 카메라가 두 번째 카메라인 경우
+        else if (cameraGroups.length > 1 && cameraGroups[1].cameraName === clickedCameraName) {
+          // 클릭된 영상을 오른쪽 플레이어에 표시
+          rightVideo = item;
+          
+          // 첫 번째 카메라에서 같은 시간대의 영상 찾기
+          if (cameraGroups.length > 0) {
+            leftVideo = this.findVideoAtSameTime(cameraGroups[0].recordings, clickedTime);
+          }
+        }
+        // 기타 카메라인 경우
+        else {
+          // 클릭된 영상을 왼쪽 플레이어에 표시
+          leftVideo = item;
+          
+          // 다른 카메라에서 같은 시간대의 영상 찾기
+          for (const group of cameraGroups) {
+            if (group.cameraName !== clickedCameraName) {
+              const foundVideo = this.findVideoAtSameTime(group.recordings, clickedTime);
+              if (foundVideo) {
+                rightVideo = foundVideo;
+                break;
+              }
+            }
+          }
+        }
+        
+        // 비디오 플레이어에 설정
+        this.selectedVideos = [];
+        
+        if (leftVideo) {
+          this.selectedVideo1 = leftVideo.streamUrl;
+          this.selectedVideos.push({
+            ...leftVideo,
+            segments: [{ startTime: leftVideo.startTime, endTime: leftVideo.endTime }]
+          });
+        } else {
+          // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
+          this.selectedVideo1 = null;
+          if (this.$refs.videoPlayer1) {
+            this.$refs.videoPlayer1.src = '';
+            this.$refs.videoPlayer1.load();
+          }
+        }
+        
+        if (rightVideo) {
+          this.selectedVideo2 = rightVideo.streamUrl;
+          this.selectedVideos.push({
+            ...rightVideo,
+            segments: [{ startTime: rightVideo.startTime, endTime: rightVideo.endTime }]
+          });
+        } else {
+          // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
+          this.selectedVideo2 = null;
+          if (this.$refs.videoPlayer2) {
+            this.$refs.videoPlayer2.src = '';
+            this.$refs.videoPlayer2.load();
+          }
+        }
+        
+        // 두 비디오 모두 없으면 selectedVideos 배열도 비우기
+        if (!leftVideo && !rightVideo) {
+          this.selectedVideos = [];
+        }
+        
+        console.log('Videos set for display - Left:', leftVideo, 'Right:', rightVideo);
+        
+      } catch (error) {
+        console.error('Error handling table row click:', error);
+      }
+    },
+
+    // 같은 시간대의 영상을 찾는 헬퍼 메서드
+    findVideoAtSameTime(recordings, targetTime) {
+      const targetTimeSeconds = targetTime.getTime();
+      
+      // 가장 가까운 시간대의 영상 찾기
+      let closestVideo = null;
+      let minTimeDiff = Infinity;
+      
+      for (const recording of recordings) {
+        const recordStart = new Date(recording.startTime);
+        const recordEnd = new Date(recording.endTime);
+        const recordStartSeconds = recordStart.getTime();
+        const recordEndSeconds = recordEnd.getTime();
+        
+        // 목표 시간이 녹화 범위 내에 있는지 확인
+        if (targetTimeSeconds >= recordStartSeconds && targetTimeSeconds <= recordEndSeconds) {
+          return recording; // 정확히 같은 시간대
+        }
+        
+        // 가장 가까운 시간대 계산
+        const timeDiff = Math.min(
+          Math.abs(targetTimeSeconds - recordStartSeconds),
+          Math.abs(targetTimeSeconds - recordEndSeconds)
+        );
+        
+        if (timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff;
+          closestVideo = recording;
+        }
+      }
+      
+      return closestVideo;
+    },
+
+    // 타임라인 위치에 해당하는 시간의 영상을 찾는 헬퍼 메서드
+    findVideoAtTimelinePosition(recordings, currentTimeSeconds) {
+      // 가장 가까운 시간대의 영상 찾기
+      let closestVideo = null;
+      let minTimeDiff = Infinity;
+      
+      for (const recording of recordings) {
+        const recordStart = new Date(recording.startTime);
+        const recordEnd = new Date(recording.endTime);
+        
+        // UTC 시간을 한국 시간으로 변환 (9시간 추가)
+        const startSeconds = (recordStart.getUTCHours() + 9) * 3600 + 
+                           recordStart.getUTCMinutes() * 60 + 
+                           recordStart.getUTCSeconds();
+        const endSeconds = (recordEnd.getUTCHours() + 9) * 3600 + 
+                         recordEnd.getUTCMinutes() * 60 + 
+                         recordEnd.getUTCSeconds();
+        
+        // 현재 시간이 녹화 범위 내에 있는지 확인
+        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+          return recording; // 정확히 같은 시간대
+        }
+        
+        // 가장 가까운 시간대 계산
+        const timeDiff = Math.min(
+          Math.abs(currentTimeSeconds - startSeconds),
+          Math.abs(currentTimeSeconds - endSeconds)
+        );
+        
+        if (timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff;
+          closestVideo = recording;
+        }
+      }
+      
+      return closestVideo;
     },
   }
 };
@@ -1647,7 +1757,7 @@ export default {
     border: 2px solid #fff;
   }
 
-  .play-all-btn {
+  .control-btn {
     height: 36px !important;
     min-width: 120px !important;
     border: 2px solid white !important;
@@ -1662,18 +1772,18 @@ export default {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
   }
 
-  .play-all-btn:hover {
+  .control-btn:hover {
     background: var(--cui-primary) !important;
     border-color: var(--cui-primary) !important;
     color: white !important;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2) !important;
   }
 
-  .play-all-btn:hover .v-icon {
+  .control-btn:hover .v-icon {
     color: white !important;
   }
 
-  .play-all-btn:active {
+  .control-btn:active {
     background: var(--cui-primary) !important;
     border-color: var(--cui-primary) !important;
     color: white !important;
@@ -1681,7 +1791,7 @@ export default {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
   }
 
-  .play-all-btn .v-icon {
+  .control-btn .v-icon {
     margin-right: 4px !important;
     color: var(--cui-primary) !important;
   }
@@ -1705,6 +1815,49 @@ export default {
       &:hover {
         background-color: rgba(0, 0, 0, 0.03);
       }
+    }
+  }
+
+  // 녹화 테이블 스타일 (최대 4개 항목, 수직 스크롤)
+  .recording-table ::v-deep {
+    .v-data-table__wrapper {
+      max-height: 400px; // 최대 4개 항목 높이
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    tbody tr {
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+
+      &:hover {
+        background-color: rgba(79, 140, 255, 0.1) !important;
+        border-left: 3px solid var(--cui-primary);
+      }
+
+      &.v-data-table__selected {
+        background-color: rgba(79, 140, 255, 0.2) !important;
+        border-left: 3px solid var(--cui-primary);
+      }
+    }
+
+    // 스크롤바 스타일링
+    .v-data-table__wrapper::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .v-data-table__wrapper::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 4px;
+    }
+
+    .v-data-table__wrapper::-webkit-scrollbar-thumb {
+      background: #c1c1c1;
+      border-radius: 4px;
+    }
+
+    .v-data-table__wrapper::-webkit-scrollbar-thumb:hover {
+      background: #a8a8a8;
     }
   }
 

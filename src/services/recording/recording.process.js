@@ -220,18 +220,96 @@ class RecordingProcess {
   }
 
   async startRecording(cameraName, scheduleId, source, fk_camera_id, recoding_bitrate = '1024k') {
-    // HLS 레코딩 설정 확인 (디버깅용)
-    const hlsConfig = ConfigService.recordings?.hls;
-    logger.info(`=== Recording Config Debug ===`);
-    logger.info(`ConfigService.recordings:`, ConfigService.recordings);
-    logger.info(`HLS Config Check - enabled: ${hlsConfig?.enabled}, segmentDuration: ${hlsConfig?.segmentDuration}, maxSegments: ${hlsConfig?.maxSegments}`);
-    logger.info(`Full HLS config:`, JSON.stringify(hlsConfig, null, 2));
-    logger.info(`=============================`);
+    // config.ini에서 직접 HLS 설정 읽기
+    let hlsConfig = {
+      enabled: true,
+      segmentDuration: 3600,
+      maxSegments: 24,
+      deleteSegments: true,
+      quality: 'medium',
+      bitrate: '1024k',
+      segmentSize: '4MB',
+      autoCleanup: true,
+      cleanupInterval: 3600,
+      segmentType: 'mpegts',
+      flags: 'delete_segments+append_list'
+    };
 
-    // HLS 레코딩을 무조건 수행
-    logger.info(`Starting HLS recording for camera: ${cameraName}`);
-    return this.startHLSRecording(cameraName, scheduleId, source, fk_camera_id, recoding_bitrate);
-    // 기존 MP4 레코딩 로직
+    try {
+      const configPath = './config.ini';
+      logger.info(`[Config] Trying to read config.ini from: ${path.resolve(configPath)}`);
+
+      if (fs.existsSync(configPath)) {
+        const configContent = fs.readFileSync(configPath, 'utf8');
+        logger.info(`[Config] config.ini content (first 1000 chars):`, configContent.substring(0, 1000));
+
+        const lines = configContent.split('\n');
+        let currentSection = '';
+        let recordingsSection = {};
+
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+
+          if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+            currentSection = trimmedLine.slice(1, -1);
+            logger.info(`[Config] Found section: [${currentSection}]`);
+          }
+          else if (currentSection === 'recordings' && trimmedLine.includes('=')) {
+            const [key, value] = trimmedLine.split('=').map(s => s.trim());
+            recordingsSection[key] = value;
+            logger.info(`[Config] Found recordings config: ${key} = ${value}`);
+          }
+        }
+
+        // config.ini에서 읽은 값으로 hlsConfig 업데이트
+        if (recordingsSection.hls_enabled !== undefined) {
+          hlsConfig.enabled = recordingsSection.hls_enabled === 'true';
+        }
+        if (recordingsSection.hls_segmentDuration !== undefined) {
+          hlsConfig.segmentDuration = parseInt(recordingsSection.hls_segmentDuration);
+        }
+        if (recordingsSection.hls_maxSegments !== undefined) {
+          hlsConfig.maxSegments = parseInt(recordingsSection.hls_maxSegments);
+        }
+        if (recordingsSection.hls_deleteSegments !== undefined) {
+          hlsConfig.deleteSegments = recordingsSection.hls_deleteSegments === 'true';
+        }
+        if (recordingsSection.hls_quality !== undefined) {
+          hlsConfig.quality = recordingsSection.hls_quality;
+        }
+        if (recordingsSection.hls_bitrate !== undefined) {
+          hlsConfig.bitrate = recordingsSection.hls_bitrate;
+        }
+        if (recordingsSection.hls_segmentSize !== undefined) {
+          hlsConfig.segmentSize = recordingsSection.hls_segmentSize;
+        }
+        if (recordingsSection.hls_autoCleanup !== undefined) {
+          hlsConfig.autoCleanup = recordingsSection.hls_autoCleanup === 'true';
+        }
+        if (recordingsSection.hls_cleanupInterval !== undefined) {
+          hlsConfig.cleanupInterval = parseInt(recordingsSection.hls_cleanupInterval);
+        }
+        if (recordingsSection.hls_segmentType !== undefined) {
+          hlsConfig.segmentType = recordingsSection.hls_segmentType;
+        }
+        if (recordingsSection.hls_flags !== undefined) {
+          hlsConfig.flags = recordingsSection.hls_flags;
+        }
+
+        logger.info(`=== Config.ini HLS Config ===`);
+        logger.info(`HLS enabled: ${hlsConfig.enabled}`);
+        logger.info(`Segment Duration: ${hlsConfig.segmentDuration} seconds`);
+        logger.info(`Max Segments: ${hlsConfig.maxSegments}`);
+        logger.info(`Full hlsConfig:`, JSON.stringify(hlsConfig, null, 2));
+        logger.info(`=============================`);
+      }
+    } catch (error) {
+      logger.error('Error reading config.ini:', error);
+    }
+
+    // MP4 레코딩을 수행
+    logger.info(`Starting MP4 recording for camera: ${cameraName}`);
+    return this.startMP4Recording(cameraName, scheduleId, source, fk_camera_id, recoding_bitrate);
     const safeCameraName = this.getSafeFileName(cameraName);
     const recordingKey = `${safeCameraName}_${scheduleId}`;
     let recordingId = null;
@@ -478,7 +556,7 @@ class RecordingProcess {
     }
   }
 
-  async startHLSRecording(cameraName, scheduleId, source, fk_camera_id, recoding_bitrate = '1024k') {
+  async startMP4Recording(cameraName, scheduleId, source, fk_camera_id, recoding_bitrate = '1024k') {
     const safeCameraName = this.getSafeFileName(cameraName);
     const recordingKey = `${safeCameraName}_${scheduleId}`;
     let recordingId = null;
@@ -503,27 +581,24 @@ class RecordingProcess {
         formattedForDB: nowMoment.format('YYYY-MM-DD HH:mm:ss')
       };
 
-      // HLS 녹화 디렉토리 생성
+      // MP4 녹화 디렉토리 생성
       const recordingDir = path.join(
         this.recordingsPath,
         cameraName,
-        timeInfo.dateString,
-        'hls'
+        timeInfo.dateString
       );
       await fs.ensureDir(recordingDir);
 
-      // 안전한 HLS 세그먼트 파일명 패턴 (간단한 형태로 수정)
+      // MP4 파일명 생성
       const safeCameraName = this.getSafeFileName(cameraName);
-      const segmentPattern = `${safeCameraName}_%03d.ts`;  // 간단한 인덱스 패턴
-      const playlistName = `${safeCameraName}_${timeInfo.formattedForFile}.m3u8`;
-      const segmentPath = path.join(recordingDir, segmentPattern);
-      const playlistPath = path.join(recordingDir, playlistName);
+      const filename = `${safeCameraName}_${timeInfo.formattedForFile}.mp4`;
+      const outputPath = path.join(recordingDir, filename);
 
-      // recordingHistory에 추가 (안전한 파일명 사용)
+      // recordingHistory에 추가 (MP4 파일명 사용)
       try {
-        recordingId = await this.addRecordingHistory(scheduleId, cameraName, timeInfo, playlistName, fk_camera_id);
+        recordingId = await this.addRecordingHistory(scheduleId, cameraName, timeInfo, filename, fk_camera_id);
       } catch (error) {
-        logger.error('Failed to add HLS recording history:', error);
+        logger.error('Failed to add MP4 recording history:', error);
         return;
       }
 
@@ -533,8 +608,11 @@ class RecordingProcess {
         rtspUrl = rtspUrl.replace(/-i\s+/, '').trim();
       }
 
-      // HLS FFMPEG 프로세스 시작 (설정값 기반)
-      const hlsConfig = ConfigService.recordings?.hls;
+      // MP4 FFMPEG 프로세스 시작
+      logger.info(`=== FFMPEG MP4 Command Debug ===`);
+      logger.info(`Output Path: ${outputPath}`);
+      logger.info(`=============================`);
+
       const ffmpeg = spawn('ffmpeg', [
         '-y',
         '-rtsp_transport', 'tcp',
@@ -546,9 +624,9 @@ class RecordingProcess {
         '-level', '3.0',
         '-pix_fmt', 'yuv420p',
         '-r', '30',
-        '-g', '30',
-        '-keyint_min', '30',
-        '-force_key_frames', 'expr:gte(t,n_forced*1)',
+        '-g', '108000',           // GOP 크기: 108000프레임 (30fps × 3600초 = 1시간)
+        '-keyint_min', '108000',  // 최소 키프레임 간격: 108000프레임 (1시간)
+        '-force_key_frames', 'expr:gte(t,n_forced*3600)', // 1시간마다 강제 키프레임
         '-b:v', recoding_bitrate,
         '-maxrate', recoding_bitrate,
         '-bufsize', recoding_bitrate,
@@ -556,21 +634,16 @@ class RecordingProcess {
         '-b:a', '128k',
         '-ar', '44100',
         '-strict', '-2',
-        // HLS 세그먼트 설정 (1분 단위로 세그먼트 생성, 최대 1440개)
-        '-f', 'hls',
-        '-hls_time', '60',  // 세그먼트 시간: 1분 (60초)
-        '-hls_list_size', '1440',  // 최대 세그먼트 수: 1440개 (24시간)
-        '-hls_segment_filename', segmentPath,
-        '-hls_flags', 'delete_segments+append_list+independent_segments+omit_endlist+split_by_time',  // 세그먼트 삭제 + 플레이리스트 업데이트 + 독립 세그먼트 + 끝 표시 제거 + 시간 기준 분할
-        '-hls_allow_cache', '0',
-        '-hls_segment_type', 'mpegts',  // TS 파일 타입 명시
-        '-hls_playlist_type', 'vod',  // VOD 타입으로 설정하여 세그먼트 생성 보장
-        '-loglevel', 'error',  // error 레벨로 변경하여 FFMPEG 로그 최소화
+        // MP4 출력 설정
+        '-f', 'mp4',
+        '-movflags', '+faststart+frag_keyframe+empty_moov+default_base_moof',
+        '-reset_timestamps', '1',
+        '-loglevel', 'info',
         '-reconnect', '1',
         '-reconnect_at_eof', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
-        playlistPath
+        outputPath
       ], {
         windowsHide: true,
         windowsVerbatimArguments: true,
@@ -580,11 +653,16 @@ class RecordingProcess {
       let hasError = false;
       let errorMessage = '';
 
-      // FFMPEG 에러 로그 처리 (최소화)
+      // FFMPEG 로그 처리 (MP4 녹화 정보 포함)
       ffmpeg.stderr.on('data', (data) => {
         const message = data.toString();
 
-        // 주요 에러만 체크하고 로그는 출력하지 않음
+        // MP4 녹화 정보 로깅
+        if (message.includes('Opening') || message.includes('frame=') || message.includes('time=')) {
+          logger.info(`FFMPEG MP4 Info for ${recordingKey}: ${message.trim()}`);
+        }
+
+        // 주요 에러 체크
         if (message.includes('Connection refused') ||
           message.includes('Connection timed out') ||
           message.includes('Invalid data found') ||
@@ -609,18 +687,52 @@ class RecordingProcess {
         const endTime = moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss');
         logger.info(`⏰ Recording end time: ${endTime} for ${recordingKey}`);
 
-        // 플레이리스트 파일 존재 확인
+        // 플레이리스트 파일 존재 확인 (.m3u8 파일이 없으면 .m3u8.json 파일 확인)
         try {
-          const stats = await fs.stat(playlistPath);
-          if (stats.size === 0) {
-            logger.error(`Empty HLS playlist detected for schedule: ${recordingKey}`);
-            await fs.unlink(playlistPath);
+          let stats;
+          let fileExists = false;
+
+          // 먼저 .m3u8 파일 확인
+          try {
+            stats = await fs.stat(playlistPath);
+            fileExists = true;
+          } catch (m3u8Error) {
+            // .m3u8 파일이 없으면 .m3u8.json 파일 확인
+            const jsonPath = `${playlistPath}.json`;
+            try {
+              stats = await fs.stat(jsonPath);
+              fileExists = true;
+              logger.info(`✅ M3U8 JSON metadata found for ${recordingKey}: ${jsonPath}`);
+            } catch (jsonError) {
+              logger.warn(`⚠️ Neither .m3u8 nor .m3u8.json file found for ${recordingKey}`);
+              fileExists = false;
+            }
+          }
+
+          if (!fileExists) {
+            logger.error(`No MP4 file found for schedule: ${recordingKey}`);
             // 녹화 히스토리 업데이트 - 에러 상태로
             if (recordingId) {
               await this.updateRecordingHistory(recordingId, {
                 endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss'),
                 status: 'error',
-                errorMessage: 'Empty HLS playlist'
+                errorMessage: 'No MP4 file found'
+              });
+            }
+          } else if (stats.size === 0) {
+            logger.error(`Empty MP4 file detected for schedule: ${recordingKey}`);
+            // 빈 파일 삭제 시도
+            try {
+              await fs.unlink(outputPath);
+            } catch (unlinkError) {
+              logger.warn(`Could not delete empty MP4 file: ${unlinkError.message}`);
+            }
+            // 녹화 히스토리 업데이트 - 에러 상태로
+            if (recordingId) {
+              await this.updateRecordingHistory(recordingId, {
+                endTime: moment().tz('Asia/Seoul').format('YYYY-MM-DDTHH:mm:ss'),
+                status: 'error',
+                errorMessage: 'Empty MP4 file'
               });
             }
           } else {
@@ -647,20 +759,18 @@ class RecordingProcess {
               logger.warn(`⚠️ No recordingId found for ${recordingKey}, cannot update history`);
             }
 
-            // HLS 녹화 완료 후 세그먼트 정리 수행 (1분 단위 기준)
-            const recordingInfo = this.activeRecordings.get(recordingKey);
+            // MP4 녹화 완료 후 파일 정보 로깅
             if (!hasError) {
               try {
-                const maxSegments = 1440; // 24시간 최대 1440개 세그먼트 (1분 단위)
-                await this.cleanupHLSSegments(cameraName, recordingInfo.timeInfo.dateString, maxSegments);
-                logger.info(`HLS cleanup completed for ${recordingKey}, max segments: ${maxSegments}`);
-              } catch (cleanupError) {
-                logger.error(`HLS cleanup failed for ${recordingKey}:`, cleanupError);
+                const fileStats = await fs.stat(outputPath);
+                logger.info(`MP4 recording completed for ${recordingKey}, file size: ${(fileStats.size / 1024 / 1024).toFixed(2)} MB`);
+              } catch (statsError) {
+                logger.warn(`Could not get MP4 file stats for ${recordingKey}: ${statsError.message}`);
               }
             }
           }
         } catch (err) {
-          logger.error(`❌ Error checking HLS playlist: ${err.message}`);
+          logger.error(`❌ Error checking MP4 file: ${err.message}`);
           if (recordingId) {
             logger.info(`💾 Updating recording history for ${recordingKey} with error status`);
 
@@ -740,6 +850,7 @@ class RecordingProcess {
         process: ffmpeg,
         timeInfo,
         outputPath: path.join(recordingDir, `${playlistName}.json`), // .m3u8.json 파일 경로
+        playlistPath: playlistPath, // .m3u8 파일 경로 추가
         segmentDir: recordingDir,
         hasError: false,
         pid: ffmpeg.pid,
@@ -750,7 +861,7 @@ class RecordingProcess {
 
       this.activeRecordings.set(recordingKey, recordingInfo);
 
-      // TS 파일 생성 모니터링 (1분 후 체크)
+      // TS 파일 생성 모니터링 (30초 후 체크, 그 다음 1분 후 재체크)
       setTimeout(async () => {
         try {
           const files = await fs.readdir(recordingDir);
@@ -760,13 +871,87 @@ class RecordingProcess {
           if (tsFiles.length > 0) {
             logger.info(`✅ TS files generated successfully: ${tsFiles.length} files for ${recordingKey}`);
           } else {
-            logger.warn(`⚠️ No TS files generated for ${recordingKey} after 1 minute`);
+            logger.warn(`⚠️ No TS files generated for ${recordingKey} after 30 seconds`);
           }
 
           if (m3u8Files.length > 0) {
             logger.info(`✅ M3U8 playlist generated: ${m3u8Files.length} files for ${recordingKey}`);
+
+            // HLS 플레이리스트 파일 내용 검증
+            for (const m3u8File of m3u8Files) {
+              try {
+                const playlistPath = path.join(recordingDir, m3u8File);
+                const playlistContent = await fs.readFile(playlistPath, 'utf8');
+
+                // 중복 경로 패턴 검사
+                const duplicatePatterns = [
+                  /\/\/api\/recordings\/hls\/\/api\/recordings\/hls\//g,
+                  /\/api\/recordings\/hls\/\/api\/recordings\/hls\//g,
+                  /\/\/api\/recordings\/hls\/api\/recordings\/hls\//g,
+                  /\/api\/recordings\/hls\/\/api\/recordings\/hls\//g
+                ];
+
+                let hasDuplicatePaths = false;
+                for (const pattern of duplicatePatterns) {
+                  const matches = playlistContent.match(pattern);
+                  if (matches && matches.length > 0) {
+                    logger.error(`❌ Found ${matches.length} duplicate patterns in ${m3u8File}: ${pattern.source}`);
+                    logger.error(`❌ Duplicate matches:`, matches);
+                    hasDuplicatePaths = true;
+                  }
+                }
+
+                if (hasDuplicatePaths) {
+                  logger.error(`❌ HLS playlist ${m3u8File} contains duplicate paths - this will cause playback issues`);
+                } else {
+                  logger.info(`✅ HLS playlist ${m3u8File} has valid paths`);
+                }
+
+                // .ts 파일 경로 확인
+                const tsPaths = playlistContent.match(/^[^#\n]*\.ts$/gm) || [];
+                logger.debug(`📁 HLS playlist ${m3u8File} contains ${tsPaths.length} TS file references`);
+
+              } catch (playlistError) {
+                logger.error(`❌ Error reading HLS playlist ${m3u8File}: ${playlistError.message}`);
+              }
+            }
           } else {
-            logger.warn(`⚠️ No M3U8 playlist generated for ${recordingKey} after 1 minute`);
+            // .m3u8 파일이 없으면 .m3u8.json 파일 확인
+            const jsonFiles = files.filter(file => file.endsWith('.m3u8.json'));
+            if (jsonFiles.length > 0) {
+              logger.info(`✅ M3U8 JSON metadata found: ${jsonFiles.length} files for ${recordingKey}`);
+            } else {
+              logger.warn(`⚠️ No M3U8 playlist or JSON metadata generated for ${recordingKey} after 30 seconds`);
+            }
+          }
+        } catch (error) {
+          logger.error(`❌ HLS Monitoring Error for ${recordingKey}: ${error.message}`);
+        }
+      }, 30000); // 30초 (30000ms)
+
+      // 추가 모니터링 (1분 후 재체크)
+      setTimeout(async () => {
+        try {
+          const files = await fs.readdir(recordingDir);
+          const tsFiles = files.filter(file => file.endsWith('.ts'));
+          const m3u8Files = files.filter(file => file.endsWith('.m3u8'));
+
+          if (tsFiles.length > 0) {
+            logger.info(`✅ TS files confirmed: ${tsFiles.length} files for ${recordingKey}`);
+          } else {
+            logger.warn(`⚠️ Still no TS files for ${recordingKey} after 1 minute`);
+          }
+
+          if (m3u8Files.length > 0) {
+            logger.info(`✅ M3U8 playlist confirmed: ${m3u8Files.length} files for ${recordingKey}`);
+          } else {
+            // .m3u8 파일이 없으면 .m3u8.json 파일 확인
+            const jsonFiles = files.filter(file => file.endsWith('.m3u8.json'));
+            if (jsonFiles.length > 0) {
+              logger.info(`✅ M3U8 JSON metadata confirmed: ${jsonFiles.length} files for ${recordingKey}`);
+            } else {
+              logger.warn(`⚠️ Still no M3U8 playlist or JSON metadata for ${recordingKey} after 1 minute`);
+            }
           }
         } catch (error) {
           logger.error(`❌ HLS Monitoring Error for ${recordingKey}: ${error.message}`);
@@ -782,20 +967,19 @@ class RecordingProcess {
         this.stopRecording(cameraName, scheduleId);
       }, 24 * 60 * 60 * 1000); // 24시간
 
-      // 녹화 메타데이터 저장 - outputPath를 직접 사용
-      await fs.writeJson(recordingInfo.outputPath, {
+      // 녹화 메타데이터 저장 - MP4 파일 정보
+      await fs.writeJson(`${outputPath}.json`, {
         recordingId,
         scheduleId,
         cameraName,
         startTime: timeInfo.formattedForFile,
-        filename: playlistName,
-        playlistPath: playlistPath, // .m3u8 파일 경로
-        segmentDir: recordingDir,
+        filename: filename,
+        outputPath: outputPath, // MP4 파일 경로
+        recordingDir: recordingDir,
         rtspUrl,
         status: 'recording',
-        isHLS: true,
-        segmentDuration: 60,     // 1분 (60초)
-        maxSegments: 1440        // 24시간 최대 1440개 세그먼트 (1분 단위)
+        isMP4: true,
+        fileSize: 0 // 녹화 완료 후 업데이트됨
       });
 
       logger.info(`🎬 HLS recording started for ${recordingKey} - TS files will be generated every 1 minute`);
@@ -888,7 +1072,10 @@ class RecordingProcess {
         logger.warn(`⚠️ No recordingId found for ${recordingKey}, cannot update history`);
       }
 
-      // 메타데이터 업데이트 - outputPath가 이미 .m3u8.json 파일 경로
+      // 메타데이터 업데이트 - .m3u8 파일이 있으면 해당 파일도 확인
+      let metadataUpdated = false;
+
+      // 먼저 .m3u8.json 파일 확인 (outputPath)
       if (await fs.pathExists(recordingInfo.outputPath)) {
         try {
           const metadata = await fs.readJson(recordingInfo.outputPath);
@@ -896,10 +1083,22 @@ class RecordingProcess {
           metadata.status = recordingInfo.hasError ? 'error' : 'stopped';
           await fs.writeJson(recordingInfo.outputPath, metadata);
           logger.info(`✅ Metadata updated for ${recordingKey}`);
+          metadataUpdated = true;
         } catch (e) {
           logger.error(`❌ Error updating metadata: ${e.message}`);
         }
-      } else {
+      }
+
+      // .m3u8 파일도 확인 (playlistPath가 있는 경우)
+      if (recordingInfo.playlistPath && await fs.pathExists(recordingInfo.playlistPath)) {
+        try {
+          logger.info(`✅ M3U8 playlist file found for ${recordingKey}: ${recordingInfo.playlistPath}`);
+        } catch (e) {
+          logger.warn(`⚠️ Could not access M3U8 playlist file: ${e.message}`);
+        }
+      }
+
+      if (!metadataUpdated) {
         logger.warn(`⚠️ Metadata file not found for ${recordingKey} at: ${recordingInfo.outputPath}`);
       }
 
