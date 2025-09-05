@@ -8,4 +8,4 @@ conda activate nvr
 # 3) nohup 백그라운드 실행
 nohup python /home/user/NVRPRj/bin/videoDataReceiver.py > /home/user/NVRPRj/receive.log 2>&1 &
 nohup python /home/user/NVRPRj/bin/videoAlertCheck.py   > /home/user/NVRPRj/alert.log   2>&1 &
-
+nohup python /home/user/NVRPRj/bin/videoRecoder.py   > /home/user/NVRPRj/recoder.log   2>&1 &

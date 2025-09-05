@@ -22,3 +22,31 @@ export const ptzFocus = (direction, ip, port) =>
 export const ptzWiper = (action, ip, port) =>
   api.post(`${resource}/wiper`, { action, ip, port });
 
+// =========================
+// PNT 프리셋 및 투어 API
+// =========================
+
+// PNT 프리셋 저장
+export const pntPresetSave = (presetNumber, ip, port) =>
+  api.post(`${resource}/preset/save`, { presetNumber, ip, port });
+
+// PNT 프리셋 호출
+export const pntPresetRecall = (presetNumber, ip, port) =>
+  api.post(`${resource}/preset/recall`, { presetNumber, ip, port });
+
+// PNT 투어 시작
+export const pntTourStart = (ip, port) =>
+  api.post(`${resource}/tour/start`, { ip, port });
+
+// PNT 투어 정지
+export const pntTourStop = (ip, port) =>
+  api.post(`${resource}/tour/stop`, { ip, port });
+
+// PNT 투어 스텝 설정
+export const pntTourStep = (presetNumber, speedRpm, delaySec, ip, port) =>
+  api.post(`${resource}/tour/step`, { presetNumber, speedRpm, delaySec, ip, port });
+
+// PNT 투어 전체 설정 (1-3 스텝)
+export const pntTourSetup = (speedRpm, delaySec, ip, port) =>
+  api.post(`${resource}/tour/setup`, { speedRpm, delaySec, ip, port });
+

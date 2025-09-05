@@ -168,9 +168,69 @@
                 //       color="var(--cui-primary)"
                 //     )
 
+            // 영상레코딩 설정
+            div(v-if="currentMenu === 'recording'")
+              v-row
+                v-col(cols="12")
+                  .section-title 영상레코딩 설정
+                
+                v-col(cols="12" md="6")
+                  .tw-flex.tw-justify-between.tw-items-center
+                    label.form-input-label 레코딩 사용
+                    v-switch(
+                      v-model="settings.object.recording.enabled"
+                      color="var(--cui-primary)"
+                    )
+
+                v-col(cols="12" md="6")
+                  label.form-input-label 녹화 파일 자동 삭제
+                  v-text-field(
+                    v-model="settings.object.recording.recodingFileDeleteDays"
+                    type="number"
+                    suffix="일 후"
+                    prepend-inner-icon="mdi-delete-clock"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                    hint="0일로 설정하면 자동 삭제를 사용하지 않습니다"
+                    persistent-hint
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-delete-clock
+
+                v-col(cols="12" md="6")
+                  label.form-input-label 녹화 비트레이트
+                  v-select(
+                    v-model="settings.object.recording.recodingBitrate"
+                    :items="['512k', '1024k', '2048k', '4096k']"
+                    prepend-inner-icon="mdi-video"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-video
+
+                v-col(cols="12" md="6")
+                  label.form-input-label 녹화 영상 구간
+                  v-select(
+                    v-model="settings.object.recording.recordingSegment"
+                    :items="recordingSegmentOptions"
+                    prepend-inner-icon="mdi-timer"
+                    background-color="var(--cui-bg-card)"
+                    color="var(--cui-text-default)"
+                    solo
+                  )
+                    template(v-slot:prepend-inner)
+                      v-icon.text-muted mdi-timer
+
             // 현장정보 입력
             div(v-if="currentMenu === 'system'")
               v-row
+                // 1. 현장 정보 영역
+                v-col(cols="12")
+                  .section-title 현장 정보
+                
                 v-col(cols="12" md="6")
                   label.form-input-label 현장명
                   v-text-field(
@@ -228,36 +288,7 @@
                       class="mt-2"
                     ) 이미지 제거
 
-                v-col(cols="12" md="6")
-                  label.form-input-label 녹화 파일 자동 삭제
-                  v-text-field(
-                    v-model="settings.system.recodingFileDeleteDays"
-                    type="number"
-                    suffix="일 후"
-                    prepend-inner-icon="mdi-delete-clock"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                    hint="0일로 설정하면 자동 삭제를 사용하지 않습니다"
-                    persistent-hint
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted mdi-delete-clock
-
-                v-col(cols="12" md="6")
-                  label.form-input-label 녹화 비트레이트
-                  v-select(
-                    v-model="settings.system.recodingBitrate"
-                    :items="['512k', '1024k', '2048k', '4096k']"
-                    prepend-inner-icon="mdi-video"
-                    background-color="var(--cui-bg-card)"
-                    color="var(--cui-text-default)"
-                    solo
-                  )
-                    template(v-slot:prepend-inner)
-                      v-icon.text-muted mdi-video
-
-                // 배경이미지 설정 섹션
+                // 2. 배경이미지 설정 영역 (구분선 추가)
                 v-col(cols="12")
                   v-divider.my-4
                   .section-title 배경이미지 설정
@@ -462,6 +493,12 @@ export default {
         subtitle: '실화상 카메라 설정',
         icon: mdiVideo
       },
+      {
+        id: 'recording',
+        title: '영상레코딩',
+        subtitle: '영상 레코딩 설정',
+        icon: mdiVideo
+      },
 
       {
         id: 'empty1',
@@ -519,13 +556,17 @@ export default {
           ip: '175.201.204.165',
           port: '33000',
           enabled: true
+        },
+        recording: {
+          enabled: true,
+          recodingFileDeleteDays: 30,
+          recodingBitrate: '1024k',
+          recordingSegment: '10'
         }
       },
-              system: {
+      system: {
           location_info: '',
           address: '',
-          recodingBitrate: '1024k',
-          recodingFileDeleteDays: 30,
           map: null,
           backimages: [] // 배경이미지 저장 필드 추가
         },
@@ -545,7 +586,13 @@ export default {
     detectionTypes: ['사람', '차량', '동물', '전체'],
     accuracyLevels: ['낮음', '중간', '높음'],
     storageTypes: ['local', 'cloud', 'hybrid'],
-    backupSchedules: ['사용안함', '매일', '매주', '매월']
+    backupSchedules: ['사용안함', '매일', '매주', '매월'],
+    recordingSegmentOptions: [
+      { text: '5분', value: '5' },
+      { text: '10분', value: '10' },
+      { text: '30분', value: '30' },
+      { text: '1시간', value: '60' }
+    ]
 
   }),
 
@@ -603,13 +650,17 @@ export default {
             ip: (object.thermalCamera && object.thermalCamera.ip) ? object.thermalCamera.ip : '175.201.204.165',
             port: (object.thermalCamera && object.thermalCamera.port) ? object.thermalCamera.port : '33000',
             enabled: (object.thermalCamera && object.thermalCamera.enabled !== undefined) ? object.thermalCamera.enabled : true
+          },
+          recording: {
+            enabled: (object.recording && object.recording.enabled !== undefined) ? object.recording.enabled : true,
+            recodingFileDeleteDays: (object.recording && object.recording.recodingFileDeleteDays) ? object.recording.recodingFileDeleteDays : 30,
+            recodingBitrate: (object.recording && object.recording.recodingBitrate) ? object.recording.recodingBitrate : '1024k',
+            recordingSegment: (object.recording && object.recording.recordingSegment) ? object.recording.recordingSegment : '10'
           }
         },
         system: {
           location_info: system.location_info ?? '',
           address: system.address ?? '',
-          recodingBitrate: system.recodingBitrate ?? '1024k',
-          recodingFileDeleteDays: system.recodingFileDeleteDays ?? 30,
           map: system.map ?? null,
           backimages: system.backimages ?? [null, null, null], // 배경이미지 데이터 로드 (3개 슬롯)
           slideshowImages: system.slideshowImages ?? [null, null, null] // slideshowImages 데이터 로드
@@ -649,13 +700,17 @@ export default {
             ip: '175.201.204.165',
             port: '33000',
             enabled: true
+          },
+          recording: {
+            enabled: true,
+            recodingFileDeleteDays: 30,
+            recodingBitrate: '1024k',
+            recordingSegment: '10'
           }
         },
         system: {
           location_info: '',
           address: '',
-          recodingBitrate: '1024k',
-          recodingFileDeleteDays: 30,
           map: null,
           backimages: [null, null, null],
           slideshowImages: [null, null, null]
@@ -1035,19 +1090,46 @@ export default {
   }
 }
 
-// 열화상 카메라 설정 섹션 스타일
+// 섹션 제목 스타일
 .section-title {
-  font-size: 1.1rem;
-  font-weight: 500;
+  font-size: 1.2rem;
+  font-weight: 600;
   color: var(--cui-text-default);
-  margin: 16px 0 8px 0;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--cui-border-color);
+  margin: 16px 0 12px 0;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(var(--cui-primary-rgb), 0.1), rgba(var(--cui-primary-rgb), 0.05));
+  border-left: 4px solid var(--cui-primary);
+  border-radius: 8px;
+  position: relative;
+  
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: linear-gradient(180deg, var(--cui-primary), rgba(var(--cui-primary-rgb), 0.7));
+    border-radius: 2px;
+  }
 }
 
 .v-divider {
   border-color: var(--cui-border-color) !important;
-  margin: 24px 0 !important;
+  margin: 32px 0 !important;
+  position: relative;
+  
+  &::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--cui-primary), transparent);
+    border-radius: 1px;
+  }
 }
 
 .v-file-input {
@@ -1084,7 +1166,7 @@ export default {
 
 .background-preview-container {
   margin-top: 16px;
-  
+  color:white;
   .debug-info {
     background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--cui-border-color);

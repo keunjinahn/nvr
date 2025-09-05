@@ -54,8 +54,8 @@
       v-btn(
         color="secondary"
         size="small"
-        @click="showPTZControl"
-      ) 팬틸트
+        @click="showPanorama"
+      ) 파노라마
     .video-container
       vue-aspect-ratio(ar="4:3")
         VideoCard(
@@ -70,14 +70,72 @@
         )
         .no-camera(v-else) No thermal camera available
 
+  // 파노라마 슬라이더 팝업 다이얼로그
+  v-dialog(
+    v-model="panoramaDialog"
+    max-width="1400"
+    persistent
+    content-class="panorama-dialog"
+  )
+    v-card.panorama-dialog-card
+      v-card-title.headline
+        span 파노라마 이미지
+        v-spacer
+        v-btn.close-btn(
+          color="white"
+          @click="panoramaDialog = false"
+        ) X
+      
+      v-card-text
+        .panorama-container
+          .panorama-image-container
+            v-img(
+              v-if="currentPanoramaImage"
+              :src="currentPanoramaImage"
+              height="500"
+              width="100%"
+              contain
+              class="panorama-image"
+            )
+            .no-image(v-else)
+              .no-image-text 이미지가 없습니다
+          
+          .panorama-controls
+            v-btn(
+              :disabled="currentPanoramaIndex <= 0"
+              @click="previousPanorama"
+              color="primary"
+              outlined
+            )
+              v-icon mdi-chevron-left
+              | 이전
+            .panorama-info
+              span {{ currentPanoramaIndex + 1 }} / {{ panoramaDataList.length }}
+              .panorama-date(v-if="currentPanoramaData")
+                | {{ formatDate(currentPanoramaData.create_date) }}
+            v-btn(
+              :disabled="currentPanoramaIndex >= panoramaDataList.length - 1"
+              @click="nextPanorama"
+              color="primary"
+              outlined
+            )
+              | 다음
+              v-icon mdi-chevron-right
+
   // PTZ 제어 팝업 다이얼로그
   v-dialog(
     v-model="ptzDialog"
-    max-width="600"
+    max-width="1200"
     persistent
+    content-class="ptz-dialog"
   )
-    v-card
-      v-card-title.headline
+    v-card.ptz-dialog-card(
+      ref="ptzDialogCard"
+      @mousedown="startDrag"
+    )
+      v-card-title.headline.draggable-header(
+        @mousedown="startDrag"
+      )
         span PTZ 카메라 제어
         v-spacer
         v-btn.close-btn(
@@ -86,155 +144,336 @@
         ) X
       
       v-card-text
-        .ptz-control-container
-          // 연결 정보
-          .connection-info
-            v-row
-              v-col(cols="6")
-                v-text-field(
-                  v-model="ptzConfig.ip"
-                  label="카메라 IP"
-                  outlined
-                  dense
-                  :error-messages="ipError"
-                  @input="validateIP"
-                )
-              v-col(cols="3")
-                v-text-field(
-                  v-model="ptzConfig.port"
-                  label="포트"
-                  outlined
-                  dense
-                  :error-messages="portError"
-                  @input="validatePort"
-                )
-              v-col(cols="3")
-                v-text-field(
-                  v-model="ptzConfig.speed"
-                  label="속도 (1-63)"
-                  outlined
-                  dense
-                  type="number"
-                  min="1"
-                  max="63"
-                )
-            
-            // 연결 상태 표시
-            .connection-status(v-if="connectionStatus")
-              v-alert(
-                :type="connectionStatus.type"
-                :text="connectionStatus.message"
-                dense
-                outlined
-              )
-          
-          // PTZ 제어 버튼
-          .ptz-buttons
-            .ptz-row
-              v-btn(
-                fab
-                large
-                color="secondary"
-                @mousedown="ptzMove('up')"
-                @mouseup="ptzStop"
-                @mouseleave="ptzStop"
-              )
-                v-icon(:icon="ptzIcons.up")
-                .ptz-label 상
-            .ptz-row
-              v-btn(
-                fab
-                large
-                color="secondary"
-                @mousedown="ptzMove('left')"
-                @mouseup="ptzStop"
-                @mouseleave="ptzStop"
-              )
-                v-icon(:icon="ptzIcons.left")
-                .ptz-label 좌
-              v-btn(
-                fab
-                large
-                color="secondary"
-                @mousedown="ptzMove('right')"
-                @mouseup="ptzStop"
-                @mouseleave="ptzStop"
-              )
-                v-icon(:icon="ptzIcons.right")
-                .ptz-label 우
-            .ptz-row
-              v-btn(
-                fab
-                large
-                color="secondary"
-                @mousedown="ptzMove('down')"
-                @mouseup="ptzStop"
-                @mouseleave="ptzStop"
-              )
-                v-icon(:icon="ptzIcons.down")
-                .ptz-label 하
-          
-          // 줌 및 포커스 제어
-          .zoom-focus-controls
-            v-row
-              v-col(cols="6")
+        .ptz-dialog-container
+          // 왼쪽 영역 - 기존 PTZ 제어
+          .ptz-left-panel
+            .ptz-control-container
+              // 연결 정보
+              .connection-info
+                v-row
+                  v-col(cols="6")
+                    v-text-field(
+                      v-model="ptzConfig.ip"
+                      label="카메라 IP"
+                      outlined
+                      dense
+                      :error-messages="ipError"
+                      @input="validateIP"
+                    )
+                  v-col(cols="3")
+                    v-text-field(
+                      v-model="ptzConfig.port"
+                      label="포트"
+                      outlined
+                      dense
+                      :error-messages="portError"
+                      @input="validatePort"
+                    )
+                  v-col(cols="3")
+                    v-text-field(
+                      v-model="ptzConfig.speed"
+                      label="속도 (1-63)"
+                      outlined
+                      dense
+                      type="number"
+                      min="1"
+                      max="63"
+                    )
+                
+                // 연결 상태 표시
+                .connection-status(v-if="connectionStatus")
+                  v-alert(
+                    :type="connectionStatus.type"
+                    :text="connectionStatus.message"
+                    dense
+                    outlined
+                  )
+              
+              // PTZ 제어 버튼
+              .ptz-buttons
+                .ptz-row
+                  v-btn(
+                    fab
+                    large
+                    color="secondary"
+                    @mousedown="ptzMove('up')"
+                    @mouseup="ptzStop"
+                    @mouseleave="ptzStop"
+                  )
+                    v-icon(:icon="ptzIcons.up")
+                    .ptz-label 상
+                .ptz-row
+                  v-btn(
+                    fab
+                    large
+                    color="secondary"
+                    @mousedown="ptzMove('left')"
+                    @mouseup="ptzStop"
+                    @mouseleave="ptzStop"
+                  )
+                    v-icon(:icon="ptzIcons.left")
+                    .ptz-label 좌
+                  v-btn(
+                    fab
+                    large
+                    color="secondary"
+                    @mousedown="ptzMove('right')"
+                    @mouseup="ptzStop"
+                    @mouseleave="ptzStop"
+                  )
+                    v-icon(:icon="ptzIcons.right")
+                    .ptz-label 우
+                .ptz-row
+                  v-btn(
+                    fab
+                    large
+                    color="secondary"
+                    @mousedown="ptzMove('down')"
+                    @mouseup="ptzStop"
+                    @mouseleave="ptzStop"
+                  )
+                    v-icon(:icon="ptzIcons.down")
+                    .ptz-label 하
+              
+              // 줌 및 포커스 제어
+              .zoom-focus-controls
+                v-row
+                  v-col(cols="6")
+                    .control-group
+                      .control-label 줌 제어
+                      .control-buttons
+                        v-btn(
+                          color="secondary"
+                          @mousedown="ptzZoom('in')"
+                          @mouseup="ptzStop"
+                          @mouseleave="ptzStop"
+                        )
+                          v-icon(:icon="ptzIcons.zoomIn" size="small")
+                          span.ml-2 줌 인
+                        v-btn(
+                          color="secondary"
+                          @mousedown="ptzZoom('out')"
+                          @mouseup="ptzStop"
+                          @mouseleave="ptzStop"
+                        )
+                          v-icon(:icon="ptzIcons.zoomOut" size="small")
+                          span.ml-2 줌 아웃
+                  v-col(cols="6")
+                    .control-group
+                      .control-label 포커스 제어
+                      .control-buttons
+                        v-btn(
+                          color="secondary"
+                          @mousedown="ptzFocus('in')"
+                          @mouseup="ptzStop"
+                          @mouseleave="ptzStop"
+                        )
+                          v-icon(:icon="ptzIcons.focusIn" size="small")
+                          span.ml-2 포커스 인
+                        v-btn(
+                          color="secondary"
+                          @mousedown="ptzFocus('out')"
+                          @mouseup="ptzStop"
+                          @mouseleave="ptzStop"
+                        )
+                          v-icon(:icon="ptzIcons.focusOut" size="small")
+                          span.ml-2 포커스 아웃
+              
+              // 와이퍼 제어
+              .wiper-controls
                 .control-group
-                  .control-label 줌 제어
+                  .control-label 와이퍼 제어
                   .control-buttons
                     v-btn(
-                      color="secondary"
-                      @mousedown="ptzZoom('in')"
-                      @mouseup="ptzStop"
-                      @mouseleave="ptzStop"
+                      color="success"
+                      @click="ptzWiper('on')"
                     )
-                      v-icon(:icon="ptzIcons.zoomIn" size="small")
-                      span.ml-2 줌 인
+                      v-icon(:icon="ptzIcons.wiperOn" size="small")
+                      span.ml-2 와이퍼 ON
+                    v-btn(
+                      color="error"
+                      @click="ptzWiper('off')"
+                    )
+                      v-icon(:icon="ptzIcons.wiperOff" size="small")
+                      span.ml-2 와이퍼 OFF
+
+          // 오른쪽 영역 - 프리셋 및 투어 제어
+          .ptz-right-panel
+            .preset-section
+              .section-title 프리셋
+              .preset-controls
+                .preset-row
+                  .preset-label Preset1
+                  .preset-inputs
+                    v-text-field(
+                      v-model="presetValues.preset1.pan"
+                      label="Pan"
+                      outlined
+                      dense
+                      hide-details
+                    )
+                    v-text-field(
+                      v-model="presetValues.preset1.tilt"
+                      label="Tilt"
+                      outlined
+                      dense
+                      hide-details
+                    )
+                    v-text-field(
+                      v-model="presetValues.preset1.zoom"
+                      label="Zoom"
+                      outlined
+                      dense
+                      hide-details
+                    )
+                  .preset-buttons
                     v-btn(
                       color="secondary"
-                      @mousedown="ptzZoom('out')"
-                      @mouseup="ptzStop"
-                      @mouseleave="ptzStop"
-                    )
-                      v-icon(:icon="ptzIcons.zoomOut" size="small")
-                      span.ml-2 줌 아웃
-              v-col(cols="6")
-                .control-group
-                  .control-label 포커스 제어
-                  .control-buttons
+                      small
+                      @click="loadPreset(1)"
+                    ) 불러오기
                     v-btn(
                       color="secondary"
-                      @mousedown="ptzFocus('in')"
-                      @mouseup="ptzStop"
-                      @mouseleave="ptzStop"
+                      small
+                      @click="savePreset(1)"
+                    ) 저장하기
+                
+                .preset-row
+                  .preset-label Preset2
+                  .preset-inputs
+                    v-text-field(
+                      v-model="presetValues.preset2.pan"
+                      label="Pan"
+                      outlined
+                      dense
+                      hide-details
                     )
-                      v-icon(:icon="ptzIcons.focusIn" size="small")
-                      span.ml-2 포커스 인
+                    v-text-field(
+                      v-model="presetValues.preset2.tilt"
+                      label="Tilt"
+                      outlined
+                      dense
+                      hide-details
+                    )
+                    v-text-field(
+                      v-model="presetValues.preset2.zoom"
+                      label="Zoom"
+                      outlined
+                      dense
+                      hide-details
+                    )
+                  .preset-buttons
                     v-btn(
                       color="secondary"
-                      @mousedown="ptzFocus('out')"
-                      @mouseup="ptzStop"
-                      @mouseleave="ptzStop"
+                      small
+                      @click="loadPreset(2)"
+                    ) 불러오기
+                    v-btn(
+                      color="secondary"
+                      small
+                      @click="savePreset(2)"
+                    ) 저장하기
+                
+                .preset-row
+                  .preset-label Preset3
+                  .preset-inputs
+                    v-text-field(
+                      v-model="presetValues.preset3.pan"
+                      label="Pan"
+                      outlined
+                      dense
+                      hide-details
                     )
-                      v-icon(:icon="ptzIcons.focusOut" size="small")
-                      span.ml-2 포커스 아웃
-          
-          // 와이퍼 제어
-          .wiper-controls
-            .control-group
-              .control-label 와이퍼 제어
-              .control-buttons
-                v-btn(
-                  color="success"
-                  @click="ptzWiper('on')"
+                    v-text-field(
+                      v-model="presetValues.preset3.tilt"
+                      label="Tilt"
+                      outlined
+                      dense
+                      hide-details
+                    )
+                    v-text-field(
+                      v-model="presetValues.preset3.zoom"
+                      label="Zoom"
+                      outlined
+                      dense
+                      hide-details
+                    )
+                  .preset-buttons
+                    v-btn(
+                      color="secondary"
+                      small
+                      @click="loadPreset(3)"
+                    ) 불러오기
+                    v-btn(
+                      color="secondary"
+                      small
+                      @click="savePreset(3)"
+                    ) 저장하기
+
+            .tour-section
+              .section-title 장치 투어(1→2→3) & 시간
+              .tour-controls
+                .tour-speed
+                  v-text-field(
+                    v-model="tourSpeed"
+                    label="투어 속도(rpm)"
+                    outlined
+                    dense
+                    type="number"
+                    hide-details
+                  )
+                .step-write
+                  v-text-field(
+                    v-model="stepWrite"
+                    label="스텝 쓰기(1~3)"
+                    outlined
+                    dense
+                    type="number"
+                    min="1"
+                    max="3"
+                    hide-details
+                  )
+                  v-btn(
+                    color="primary"
+                    small
+                    @click="writeTourSteps"
+                    :disabled="!connected"
+                  ) 스텝 쓰기
+                .cycle-progress
+                  .progress-title 사이클 진행
+                  .progress-bar
+                    v-progress-linear(
+                      :value="cycleProgress"
+                      color="primary"
+                      height="20"
+                      rounded
+                    )
+                  .progress-status {{ tourStatus }}
+                  .tour-buttons
+                    v-btn(
+                      color="success"
+                      small
+                      @click="startTour"
+                      :disabled="!connected || tourRunning"
+                    ) 투어 시작
+                    v-btn(
+                      color="error"
+                      small
+                      @click="stopTour"
+                      :disabled="!connected || !tourRunning"
+                    ) 투어 정지
+
+            .log-section
+              .section-title 로그
+              .log-area
+                v-textarea(
+                  v-model="logContent"
+                  readonly
+                  outlined
+                  no-resize
+                  hide-details
+                  auto-grow
                 )
-                  v-icon(:icon="ptzIcons.wiperOn" size="small")
-                  span.ml-2 와이퍼 ON
-                v-btn(
-                  color="error"
-                  @click="ptzWiper('off')"
-                )
-                  v-icon(:icon="ptzIcons.wiperOff" size="small")
-                  span.ml-2 와이퍼 OFF
 
   .cell.cell-bottomleft
     .bottomleft-inner-col
@@ -271,7 +510,13 @@
           .chart-container
             v-chart(:options="chartOption" autoresize ref="trendChart" class="trend-chart")
   .cell.cell-bottomright
-    .box-title 실화상 영상
+    .box-title
+      span 실화상 영상
+      v-btn(
+        color="secondary"
+        size="small"
+        @click="showPTZControl"
+      ) 팬틸트
     .video-container
       vue-aspect-ratio(ar="4:3")
         VideoCard(
@@ -302,7 +547,8 @@ import * as XLSX from 'xlsx';
 import * as echarts from 'echarts';
 import { getAlerts} from '@/api/alerts.api';
 import { getEventSetting } from '@/api/eventSetting.api.js';
-import { ptzMove, ptzStop, ptzZoom, ptzFocus, ptzWiper } from '@/api/ptz.api';
+import { ptzMove, ptzStop, ptzZoom, ptzFocus, ptzWiper, pntPresetSave, pntPresetRecall, pntTourStart, pntTourStop, pntTourSetup } from '@/api/ptz.api';
+import { getPanoramaData } from '@/api/panorama.api';
 
 // PTZ 아이콘 import
 import { 
@@ -387,6 +633,32 @@ data() {
       wiperOff: mdiWaterOff,
       close: mdiClose
     },
+    // 프리셋 값들
+    presetValues: {
+      preset1: { pan: '', tilt: '', zoom: '' },
+      preset2: { pan: '', tilt: '', zoom: '' },
+      preset3: { pan: '', tilt: '', zoom: '' }
+    },
+    // 투어 관련 데이터
+    tourSpeed: 600,
+    stepWrite: '',
+    cycleProgress: 0,
+    logContent: '',
+    tourRunning: false,
+    tourStatus: '대기 중',
+    connected: false,
+    // 드래그 관련 데이터
+    isDragging: false,
+    dragStartX: 0,
+    dragStartY: 0,
+    dialogOffsetX: 0,
+    dialogOffsetY: 0,
+    // 파노라마 관련 데이터
+    panoramaDialog: false,
+    panoramaDataList: [],
+    currentPanoramaIndex: 0,
+    currentPanoramaImage: null,
+    currentPanoramaData: null
   };
 },
 computed: {
@@ -746,6 +1018,9 @@ methods: {
         type: 'success', 
         message: `연결 준비 완료: ${this.ptzConfig.ip}:${this.ptzConfig.port}` 
       };
+      this.connected = true;
+    } else {
+      this.connected = false;
     }
   },
 
@@ -829,6 +1104,201 @@ methods: {
       console.error('PTZ Wiper Error:', error);
       this.$toast.error('와이퍼 제어 명령 전송 실패');
     }
+  },
+
+  // 파노라마 버튼 클릭
+  async showPanorama() {
+    try {
+      this.$toast.info('파노라마 데이터를 불러오는 중...');
+      await this.loadPanoramaData();
+      this.panoramaDialog = true;
+    } catch (error) {
+      console.error('파노라마 데이터 로드 실패:', error);
+      this.$toast.error('파노라마 데이터를 불러올 수 없습니다.');
+    }
+  },
+
+  // 파노라마 데이터 로드
+  async loadPanoramaData() {
+    try {
+      const response = await getPanoramaData(5);
+      this.panoramaDataList = response.data || [];
+      
+      if (this.panoramaDataList.length > 0) {
+        this.currentPanoramaIndex = 0;
+        this.setCurrentPanoramaImage();
+      } else {
+        this.$toast.warning('파노라마 데이터가 없습니다.');
+      }
+    } catch (error) {
+      console.error('파노라마 데이터 로드 오류:', error);
+      throw error;
+    }
+  },
+
+  // 현재 파노라마 이미지 설정
+  setCurrentPanoramaImage() {
+    if (this.panoramaDataList.length > 0 && this.currentPanoramaIndex < this.panoramaDataList.length) {
+      const panoramaData = this.panoramaDataList[this.currentPanoramaIndex];
+      this.currentPanoramaData = panoramaData;
+      
+      try {
+        // panoramaData JSON 파싱
+        const parsedData = JSON.parse(panoramaData.panoramaData);
+        if (parsedData.image) {
+          this.currentPanoramaImage = `data:image/jpeg;base64,${parsedData.image}`;
+        } else {
+          this.currentPanoramaImage = null;
+        }
+      } catch (error) {
+        console.error('파노라마 데이터 파싱 오류:', error);
+        this.currentPanoramaImage = null;
+      }
+    } else {
+      this.currentPanoramaImage = null;
+      this.currentPanoramaData = null;
+    }
+  },
+
+  // 이전 파노라마 이미지
+  previousPanorama() {
+    if (this.currentPanoramaIndex > 0) {
+      this.currentPanoramaIndex--;
+      this.setCurrentPanoramaImage();
+    }
+  },
+
+  // 다음 파노라마 이미지
+  nextPanorama() {
+    if (this.currentPanoramaIndex < this.panoramaDataList.length - 1) {
+      this.currentPanoramaIndex++;
+      this.setCurrentPanoramaImage();
+    }
+  },
+
+
+  // 프리셋 불러오기
+  async loadPreset(presetNumber) {
+    try {
+      await pntPresetRecall(presetNumber, this.ptzConfig.ip, this.ptzConfig.port);
+      this.$toast.success(`Preset ${presetNumber} 불러오기 완료`);
+      this.addLog(`Preset ${presetNumber} 불러오기 완료`);
+    } catch (error) {
+      console.error('Preset Recall Error:', error);
+      this.$toast.error(`Preset ${presetNumber} 불러오기 실패`);
+      this.addLog(`Preset ${presetNumber} 불러오기 실패: ${error.message}`);
+    }
+  },
+
+  // 프리셋 저장하기
+  async savePreset(presetNumber) {
+    try {
+      await pntPresetSave(presetNumber, this.ptzConfig.ip, this.ptzConfig.port);
+      this.$toast.success(`Preset ${presetNumber} 저장 완료`);
+      this.addLog(`Preset ${presetNumber} 저장 완료`);
+    } catch (error) {
+      console.error('Preset Save Error:', error);
+      this.$toast.error(`Preset ${presetNumber} 저장 실패`);
+      this.addLog(`Preset ${presetNumber} 저장 실패: ${error.message}`);
+    }
+  },
+
+  // 로그 추가
+  addLog(message) {
+    const timestamp = new Date().toLocaleTimeString('ko-KR');
+    this.logContent += `[${timestamp}] ${message}\n`;
+  },
+
+  // 투어 스텝 쓰기
+  async writeTourSteps() {
+    try {
+      await pntTourSetup(this.tourSpeed, 60, this.ptzConfig.ip, this.ptzConfig.port);
+      this.$toast.success('투어 스텝 설정 완료 (Preset 1-3)');
+      this.addLog(`투어 스텝 설정: 속도=${this.tourSpeed}rpm, 지연=60초`);
+    } catch (error) {
+      console.error('Tour Setup Error:', error);
+      this.$toast.error('투어 스텝 설정 실패');
+      this.addLog(`투어 스텝 설정 실패: ${error.message}`);
+    }
+  },
+
+  // 투어 시작
+  async startTour() {
+    try {
+      await pntTourStart(this.ptzConfig.ip, this.ptzConfig.port);
+      this.tourRunning = true;
+      this.tourStatus = '투어 실행 중';
+      this.$toast.success('투어 시작');
+      this.addLog('투어 시작');
+    } catch (error) {
+      console.error('Tour Start Error:', error);
+      this.$toast.error('투어 시작 실패');
+      this.addLog(`투어 시작 실패: ${error.message}`);
+    }
+  },
+
+  // 투어 정지
+  async stopTour() {
+    try {
+      await pntTourStop(this.ptzConfig.ip, this.ptzConfig.port);
+      this.tourRunning = false;
+      this.tourStatus = '대기 중';
+      this.$toast.success('투어 정지');
+      this.addLog('투어 정지');
+    } catch (error) {
+      console.error('Tour Stop Error:', error);
+      this.$toast.error('투어 정지 실패');
+      this.addLog(`투어 정지 실패: ${error.message}`);
+    }
+  },
+
+  // 드래그 시작
+  startDrag(event) {
+    if (event.target.closest('.close-btn')) return; // 닫기 버튼 클릭 시 드래그 방지
+    
+    this.isDragging = true;
+    this.dragStartX = event.clientX;
+    this.dragStartY = event.clientY;
+    
+    const dialogElement = this.$refs.ptzDialogCard?.$el;
+    if (dialogElement) {
+      const rect = dialogElement.getBoundingClientRect();
+      this.dialogOffsetX = rect.left;
+      this.dialogOffsetY = rect.top;
+    }
+    
+    document.addEventListener('mousemove', this.onDrag);
+    document.addEventListener('mouseup', this.stopDrag);
+    event.preventDefault();
+  },
+
+  // 드래그 중
+  onDrag(event) {
+    if (!this.isDragging) return;
+    
+    const deltaX = event.clientX - this.dragStartX;
+    const deltaY = event.clientY - this.dragStartY;
+    
+    const newX = this.dialogOffsetX + deltaX;
+    const newY = this.dialogOffsetY + deltaY;
+    
+    const dialogElement = this.$refs.ptzDialogCard?.$el;
+    if (dialogElement) {
+      dialogElement.style.position = 'fixed';
+      dialogElement.style.left = `${newX}px`;
+      dialogElement.style.top = `${newY}px`;
+      dialogElement.style.margin = '0';
+      dialogElement.style.transform = 'none';
+      dialogElement.style.width = '1200px'; // 원래 크기 유지
+      dialogElement.style.maxWidth = '1200px'; // 원래 크기 유지
+    }
+  },
+
+  // 드래그 종료
+  stopDrag() {
+    this.isDragging = false;
+    document.removeEventListener('mousemove', this.onDrag);
+    document.removeEventListener('mouseup', this.stopDrag);
   },
 
   async loadCameras() {
@@ -1408,6 +1878,141 @@ methods: {
   }
 }
 
+// PTZ 다이얼로그 스타일
+.ptz-dialog {
+  .v-dialog__content {
+    position: relative;
+  }
+}
+
+.ptz-dialog-card {
+  .draggable-header {
+    cursor: move;
+    background: #333;
+    color: white;
+    border-bottom: 1px solid #555;
+    user-select: none;
+    
+    &:active {
+      cursor: grabbing;
+    }
+  }
+}
+
+.ptz-dialog-container {
+  display: flex;
+  gap: 20px;
+  min-height: 500px;
+
+}
+
+.ptz-left-panel {
+  flex: 1;
+  border-right: 1px solid #555;
+  padding-right: 20px;
+}
+
+.ptz-right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.preset-section, .tour-section, .log-section {
+  .section-title {
+    font-size: 16px;
+    font-weight: bold;
+    color: white;
+    margin-bottom: 15px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #ddd;
+  }
+}
+
+.preset-controls {
+  .preset-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+    gap: 10px;
+    
+    .preset-label {
+      min-width: 80px;
+      font-weight: bold;
+      color: white;
+    }
+    
+    .preset-inputs {
+      display: flex;
+      gap: 8px;
+      flex: 1;
+      
+      .v-text-field {
+        flex: 1;
+      }
+    }
+    
+    .preset-buttons {
+      display: flex;
+      gap: 8px;
+    }
+  }
+}
+
+.tour-controls {
+  .tour-speed, .step-write {
+    margin-bottom: 15px;
+  }
+  
+  .step-write {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    
+    .v-btn {
+      margin-top: 20px;
+    }
+  }
+  
+  .cycle-progress {
+    .progress-title {
+      font-weight: bold;
+      color: white;
+      margin-bottom: 8px;
+    }
+    
+    .progress-bar {
+      margin-bottom: 8px;
+    }
+    
+    .progress-status {
+      text-align: center;
+      color: white;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    
+    .tour-buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+  }
+}
+
+.log-section {
+  .log-area {
+    height: 120px;
+    
+    .v-textarea {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      height: 100%;
+    }
+  }
+}
+
 .video-header {
   margin-bottom: 10px;
   
@@ -1958,6 +2563,97 @@ methods: {
     color: #888;
     font-size: 16px;
     text-align: center;
+  }
+}
+
+// 파노라마 다이얼로그 스타일
+.panorama-dialog {
+  .panorama-dialog-card {
+    background: #1e1e1e;
+    color: white;
+    
+    .headline {
+      background: #2a3042;
+      color: white;
+      padding: 16px 24px;
+      border-bottom: 1px solid #444;
+      
+      .close-btn {
+        min-width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #f44336;
+        color: white;
+        
+        &:hover {
+          background: #d32f2f;
+        }
+      }
+    }
+    
+    .panorama-container {
+      padding: 20px;
+      
+      .panorama-image-container {
+        margin-bottom: 20px;
+        text-align: center;
+        background: #2a2a2a;
+        border-radius: 8px;
+        padding: 10px;
+        
+        .panorama-image {
+          border-radius: 8px;
+          max-height: 500px;
+          object-fit: contain;
+        }
+        
+        .no-image {
+          height: 300px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          
+          .no-image-text {
+            color: #888;
+            font-size: 18px;
+          }
+        }
+      }
+      
+      .panorama-controls {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 20px;
+        background: #2a3042;
+        border-radius: 8px;
+        
+        .v-btn {
+          min-width: 100px;
+          height: 40px;
+          
+          &.v-btn--disabled {
+            opacity: 0.5;
+          }
+        }
+        
+        .panorama-info {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 5px;
+          color: white;
+          font-weight: bold;
+          
+          .panorama-date {
+            font-size: 14px;
+            color: #ccc;
+            font-weight: normal;
+          }
+        }
+      }
+    }
   }
 }
 </style>

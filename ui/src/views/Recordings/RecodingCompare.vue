@@ -66,14 +66,11 @@
         // 🕐 타임라인 영역 표시
         .tw-mt-4
           .timeline-section.tw-bg-gray-800.tw-p-4.tw-rounded-lg
-            // 타임라인 제목 및 정보
+            // 타임라인 제목 및 현재 시간
             .timeline-header.tw-flex.tw-justify-between.tw-items-center.tw-mb-4
               h3.tw-text-white.tw-text-lg.tw-font-semibold 🕐 타임라인 영역
-              .timeline-info.tw-text-gray-300.tw-text-sm
-                span(v-if="timelineStartTime && timelineEndTime")
-                  | 전체 영상 시간: {{ formatTime(timelineStartTime) }} ~ {{ formatTime(timelineEndTime) }}
-                  | (총 {{ formatDuration(timelineDuration) }})
-                span(v-else) 영상을 선택하면 타임라인이 표시됩니다
+              .current-time-display.tw-text-white.tw-text-lg.tw-font-bold.tw-bg-gray-800.tw-px-3.tw-py-2.tw-rounded.tw-border.tw-border-gray-600.tw-font-mono
+                | {{ formattedPlayheadTime }}
             
             // NLE 타임라인 박스
             .nle-timeline-box.tw-bg-gray-700.tw-p-4.tw-rounded-lg.tw-flex.tw-items-center.tw-relative
@@ -88,23 +85,17 @@
                     class="tw-text-xs tw-text-gray-400 tw-font-medium"
                   ) {{ h-1 }}:00
                 
-                // 비디오 타임라인
+                // 통합 비디오 타임라인
                 .timeline-videos.tw-relative.tw-h-8
-                  .timeline-row(
-                    v-for="(video, idx) in selectedVideos || []" 
-                    :key="video.id"
-                    class="tw-mb-2"
-                  )
-                    .timeline-label.tw-absolute.tw-left-0.tw-top-0.tw-w-20.tw-text-xs.tw-text-white.tw-font-medium
-                      | {{ getShortCameraName(video.cameraName) }}
-                    .timeline-bar.tw-relative.tw-h-3.tw-bg-gray-600.tw-rounded.tw-ml-20.tw-mr-2
-                      // 비디오별 구간 표시
-                      .timeline-segment.tw-absolute.tw-h-full.tw-rounded.tw-bg-blue-500.tw-border-2.tw-border-blue-300(
-                        v-for="segment in video.segments || []"
-                        :key="segment.startTime + '-' + segment.endTime"
-                        :style="segmentStyle(segment)"
-                        :title="`${formatTime(segment.startTime)} ~ ${formatTime(segment.endTime)}`"
-                      )
+                  .timeline-bar.tw-relative.tw-h-6.tw-bg-gray-600.tw-rounded.tw-mr-2
+                    // 첫 번째 카메라의 모든 비디오 구간 표시
+                    .timeline-segment.tw-absolute.tw-h-full.tw-rounded.tw-bg-blue-500.tw-border-2.tw-border-blue-300.tw-cursor-pointer(
+                      v-for="segment in getFirstVideoSegments()"
+                      :key="segment.startTime + '-' + segment.endTime"
+                      :style="segmentStyle(segment)"
+                      :title="`${formatTime(segment.startTime)} ~ ${formatTime(segment.endTime)}`"
+                      @click.stop="selectVideoBySegment(segment)"
+                    )
                 
                 // 수직 스크롤 바 (현재 위치)
                 .vertical-bar(
@@ -113,10 +104,7 @@
                   class="tw-absolute tw-top-0 tw-w-1 tw-h-full tw-bg-red-500 tw-cursor-pointer tw-z-10"
                   :title="`현재 위치: ${formattedPlayheadTime}`"
                 )
-              
-              // 현재 시간 표시
-              .current-time.tw-absolute.tw-top-2.tw-right-4.tw-text-white.tw-text-lg.tw-font-bold
-                | {{ formattedPlayheadTime }}
+
 
         // 데이터 테이블 (체크박스 제거, row 클릭 이벤트 추가)
         v-card.mt-4
@@ -127,6 +115,8 @@
             :items-per-page="4"
             class="elevation-1 recording-table"
             @click:row="handleTableRowClick"
+            :item-class="getRowClass"
+            ref="dataTable"
           )
             template(#item.cameraName="{ item }")
               span {{ getShortCameraName(item.cameraName) }}
@@ -143,19 +133,39 @@
             template(#item.fileSize="{ item }")
               span {{ formatFileSize(item.fileSize) }}
             
-            template(#item.fileType="{ item }")
-              v-chip(
+            template(#item.download="{ item }")
+              v-btn(
                 color="primary"
                 small
-                label
-              ) {{ (item.fileType || 'mp4').toUpperCase() }}
+                @click.stop="downloadVideo(item)"
+                :loading="downloadingVideos.includes(item.id)"
+              )
+                v-icon(left small) {{ icons.mdiDownload }}
+                | 다운로드
             
-            template(#item.status="{ item }")
-              v-chip(
-                :color="getStatusColor(item.status)"
-                small
-                label
-              ) {{ getStatusText(item.status) }}
+            template(#body="{ items }")
+              tbody
+                tr(
+                  v-for="item in items"
+                  :key="item.id"
+                  :data-id="item.id"
+                  @click="handleTableRowClick(item)"
+                  :class="getRowClass(item)"
+                )
+                  td {{ getShortCameraName(item.cameraName) }}
+                  td {{ formatTime2(item.formattedStartTime) }}
+                  td {{ formatTime2(item.formattedEndTime) }}
+                  td {{ getShortFilename(item.filename) }}
+                  td {{ formatFileSize(item.fileSize) }}
+                  td
+                    v-btn(
+                      color="secondary"
+                      small
+                      @click.stop="downloadVideo(item)"
+                      :loading="downloadingVideos.includes(item.id)"
+                    )
+                      v-icon(left small) {{ icons.mdiDownload }}
+                      | 다운로드
             
             template(#no-data)
               .text-center.pa-4
@@ -177,7 +187,8 @@ import {
   mdiDelete,
   mdiPlay,
   mdiStop,
-  mdiPause
+  mdiPause,
+  mdiDownload
 } from '@mdi/js'
 import moment from 'moment';
 import { getRecordingHistory, getRecordingSegments } from '@/api/recordingService.api.js';
@@ -204,22 +215,22 @@ export default {
       mdiDelete,
       mdiPlay,
       mdiStop,
-      mdiPause
+      mdiPause,
+      mdiDownload
     },
     loading: false,
     recordingHistory: [],
     selectedVideo1: null,
     selectedVideo2: null,
 
-    // 테이블용 헤더 (체크박스 제거)
+    // 테이블용 헤더 (체크박스 제거, 타입/상태 제거, 다운로드 추가)
     tableHeaders: [
       { text: '카메라', value: 'cameraName', sortable: true },
       { text: '시작 시간', value: 'formattedStartTime', sortable: true },
       { text: '종료 시간', value: 'formattedEndTime', sortable: true },
       { text: '파일명', value: 'filename', sortable: true },
       { text: '파일 크기', value: 'fileSize', sortable: true },
-      { text: '타입', value: 'fileType', sortable: true },
-      { text: '상태', value: 'status', sortable: true }
+      { text: '다운로드', value: 'download', sortable: false, width: '120px' }
     ],
     statusOptions: [
       { text: '녹화중', value: 'recording' },
@@ -250,6 +261,8 @@ export default {
     draggingVerticalBar: false,
     timelineUpdateTimer: null, // 타임라인 업데이트 타이머
     isTimelineUpdating: false, // 타임라인 업데이트 중 플래그
+    activeVideoIds: [], // 현재 활성화된 비디오 ID들
+    downloadingVideos: [], // 다운로드 중인 비디오 ID들
     
     // 🕐 타임라인 영역 관련 변수들
     timelineStartTime: null, // 전체 영상 시작 시간
@@ -374,7 +387,9 @@ export default {
       }
       
       return Math.round((this.computedTimelineEndTime - this.computedTimelineStartTime) / 1000);
-    }
+    },
+
+
   },
 
   watch: {
@@ -402,6 +417,22 @@ export default {
         if (newHistory && newHistory.length > 0) {
           this.updateTimelineInfo();
         }
+      },
+      deep: true
+    },
+
+    // activeVideoIds 변경 감지 및 디버깅
+    activeVideoIds: {
+      handler(newIds, oldIds) {
+        console.log('activeVideoIds changed:', {
+          old: oldIds,
+          new: newIds,
+          formattedRecordingHistory: this.formattedRecordingHistory.map(item => ({ id: item.id, cameraName: item.cameraName }))
+        });
+        // 테이블의 행 스타일만 업데이트 (페이지 상태 유지)
+        this.$nextTick(() => {
+          this.updateTableRowStyles();
+        });
       },
       deep: true
     }
@@ -805,6 +836,7 @@ export default {
         this.selectedVideo1 = null;
         this.selectedVideo2 = null;
         this.recordingHistory = [];
+        this.activeVideoIds = []; // 활성 비디오 ID 초기화
         
         // 비디오 요소 정리
         if (this.$refs.videoPlayer1) {
@@ -863,6 +895,7 @@ export default {
                   ...firstVideo,
                   segments: [{ startTime: firstVideo.startTime, endTime: firstVideo.endTime }]
                 });
+                this.activeVideoIds.push(firstVideo.id); // 활성 비디오 ID 추가
               }
               
               // 두 번째 카메라의 첫 번째 영상을 오른쪽 플레이어에 (있는 경우)
@@ -873,6 +906,7 @@ export default {
                   ...secondVideo,
                   segments: [{ startTime: secondVideo.startTime, endTime: secondVideo.endTime }]
                 });
+                this.activeVideoIds.push(secondVideo.id); // 활성 비디오 ID 추가
               }
               
               // 타임라인을 가장 빠른 비디오의 시작 위치로 설정
@@ -905,24 +939,39 @@ export default {
 
     // 타임라인에 표시할 segment 스타일 계산
     segmentStyle(segment) {
-      // ISO 문자열을 Date 객체로 변환
-      const start = new Date(segment.startTime);
-      const end = new Date(segment.endTime);
+      try {
+        // ISO 문자열을 Date 객체로 변환
+        const start = new Date(segment.startTime);
+        const end = new Date(segment.endTime);
 
-      // 0시 기준 초 단위로 변환 (UTC 기준, 9시간 추가)
-      const startSeconds = (start.getUTCHours() + 9) * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
-      const endSeconds = (end.getUTCHours() + 9) * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
+        // 0시 기준 초 단위로 변환 (UTC 기준, 9시간 추가)
+        const startSeconds = (start.getUTCHours() + 9) * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
+        const endSeconds = (end.getUTCHours() + 9) * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
 
-      const startPercent = (startSeconds / (24 * 60 * 60)) * 100;
-      const duration = endSeconds - startSeconds;
-      const widthPercent = (duration / (24 * 60 * 60)) * 100;
+        const startPercent = (startSeconds / (24 * 60 * 60)) * 100;
+        const duration = endSeconds - startSeconds;
+        const widthPercent = (duration / (24 * 60 * 60)) * 100;
 
-      return {
-        left: `${startPercent}%`,
-        width: `${widthPercent}%`,
-        backgroundColor: 'yellow',
-        zIndex: 1
-      };
+        // 모든 구간을 파란색으로 통일 (첫 번째 카메라의 모든 영상)
+        const backgroundColor = '#3B82F6';
+
+        return {
+          left: `${startPercent}%`,
+          width: `${widthPercent}%`,
+          backgroundColor: backgroundColor,
+          zIndex: 1,
+          border: '2px solid rgba(255, 255, 255, 0.3)',
+          borderRadius: '4px'
+        };
+      } catch (error) {
+        console.error('Error calculating segment style:', error);
+        return {
+          left: '0%',
+          width: '0%',
+          backgroundColor: 'gray',
+          zIndex: 1
+        };
+      }
     },
 
     startDrag(e) {
@@ -1004,7 +1053,7 @@ export default {
     },
 
     onSaveSnapshot() {
-      // 선택된 영상이 있는지 확인
+      // 현재 플레이어에 표시되고 있는 영상이 있는지 확인
       if (!this.selectedVideo1 && !this.selectedVideo2) {
         this.$toast.warning('스냅샷을 저장할 영상을 선택해주세요.');
         return;
@@ -1039,21 +1088,81 @@ export default {
         }
       };
 
-      // 선택된 영상들의 스냅샷 저장
+      let snapshotCount = 0;
+
+      // 첫 번째 영상 스냅샷 저장
       if (this.selectedVideo1 && this.$refs.videoPlayer1) {
-        const video1 = this.recordingHistory.find(r => r.selected && this.selectedVideo1.includes(r.id));
+        const video1 = this.recordingHistory.find(r => this.selectedVideo1.includes(r.id));
         if (video1) {
-          // MP4 비디오 요소 사용
           const videoElement = this.$refs.videoPlayer1;
-          saveSnapshot(videoElement, `${video1.cameraName}_${video1.startTime}_snapshot.jpg`);
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          saveSnapshot(videoElement, `${video1.cameraName}_${timestamp}_snapshot1.jpg`);
+          snapshotCount++;
         }
       }
+
+      // 두 번째 영상 스냅샷 저장
       if (this.selectedVideo2 && this.$refs.videoPlayer2) {
-        const video2 = this.recordingHistory.find(r => r.selected && this.selectedVideo2.includes(r.id));
+        const video2 = this.recordingHistory.find(r => this.selectedVideo2.includes(r.id));
         if (video2) {
-          // MP4 비디오 요소 사용
           const videoElement = this.$refs.videoPlayer2;
-          saveSnapshot(videoElement, `${video2.cameraName}_${video2.startTime}_snapshot.jpg`);
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          saveSnapshot(videoElement, `${video2.cameraName}_${timestamp}_snapshot2.jpg`);
+          snapshotCount++;
+        }
+      }
+
+      if (snapshotCount > 0) {
+        this.$toast.success(`${snapshotCount}개의 스냅샷이 저장되었습니다.`);
+      }
+    },
+
+    // 개별 비디오 다운로드 메서드
+    async downloadVideo(videoItem) {
+      try {
+        // 다운로드 중인 비디오 ID 추가
+        this.downloadingVideos.push(videoItem.id);
+        
+        // 다운로드 URL 생성
+        const downloadUrl = `${API_BASE_URL}/recordings/stream/${videoItem.id}`;
+        
+        // 파일명 생성 (카메라명_시작시간.mp4)
+        const startTime = new Date(videoItem.startTime);
+        const timeString = startTime.toISOString().replace(/[:.]/g, '-').substring(0, 19);
+        const filename = `${videoItem.cameraName}_${timeString}.mp4`;
+        
+        // fetch를 사용하여 파일 다운로드
+        const response = await fetch(downloadUrl);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // Blob으로 변환
+        const blob = await response.blob();
+        
+        // 다운로드 링크 생성
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // 정리
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        this.$toast.success(`${filename} 다운로드가 완료되었습니다.`);
+        
+      } catch (error) {
+        console.error('Error downloading video:', error);
+        this.$toast.error('비디오 다운로드 중 오류가 발생했습니다.');
+      } finally {
+        // 다운로드 중인 비디오 ID 제거
+        const index = this.downloadingVideos.indexOf(videoItem.id);
+        if (index > -1) {
+          this.downloadingVideos.splice(index, 1);
         }
       }
     },
@@ -1234,6 +1343,7 @@ export default {
         
         // 비디오 플레이어에 설정
         this.selectedVideos = [];
+        this.activeVideoIds = []; // 활성 비디오 ID 초기화
         
         if (leftVideo) {
           this.selectedVideo1 = leftVideo.streamUrl;
@@ -1241,6 +1351,7 @@ export default {
             ...leftVideo,
             segments: [{ startTime: leftVideo.startTime, endTime: leftVideo.endTime }]
           });
+          this.activeVideoIds.push(leftVideo.id); // 활성 비디오 ID 추가
         } else {
           // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
           this.selectedVideo1 = null;
@@ -1256,6 +1367,7 @@ export default {
             ...rightVideo,
             segments: [{ startTime: rightVideo.startTime, endTime: rightVideo.endTime }]
           });
+          this.activeVideoIds.push(rightVideo.id); // 활성 비디오 ID 추가
         } else {
           // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
           this.selectedVideo2 = null;
@@ -1268,6 +1380,7 @@ export default {
         // 두 비디오 모두 없으면 selectedVideos 배열도 비우기
         if (!leftVideo && !rightVideo) {
           this.selectedVideos = [];
+          this.activeVideoIds = [];
         }
         
         console.log('Timeline click - Videos set for display - Left:', leftVideo, 'Right:', rightVideo);
@@ -1448,6 +1561,205 @@ export default {
         .padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     },
 
+    // 지속 시간을 포맷팅하는 메서드
+    formatDuration(seconds) {
+      if (!seconds || seconds <= 0) return '0초';
+      
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      
+      let result = '';
+      if (hours > 0) result += `${hours}시간 `;
+      if (minutes > 0) result += `${minutes}분 `;
+      if (secs > 0) result += `${secs}초`;
+      
+      return result.trim() || '0초';
+    },
+
+    // 첫 번째 카메라의 모든 영상 구간을 반환하는 메서드
+    getFirstVideoSegments() {
+      if (!this.recordingHistory || this.recordingHistory.length === 0) {
+        return [];
+      }
+      
+      // 카메라별로 그룹화
+      const cameraGroups = this.cameraGroups;
+      if (cameraGroups.length === 0) {
+        return [];
+      }
+      
+      // 첫 번째 카메라의 모든 녹화 기록을 구간으로 변환
+      const firstCameraRecordings = cameraGroups[0].recordings;
+      const segments = firstCameraRecordings.map(recording => ({
+        startTime: recording.startTime,
+        endTime: recording.endTime,
+        id: recording.id,
+        cameraName: recording.cameraName
+      }));
+      
+      return segments;
+    },
+
+    // 테이블 행의 클래스를 결정하는 메서드
+    getRowClass(item) {
+      // 현재 활성화된 비디오 ID들 확인
+      const isActive = this.activeVideoIds.includes(item.id);
+      
+      // selectedVideos에서도 확인
+      const isInSelectedVideos = this.selectedVideos.some(video => video.id === item.id);
+      
+      // selectedVideo1 또는 selectedVideo2의 URL에서 ID 추출하여 확인
+      const video1Id = this.selectedVideo1 ? this.extractIdFromUrl(this.selectedVideo1) : null;
+      const video2Id = this.selectedVideo2 ? this.extractIdFromUrl(this.selectedVideo2) : null;
+      const isInPlayerUrls = (video1Id && video1Id === item.id) || (video2Id && video2Id === item.id);
+      
+      if (isActive || isInSelectedVideos || isInPlayerUrls) {
+        return 'active-video-row';
+      }
+      
+      return '';
+    },
+
+    // URL에서 ID를 추출하는 헬퍼 메서드
+    extractIdFromUrl(url) {
+      if (!url) return null;
+      const match = url.match(/\/stream\/(\d+)/);
+      return match ? parseInt(match[1]) : null;
+    },
+
+    // 클릭된 영상의 시작 시간으로 타임라인바를 이동시키는 메서드
+    moveTimelineToVideoStart(videoItem) {
+      try {
+        if (!videoItem || !videoItem.startTime) {
+          console.warn('No start time available for video:', videoItem);
+          return;
+        }
+
+        // 영상의 시작 시간을 Date 객체로 변환
+        const startDate = new Date(videoItem.startTime);
+        
+        // UTC 시간을 한국 시간으로 변환 (9시간 추가)
+        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+                           startDate.getUTCMinutes() * 60 + 
+                           startDate.getUTCSeconds();
+        
+        // 24시간(86400초)을 기준으로 퍼센트 계산
+        const totalSeconds = 86400; // 24시간
+        const percent = (startSeconds / totalSeconds) * 100;
+        
+        // 타임라인바 위치 업데이트 (애니메이션 효과)
+        this.animateTimelineToPosition(Math.max(0, Math.min(100, percent)));
+        
+        // 비디오 시간도 업데이트
+        this.updateVideosTime(this.verticalBarPercent);
+        
+        console.log('Timeline moved to video start:', {
+          videoId: videoItem.id,
+          startTime: videoItem.startTime,
+          startSeconds: startSeconds,
+          percent: percent,
+          verticalBarPercent: this.verticalBarPercent
+        });
+        
+      } catch (error) {
+        console.error('Error moving timeline to video start:', error);
+      }
+    },
+
+    // 타임라인바를 부드럽게 애니메이션으로 이동시키는 메서드
+    animateTimelineToPosition(targetPercent) {
+      const startPercent = this.verticalBarPercent;
+      const duration = 500; // 0.5초 애니메이션
+      const startTime = Date.now();
+      
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // easeOutCubic 이징 함수
+        const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+        
+        // 현재 위치 계산
+        this.verticalBarPercent = startPercent + (targetPercent - startPercent) * easeOutCubic;
+        
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          // 애니메이션 완료 후 정확한 위치로 설정
+          this.verticalBarPercent = targetPercent;
+        }
+      };
+      
+      requestAnimationFrame(animate);
+    },
+
+    // 테이블 행 스타일만 업데이트하는 메서드 (페이지 상태 유지)
+    updateTableRowStyles() {
+      try {
+        // Vue의 반응성 시스템을 사용하여 부드럽게 업데이트
+        this.$nextTick(() => {
+          // 현재 페이지의 아이템들만 확인
+          const currentPageItems = this.formattedRecordingHistory;
+          currentPageItems.forEach(item => {
+            const isActive = this.activeVideoIds.includes(item.id);
+            // DOM에서 해당 행을 찾아서 클래스 업데이트
+            const rowElement = document.querySelector(`[data-id="${item.id}"]`);
+            if (rowElement) {
+              if (isActive) {
+                rowElement.classList.add('active-video-row');
+              } else {
+                rowElement.classList.remove('active-video-row');
+              }
+            }
+          });
+        });
+      } catch (error) {
+        console.error('Error updating table row styles:', error);
+      }
+    },
+
+    // 타임라인 구간을 클릭했을 때 해당 비디오를 선택하는 메서드
+    selectVideoBySegment(segment) {
+      try {
+        // 해당 구간의 비디오를 찾기
+        const video = this.recordingHistory.find(record => record.id === segment.id);
+        if (!video) {
+          console.warn('Video not found for segment:', segment);
+          return;
+        }
+
+        // 첫 번째 플레이어에 해당 비디오 설정
+        this.selectedVideo1 = video.streamUrl;
+        this.selectedVideos = [{
+          ...video,
+          segments: [{ startTime: video.startTime, endTime: video.endTime }]
+        }];
+        this.activeVideoIds = [video.id];
+
+        // 두 번째 플레이어는 비우기
+        this.selectedVideo2 = null;
+        if (this.$refs.videoPlayer2) {
+          this.$refs.videoPlayer2.src = '';
+          this.$refs.videoPlayer2.load();
+        }
+
+        // 비디오 플레이어 설정
+        this.$nextTick(() => {
+          this.setupVideoPlayer1();
+        });
+
+        console.log('Video selected by segment:', video);
+        console.log('Active video IDs updated:', this.activeVideoIds);
+
+        // 구간의 시작 시간으로 타임라인바 이동
+        this.moveTimelineToVideoStart(video);
+
+      } catch (error) {
+        console.error('Error selecting video by segment:', error);
+      }
+    },
+
     syncVideosToTimelinePosition() {
       // 수직바 위치가 비디오 범위 내에 있는지 확인
       const totalSeconds = 86400; // 24시간
@@ -1608,6 +1920,7 @@ export default {
         
         // 비디오 플레이어에 설정
         this.selectedVideos = [];
+        this.activeVideoIds = []; // 활성 비디오 ID 초기화
         
         if (leftVideo) {
           this.selectedVideo1 = leftVideo.streamUrl;
@@ -1615,6 +1928,7 @@ export default {
             ...leftVideo,
             segments: [{ startTime: leftVideo.startTime, endTime: leftVideo.endTime }]
           });
+          this.activeVideoIds.push(leftVideo.id); // 활성 비디오 ID 추가
         } else {
           // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
           this.selectedVideo1 = null;
@@ -1630,6 +1944,7 @@ export default {
             ...rightVideo,
             segments: [{ startTime: rightVideo.startTime, endTime: rightVideo.endTime }]
           });
+          this.activeVideoIds.push(rightVideo.id); // 활성 비디오 ID 추가
         } else {
           // 해당 시간대에 영상이 없으면 플레이어에서 영상 제거
           this.selectedVideo2 = null;
@@ -1642,9 +1957,13 @@ export default {
         // 두 비디오 모두 없으면 selectedVideos 배열도 비우기
         if (!leftVideo && !rightVideo) {
           this.selectedVideos = [];
+          this.activeVideoIds = [];
         }
         
         console.log('Videos set for display - Left:', leftVideo, 'Right:', rightVideo);
+        
+        // 클릭된 영상의 시작 시간으로 타임라인바 이동
+        this.moveTimelineToVideoStart(item);
         
       } catch (error) {
         console.error('Error handling table row click:', error);
@@ -1721,6 +2040,76 @@ export default {
       }
       
       return closestVideo;
+    },
+
+    // 🕐 타임라인 정보 업데이트 메서드 (누락된 메서드 추가)
+    updateTimelineInfo() {
+      try {
+        if (!this.recordingHistory || this.recordingHistory.length === 0) {
+          this.timelineStartTime = null;
+          this.timelineEndTime = null;
+          this.timelineDuration = 0;
+          this.selectedVideos = [];
+          return;
+        }
+
+        // 전체 영상의 시작 시간과 종료 시간 계산
+        this.timelineStartTime = this.computedTimelineStartTime;
+        this.timelineEndTime = this.computedTimelineEndTime;
+        this.timelineDuration = this.computedTimelineDuration;
+
+        // 카메라별로 그룹화하여 타임라인에 표시할 비디오 데이터 준비
+        const cameraGroups = this.cameraGroups;
+        this.selectedVideos = [];
+        this.activeVideoIds = []; // 활성 비디오 ID 초기화
+
+        // 첫 번째 카메라의 첫 번째 영상을 첫 번째 비디오로 설정
+        if (cameraGroups.length > 0 && cameraGroups[0].recordings.length > 0) {
+          const firstVideo = cameraGroups[0].recordings[0];
+          this.selectedVideos.push({
+            id: firstVideo.id,
+            cameraName: firstVideo.cameraName,
+            startTime: firstVideo.startTime,
+            endTime: firstVideo.endTime,
+            segments: [{
+              startTime: firstVideo.startTime,
+              endTime: firstVideo.endTime
+            }]
+          });
+          this.activeVideoIds.push(firstVideo.id); // 활성 비디오 ID 추가
+        }
+
+        // 두 번째 카메라의 첫 번째 영상을 두 번째 비디오로 설정
+        if (cameraGroups.length > 1 && cameraGroups[1].recordings.length > 0) {
+          const secondVideo = cameraGroups[1].recordings[0];
+          this.selectedVideos.push({
+            id: secondVideo.id,
+            cameraName: secondVideo.cameraName,
+            startTime: secondVideo.startTime,
+            endTime: secondVideo.endTime,
+            segments: [{
+              startTime: secondVideo.startTime,
+              endTime: secondVideo.endTime
+            }]
+          });
+          this.activeVideoIds.push(secondVideo.id); // 활성 비디오 ID 추가
+        }
+
+        console.log('Timeline info updated:', {
+          startTime: this.timelineStartTime,
+          endTime: this.timelineEndTime,
+          duration: this.timelineDuration,
+          selectedVideos: this.selectedVideos,
+          activeVideoIds: this.activeVideoIds
+        });
+
+      } catch (error) {
+        console.error('Error updating timeline info:', error);
+        this.timelineStartTime = null;
+        this.timelineEndTime = null;
+        this.timelineDuration = 0;
+        this.selectedVideos = [];
+      }
     },
   }
 };
@@ -1838,6 +2227,57 @@ export default {
       &.v-data-table__selected {
         background-color: rgba(79, 140, 255, 0.2) !important;
         border-left: 3px solid var(--cui-primary);
+      }
+
+      // 현재 활성화된 비디오 행 스타일
+      &.active-video-row {
+        background: linear-gradient(90deg, rgba(34, 197, 94, 0.3) 0%, rgba(34, 197, 94, 0.1) 100%) !important;
+        border: 3px solid #22c55e !important;
+        border-radius: 8px !important;
+        box-shadow: 0 6px 20px rgba(34, 197, 94, 0.4) !important;
+        transform: scale(1.01) !important;
+        transition: all 0.3s ease !important;
+        position: relative !important;
+        
+        // 행 전체에 테두리 효과
+        &::before {
+          content: '';
+          position: absolute;
+          top: -2px;
+          left: -2px;
+          right: -2px;
+          bottom: -2px;
+          background: linear-gradient(45deg, #22c55e, #16a34a, #22c55e);
+          border-radius: 10px;
+          z-index: -1;
+          animation: borderGlow 2s ease-in-out infinite alternate;
+        }
+        
+        &:hover {
+          background: linear-gradient(90deg, rgba(34, 197, 94, 0.4) 0%, rgba(34, 197, 94, 0.2) 100%) !important;
+          border-color: #16a34a !important;
+          transform: scale(1.02) !important;
+          box-shadow: 0 8px 25px rgba(34, 197, 94, 0.5) !important;
+        }
+        
+        // 모든 자식 요소에도 스타일 적용
+        td {
+          background: transparent !important;
+          color: #fff !important;
+          font-weight: 700 !important;
+          text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5) !important;
+          border: none !important;
+        }
+      }
+    }
+
+    // 테두리 글로우 애니메이션
+    @keyframes borderGlow {
+      0% {
+        opacity: 0.7;
+      }
+      100% {
+        opacity: 1;
       }
     }
 
@@ -2085,13 +2525,26 @@ export default {
   max-height:200px;
 }
 
-.nle-timeline-box { min-height: 100px; }
-.timeline-slider { height: 80px; }
-.timeline-row { display: flex; align-items: center; height: 18px; }
-.timeline-label { width: 40px; color: #bbb; font-size: 12px; }
-.timeline-bar { flex: 1; position: relative; height: 8px; background: #222; border-radius: 4px; margin-left: 8px; }
-.timeline-segment { border-radius: 4px; }
-.playhead-bar { }
+.nle-timeline-box { min-height: 80px; }
+.timeline-slider { height: 60px; }
+.timeline-videos { 
+  position: relative; 
+  height: 40px; 
+  margin: 10px 0;
+}
+.timeline-bar { 
+  position: relative; 
+  height: 24px; 
+  background: #222; 
+  border-radius: 4px; 
+  border: 1px solid #444;
+  width: 100%;
+}
+.timeline-segment { 
+  border-radius: 4px; 
+  background: #3B82F6 !important;
+  border: 2px solid #60A5FA !important;
+}
 
 .vertical-bar {
   position: absolute;
@@ -2101,5 +2554,17 @@ export default {
   background: red;
   cursor: ew-resize;
   z-index: 10;
+  transition: left 0.1s ease-out;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+}
+
+.current-time-display {
+  background: rgba(0, 0, 0, 0.9) !important;
+  border: 2px solid #3b82f6 !important;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4) !important;
+  font-family: 'Courier New', monospace !important;
+  letter-spacing: 1px !important;
+  min-width: 100px !important;
+  text-align: center !important;
 }
 </style> 
