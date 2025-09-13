@@ -204,13 +204,15 @@ class PNTClient:
         if self.sock:
             try:
                 self.sock.close()
-            except:
-                pass
+                logger.debug("PNT 소켓 연결 종료")
+            except Exception as e:
+                logger.warning(f"PNT 소켓 종료 중 오류: {e}")
         self.sock = None
 
     def send_command(self, pid: int, data=None, expect_response=True):
         """PNT 명령 전송 및 응답 수신"""
         if not self.connected or not self.sock:
+            self.connected = False  # 연결 상태 업데이트
             raise RuntimeError("PNT 서버에 연결되지 않았습니다.")
         
         try:
@@ -225,6 +227,8 @@ class PNTClient:
             # 응답 수신
             response_data = self.sock.recv(1024)
             if not response_data:
+                logger.warning("PNT 서버로부터 응답 데이터가 없습니다. 연결이 끊어졌을 수 있습니다.")
+                self.connected = False
                 return {'success': False, 'message': '응답 데이터 없음'}
             
             logger.debug(f"PNT 응답 수신: {response_data.hex()}")
@@ -254,9 +258,19 @@ class PNTClient:
                 
         except socket.timeout:
             logger.error("PNT 명령 응답 타임아웃")
+            self.connected = False  # 타임아웃 시 연결 상태 업데이트
             return {'success': False, 'message': '응답 타임아웃'}
+        except ConnectionResetError:
+            logger.error("PNT 서버 연결이 리셋되었습니다")
+            self.connected = False
+            return {'success': False, 'message': '연결 리셋'}
+        except BrokenPipeError:
+            logger.error("PNT 서버 파이프가 끊어졌습니다")
+            self.connected = False
+            return {'success': False, 'message': '파이프 끊어짐'}
         except Exception as e:
             logger.error(f"PNT 명령 전송 실패: {e}")
+            self.connected = False  # 예외 발생 시 연결 상태 업데이트
             return {'success': False, 'message': f'전송 실패: {str(e)}'}
 
     def preset_recall(self, preset_number: int):
@@ -267,6 +281,9 @@ class PNTClient:
             logger.info(f"프리셋 {preset_number} 호출 성공")
         else:
             logger.error(f"프리셋 {preset_number} 호출 실패: {result['message']}")
+            # 추가 디버깅 정보
+            if 'response' in result and result['response']:
+                logger.error(f"PNT 응답 상세: {result['response']}")
         return result
 
     def preset_save(self, preset_number: int):
@@ -451,6 +468,13 @@ class PanoramaGenerator:
             if ENABLE_PRESET_MOVEMENT and self.ptz_client:
                 logger.info(f"프리셋 {preset_number}로 이동 중...")
                 
+                # PNT 서버 연결 상태 확인 및 재연결 시도
+                if not self.ptz_client.connected:
+                    logger.warning(f"PNT 서버 연결이 끊어짐. 프리셋 {preset_number} 이동 전 재연결 시도...")
+                    if not self.connect_ptz():
+                        logger.error(f"프리셋 {preset_number} 이동 실패: PNT 서버 재연결 실패")
+                        return False
+                
                 # PNT 서버에 프리셋 호출 명령 전송
                 result = self.ptz_client.preset_recall(preset_number)
                 
@@ -461,6 +485,20 @@ class PanoramaGenerator:
                     return True
                 else:
                     logger.error(f"프리셋 {preset_number} 이동 명령 실패: {result['message']}")
+                    # 연결 상태 재확인
+                    if not self.ptz_client.connected:
+                        logger.warning("PNT 서버 연결이 끊어진 것으로 보입니다. 재연결을 시도합니다.")
+                        if self.connect_ptz():
+                            logger.info("PNT 서버 재연결 성공. 프리셋 호출을 재시도합니다.")
+                            # 재연결 후 한 번 더 시도
+                            retry_result = self.ptz_client.preset_recall(preset_number)
+                            if retry_result['success']:
+                                logger.info(f"프리셋 {preset_number} 재시도 성공")
+                                time.sleep(3)
+                                logger.info(f"프리셋 {preset_number} 이동 완료")
+                                return True
+                            else:
+                                logger.error(f"프리셋 {preset_number} 재시도 실패: {retry_result['message']}")
                     return False
             else:
                 logger.info(f"프리셋 이동 비활성화됨 - 프리셋 {preset_number} 위치에서 {PRESET_WAIT_SECONDS}초 대기...")
@@ -470,6 +508,7 @@ class PanoramaGenerator:
         except Exception as e:
             if ENABLE_PRESET_MOVEMENT:
                 logger.error(f"프리셋 {preset_number} 이동 중 예외 발생: {e}")
+                logger.error(traceback.format_exc())
             else:
                 logger.error(f"프리셋 {preset_number} 대기 중 예외 발생: {e}")
             return False
@@ -664,6 +703,15 @@ class PanoramaGenerator:
             # 3. 3개 프리셋에서 스냅샷 캡처
             snapshots = []
             for preset_num in [1, 2, 3]:
+                logger.info(f"=== 프리셋 {preset_num} 처리 시작 ===")
+                
+                # 프리셋 이동 전 연결 상태 확인
+                if ENABLE_PRESET_MOVEMENT and self.ptz_client and not self.ptz_client.connected:
+                    logger.warning(f"프리셋 {preset_num} 처리 전 PNT 서버 연결이 끊어짐. 재연결 시도...")
+                    if not self.connect_ptz():
+                        logger.error(f"프리셋 {preset_num} 처리 실패: PNT 서버 재연결 실패")
+                        return False
+                
                 if not self.move_to_preset(preset_num):
                     logger.error(f"프리셋 {preset_num} 이동 실패")
                     return False
@@ -671,9 +719,17 @@ class PanoramaGenerator:
                 snapshot = self.capture_snapshot(preset_num)
                 if snapshot:
                     snapshots.append(snapshot)
+                    logger.info(f"프리셋 {preset_num} 스냅샷 캡처 성공")
                 else:
                     logger.error(f"프리셋 {preset_num} 스냅샷 캡처 실패")
                     return False
+                
+                logger.info(f"=== 프리셋 {preset_num} 처리 완료 ===")
+                
+                # 프리셋 간 잠시 대기 (연결 안정화)
+                if preset_num < 3:  # 마지막 프리셋이 아닌 경우
+                    logger.info("다음 프리셋 처리 전 잠시 대기...")
+                    time.sleep(2)
             
             # 4. 3개 이미지를 수평으로 머지
             panorama_base64 = self.merge_images_horizontally(snapshots)
