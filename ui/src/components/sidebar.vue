@@ -87,6 +87,7 @@
           <v-icon>mdi-blog</v-icon>
         </v-btn>
         <v-btn
+          v-if="showAdminButton"
           small
           outlined
           class="admin-btn"
@@ -201,6 +202,9 @@ export default {
         // permissionRequired가 있으면 해당 권한 레벨 이상만 접근 가능
         return this.userPermissionLevel == item.permissionRequired;
       });
+    },
+    showAdminButton() {
+      return this.userPermissionLevel === 1;
     }
   },
   

@@ -90,45 +90,117 @@ console_handler.setFormatter(logging.Formatter(
 logger.addHandler(console_handler)
 
 # =========================
-# PNT protocol helpers (ptz_preset_tour.py에서 가져옴)
+# PNT Protocol Constants (pnt_server.py와 동일)
 # =========================
-RMID = 0xB8  # 184
-TMID = 0xAC  # 172
-PNT_ID = 0x01  # 장치 Address는 내부 고정(비노출)
+RMID = 0xB8  # 184 - Request Message ID
+TMID = 0xAC  # 172 - Response Message ID
+PNT_ID = 0x01  # Device Address (fixed)
 
-PID_PRESET_SAVE = 24    # 0x18
-PID_PRESET_RECALL = 25  # 0x19
-PID_TOUR = 46           # 0x2E (1 = start, 0 = stop)
+# Protocol IDs (PNT 프로토콜 매뉴얼 준수)
+PID_PRESET_SAVE = 24    # 0x18 - 프리셋 저장
+PID_PRESET_RECALL = 25  # 0x19 - 프리셋 호출
+PID_ALARM_RESET = 26    # 0x1A - 알람 리셋 (매뉴얼 표준)
+PID_AUTO_SCAN_CMD = 27  # 0x1B - 자동 스캔 명령 (매뉴얼 표준)
+PID_PRESET_ACK = 32     # 0x20 - 프리셋 호출 응답 (매뉴얼 표준)
+PID_TOUR = 46           # 0x2E - 투어 제어 (1 = start, 0 = stop)
 PID_SET_EACH_TOUR_DATA = 222  # 0xDE: [D0=preset(1~8), D1~D2= speed(rpm LSB/MSB), D3=delay(1~255s)]
 
-def _chk_twos_complement(payload_bytes):
-    total = sum(payload_bytes) & 0xFF
-    return ((~total) + 1) & 0xFF
+# 매뉴얼 표준 PID (추가)
+PID_PRESET_DATA = 200       # 0xC8 - 프리셋 데이터 (Pan, Tilt, Zoom, Focus)
+PID_LIMIT_POSI_DATA = 202   # 0xCA - PAN/TILT 제한 위치 데이터
 
-def _int_le16(n: int):
+# Response codes (PNT 프로토콜 표준)
+RESPONSE_SUCCESS = 0x00
+RESPONSE_ERROR = 0xFF
+RESPONSE_INVALID_COMMAND = 0x01
+RESPONSE_INVALID_PARAMETER = 0x02
+RESPONSE_DEVICE_BUSY = 0x03
+RESPONSE_NOT_IMPLEMENTED = 0x04
+
+def calculate_checksum(packet):
+    """PNT 프로토콜 체크섬 계산 (pnt_server.py와 동일)"""
+    return (256 - (sum(packet) & 0xFF)) & 0xFF
+
+def int_to_le16(n):
+    """16비트 정수를 little-endian 바이트 배열로 변환"""
     n &= 0xFFFF
     return [n & 0xFF, (n >> 8) & 0xFF]
 
-def build_pnt_packet(pid: int, data_bytes=None) -> bytes:
-    data = list(data_bytes or [])
-    base = [RMID, TMID, PNT_ID, pid, len(data)] + data
-    chk = _chk_twos_complement(base)
-    return bytes(base + [chk])
+def create_pnt_packet(pid, data=None):
+    """PNT 패킷 생성 (pnt_server.py와 동일)"""
+    if data is None:
+        data = []
+    packet = [RMID, TMID, PNT_ID, pid, len(data)] + data
+    checksum = calculate_checksum(packet)
+    return bytes(packet + [checksum])
+
+def parse_pnt_response(response_data):
+    """PNT 응답 패킷 파싱"""
+    if len(response_data) < 6:
+        return None
+    
+    try:
+        # [RMID, TMID, PNT_ID, PID, LEN, DATA..., CHECKSUM]
+        rm_id = response_data[0]
+        tm_id = response_data[1]
+        pnt_id = response_data[2]
+        pid = response_data[3]
+        data_len = response_data[4]
+        
+        if len(response_data) < 6 + data_len:
+            return None
+            
+        data = response_data[5:5+data_len]
+        checksum = response_data[5+data_len]
+        
+        # 체크섬 검증
+        packet_without_checksum = response_data[:-1]
+        expected_checksum = calculate_checksum(packet_without_checksum)
+        
+        if checksum != expected_checksum:
+            logger.warning(f"PNT 응답 체크섬 불일치: expected={expected_checksum:02X}, actual={checksum:02X}")
+            return None
+        
+        return {
+            'rm_id': rm_id,
+            'tm_id': tm_id,
+            'pnt_id': pnt_id,
+            'pid': pid,
+            'data_len': data_len,
+            'data': data,
+            'checksum': checksum,
+            'valid': True
+        }
+    except Exception as e:
+        logger.error(f"PNT 응답 파싱 실패: {e}")
+        return None
 
 class PNTClient:
-    """PNT 프로토콜 클라이언트"""
+    """PNT 프로토콜 클라이언트 (pnt_server.py 표준 준수)"""
+    
     def __init__(self):
         self.sock = None
+        self.connected = False
 
-    def connect(self, host: str, port: int):
-        self.close()
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(5.0)
-        s.connect((host, port))
-        s.settimeout(1.0)
-        self.sock = s
+    def connect(self, host: str, port: int, timeout=5.0):
+        """PNT 서버에 연결"""
+        try:
+            self.close()
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.settimeout(timeout)
+            self.sock.connect((host, port))
+            self.sock.settimeout(2.0)  # 응답 대기 타임아웃
+            self.connected = True
+            logger.info(f"PNT 서버 연결 성공: {host}:{port}")
+            return True
+        except Exception as e:
+            logger.error(f"PNT 서버 연결 실패: {e}")
+            self.connected = False
+            return False
 
     def close(self):
+        """연결 종료"""
+        self.connected = False
         if self.sock:
             try:
                 self.sock.close()
@@ -136,15 +208,113 @@ class PNTClient:
                 pass
         self.sock = None
 
-    def send(self, pid: int, data_bytes=None) -> bytes:
-        if not self.sock:
-            raise RuntimeError("소켓이 연결되지 않았습니다.")
-        pkt = build_pnt_packet(pid, data_bytes)
-        self.sock.sendall(pkt)
-        return pkt
+    def send_command(self, pid: int, data=None, expect_response=True):
+        """PNT 명령 전송 및 응답 수신"""
+        if not self.connected or not self.sock:
+            raise RuntimeError("PNT 서버에 연결되지 않았습니다.")
+        
+        try:
+            # 패킷 생성 및 전송
+            packet = create_pnt_packet(pid, data)
+            logger.debug(f"PNT 패킷 전송: {packet.hex()}")
+            self.sock.sendall(packet)
+            
+            if not expect_response:
+                return {'success': True, 'message': '명령 전송 완료'}
+            
+            # 응답 수신
+            response_data = self.sock.recv(1024)
+            if not response_data:
+                return {'success': False, 'message': '응답 데이터 없음'}
+            
+            logger.debug(f"PNT 응답 수신: {response_data.hex()}")
+            
+            # 응답 파싱
+            parsed_response = parse_pnt_response(response_data)
+            if not parsed_response:
+                return {'success': False, 'message': '응답 파싱 실패'}
+            
+            # 응답 코드 확인
+            if parsed_response['data'] and len(parsed_response['data']) > 0:
+                response_code = parsed_response['data'][0]
+                if response_code == RESPONSE_SUCCESS:
+                    return {'success': True, 'message': '명령 실행 성공', 'response': parsed_response}
+                else:
+                    error_messages = {
+                        RESPONSE_ERROR: '일반 오류',
+                        RESPONSE_INVALID_COMMAND: '잘못된 명령',
+                        RESPONSE_INVALID_PARAMETER: '잘못된 파라미터',
+                        RESPONSE_DEVICE_BUSY: '장치 사용 중',
+                        RESPONSE_NOT_IMPLEMENTED: '구현되지 않음'
+                    }
+                    error_msg = error_messages.get(response_code, f'알 수 없는 오류 (코드: {response_code:02X})')
+                    return {'success': False, 'message': f'서버 오류: {error_msg}', 'response': parsed_response}
+            else:
+                return {'success': True, 'message': '명령 실행 성공', 'response': parsed_response}
+                
+        except socket.timeout:
+            logger.error("PNT 명령 응답 타임아웃")
+            return {'success': False, 'message': '응답 타임아웃'}
+        except Exception as e:
+            logger.error(f"PNT 명령 전송 실패: {e}")
+            return {'success': False, 'message': f'전송 실패: {str(e)}'}
 
-    def preset_recall(self, num: int): 
-        return self.send(PID_PRESET_RECALL, [num & 0xFF])
+    def preset_recall(self, preset_number: int):
+        """프리셋 호출"""
+        logger.info(f"프리셋 {preset_number} 호출 요청")
+        result = self.send_command(PID_PRESET_RECALL, [preset_number & 0xFF])
+        if result['success']:
+            logger.info(f"프리셋 {preset_number} 호출 성공")
+        else:
+            logger.error(f"프리셋 {preset_number} 호출 실패: {result['message']}")
+        return result
+
+    def preset_save(self, preset_number: int):
+        """프리셋 저장"""
+        logger.info(f"프리셋 {preset_number} 저장 요청")
+        result = self.send_command(PID_PRESET_SAVE, [preset_number & 0xFF])
+        if result['success']:
+            logger.info(f"프리셋 {preset_number} 저장 성공")
+        else:
+            logger.error(f"프리셋 {preset_number} 저장 실패: {result['message']}")
+        return result
+
+    def tour_start(self):
+        """투어 시작"""
+        logger.info("투어 시작 요청")
+        result = self.send_command(PID_TOUR, [1])
+        if result['success']:
+            logger.info("투어 시작 성공")
+        else:
+            logger.error(f"투어 시작 실패: {result['message']}")
+        return result
+
+    def tour_stop(self):
+        """투어 정지"""
+        logger.info("투어 정지 요청")
+        result = self.send_command(PID_TOUR, [0])
+        if result['success']:
+            logger.info("투어 정지 성공")
+        else:
+            logger.error(f"투어 정지 실패: {result['message']}")
+        return result
+
+    def set_tour_step(self, preset_number: int, speed_rpm: int, delay_sec: int):
+        """투어 스텝 설정"""
+        logger.info(f"투어 스텝 설정: 프리셋={preset_number}, 속도={speed_rpm}rpm, 지연={delay_sec}초")
+        
+        # 속도를 little-endian 16비트로 변환
+        speed_bytes = int_to_le16(speed_rpm)
+        delay = max(1, min(255, delay_sec))
+        
+        data = [preset_number & 0xFF] + speed_bytes + [delay]
+        result = self.send_command(PID_SET_EACH_TOUR_DATA, data)
+        
+        if result['success']:
+            logger.info(f"투어 스텝 설정 성공: 프리셋 {preset_number}")
+        else:
+            logger.error(f"투어 스텝 설정 실패: {result['message']}")
+        return result
 
 class PanoramaGenerator:
     """파노라마 이미지 생성기"""
@@ -170,20 +340,42 @@ class PanoramaGenerator:
         logger.info("PanoramaGenerator 초기화 완료")
 
     def signal_handler(self, signum, frame):
-        """신호 핸들러"""
-        logger.info(f"신호 {signum} 수신, 종료 중...")
+        """신호 핸들러 (pnt_server.py와 동일)"""
+        signal_names = {
+            signal.SIGINT: 'SIGINT (Ctrl+C)',
+            signal.SIGTERM: 'SIGTERM'
+        }
+        signal_name = signal_names.get(signum, f'Signal {signum}')
+        logger.info(f"신호 {signal_name} 수신, 종료 중...")
+        print(f"🛑 {signal_name} 수신, 프로그램 종료 중...")
         self.running = False
 
     def cleanup(self):
-        """정리 작업"""
+        """정리 작업 (개선된 에러 처리)"""
         try:
+            logger.info("정리 작업 시작...")
+            
+            # PNT 클라이언트 연결 종료
             if ENABLE_PRESET_MOVEMENT and self.ptz_client:
-                self.ptz_client.close()
+                try:
+                    self.ptz_client.close()
+                    logger.info("PNT 클라이언트 연결 종료 완료")
+                except Exception as e:
+                    logger.warning(f"PNT 클라이언트 종료 중 오류: {e}")
+            
+            # 데이터베이스 연결 종료
             if nvrdb:
-                nvrdb.close()
+                try:
+                    nvrdb.close()
+                    logger.info("데이터베이스 연결 종료 완료")
+                except Exception as e:
+                    logger.warning(f"데이터베이스 종료 중 오류: {e}")
+            
             logger.info("정리 작업 완료")
+            print("✅ 정리 작업 완료")
         except Exception as e:
             logger.error(f"정리 작업 중 오류: {e}")
+            print(f"❌ 정리 작업 중 오류: {e}")
 
     def connect_database(self):
         """데이터베이스 연결"""
@@ -235,33 +427,51 @@ class PanoramaGenerator:
             return False
 
     def connect_ptz(self):
-        """PTZ 카메라 연결"""
+        """PTZ 카메라 연결 (개선된 에러 처리)"""
         try:
-            self.ptz_client.connect(self.thermal_camera_ip, int(self.thermal_camera_port))
-            logger.info(f"PTZ 카메라 연결 성공: {self.thermal_camera_ip}:{self.thermal_camera_port}")
-            return True
+            if not self.thermal_camera_ip or not self.thermal_camera_port:
+                logger.error("열화상 카메라 IP/Port가 설정되지 않았습니다")
+                return False
+            
+            # PNT 서버 연결 시도
+            success = self.ptz_client.connect(self.thermal_camera_ip, int(self.thermal_camera_port))
+            if success:
+                logger.info(f"PTZ 카메라 연결 성공: {self.thermal_camera_ip}:{self.thermal_camera_port}")
+                return True
+            else:
+                logger.error(f"PTZ 카메라 연결 실패: {self.thermal_camera_ip}:{self.thermal_camera_port}")
+                return False
         except Exception as e:
-            logger.error(f"PTZ 카메라 연결 실패: {e}")
+            logger.error(f"PTZ 카메라 연결 중 예외 발생: {e}")
             return False
 
     def move_to_preset(self, preset_number):
-        """지정된 프리셋으로 이동 (설정에 따라 실제 이동 또는 대기만)"""
+        """지정된 프리셋으로 이동 (개선된 에러 처리 및 응답 확인)"""
         try:
             if ENABLE_PRESET_MOVEMENT and self.ptz_client:
                 logger.info(f"프리셋 {preset_number}로 이동 중...")
-                self.ptz_client.preset_recall(preset_number)
-                time.sleep(3)  # 카메라 이동 대기
-                logger.info(f"프리셋 {preset_number} 이동 완료")
+                
+                # PNT 서버에 프리셋 호출 명령 전송
+                result = self.ptz_client.preset_recall(preset_number)
+                
+                if result['success']:
+                    logger.info(f"프리셋 {preset_number} 이동 명령 성공")
+                    time.sleep(3)  # 카메라 이동 대기
+                    logger.info(f"프리셋 {preset_number} 이동 완료")
+                    return True
+                else:
+                    logger.error(f"프리셋 {preset_number} 이동 명령 실패: {result['message']}")
+                    return False
             else:
                 logger.info(f"프리셋 이동 비활성화됨 - 프리셋 {preset_number} 위치에서 {PRESET_WAIT_SECONDS}초 대기...")
                 time.sleep(PRESET_WAIT_SECONDS)
                 logger.info(f"프리셋 {preset_number} 위치 대기 완료")
-            return True
+                return True
         except Exception as e:
             if ENABLE_PRESET_MOVEMENT:
-                logger.error(f"프리셋 {preset_number} 이동 실패: {e}")
+                logger.error(f"프리셋 {preset_number} 이동 중 예외 발생: {e}")
             else:
-                logger.error(f"프리셋 {preset_number} 대기 실패: {e}")
+                logger.error(f"프리셋 {preset_number} 대기 중 예외 발생: {e}")
             return False
 
     def capture_snapshot(self, preset_number):
@@ -519,34 +729,58 @@ class PanoramaGenerator:
                 time.sleep(60)  # 오류 발생 시 1분 대기 후 재시도
 
 def main():
-    """메인 함수"""
+    """메인 함수 (개선된 예외 처리)"""
     parser = argparse.ArgumentParser(description='파노라마 이미지 생성 프로그램')
     parser.add_argument('--debug', action='store_true', help='디버그 모드')
     parser.add_argument('--once', action='store_true', help='한 번만 실행')
     args = parser.parse_args()
     
+    generator = None
     try:
+        print("🚀 파노라마 생성기 시작...")
+        logger.info("파노라마 생성기 프로그램 시작")
+        
         generator = PanoramaGenerator(debug_mode=args.debug)
         
         # 데이터베이스 연결
         if not generator.connect_database():
             logger.error("데이터베이스 연결 실패")
+            print("❌ 데이터베이스 연결 실패")
             return 1
         
         if args.once:
             # 한 번만 실행
             logger.info("한 번만 실행 모드")
+            print("🔄 한 번만 실행 모드")
             success = generator.generate_panorama()
-            return 0 if success else 1
+            if success:
+                print("✅ 파노라마 생성 완료")
+                return 0
+            else:
+                print("❌ 파노라마 생성 실패")
+                return 1
         else:
             # 스케줄러 실행
+            print(f"⏰ 스케줄러 모드 시작 (간격: {PANORAMA_INTERVAL_MINUTES}분)")
             generator.run_scheduler()
             return 0
             
+    except KeyboardInterrupt:
+        logger.info("사용자에 의해 중단됨 (Ctrl+C)")
+        print("🛑 사용자에 의해 중단됨")
+        return 0
     except Exception as e:
         logger.error(f"프로그램 실행 중 오류: {e}")
         logger.error(traceback.format_exc())
+        print(f"❌ 프로그램 실행 중 오류: {e}")
         return 1
+    finally:
+        if generator:
+            try:
+                generator.cleanup()
+            except Exception as e:
+                logger.error(f"정리 작업 중 오류: {e}")
+                print(f"⚠️ 정리 작업 중 오류: {e}")
 
 if __name__ == "__main__":
     sys.exit(main())
