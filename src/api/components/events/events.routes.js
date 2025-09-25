@@ -36,18 +36,116 @@ function intToLE16(n) {
   return [n & 0xFF, (n >> 8) & 0xFF];
 }
 
-// PNT 프로토콜 PID 상수 (매뉴얼 준수)
+// Digest 인증을 위한 헬퍼 함수
+async function createDigestAuth(username, password, method, uri, realm, nonce, qop, nc, cnonce) {
+  const crypto = await import('crypto');
+
+  // HA1 = MD5(username:realm:password)
+  const ha1 = crypto.createHash('md5').update(`${username}:${realm}:${password}`).digest('hex');
+
+  // HA2 = MD5(method:uri)
+  const ha2 = crypto.createHash('md5').update(`${method}:${uri}`).digest('hex');
+
+  // response = MD5(HA1:nonce:nc:cnonce:qop:HA2)
+  const response = crypto.createHash('md5').update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest('hex');
+
+  return `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", qop=${qop}, nc=${nc}, cnonce="${cnonce}", response="${response}"`;
+}
+
+// Digest 인증을 사용한 HTTP 요청 함수
+async function makeDigestRequest(url, username, password, options = {}) {
+  const axios = (await import('axios')).default;
+  const crypto = await import('crypto');
+
+  log.info(`[인증] 요청 시작: ${url}`);
+
+  // 먼저 Basic 인증 시도
+  try {
+    log.info(`[인증] Basic 인증 시도`);
+    const response = await axios.get(url, {
+      ...options,
+      auth: {
+        username: username,
+        password: password
+      }
+    });
+    log.info(`[인증] Basic 인증 성공: ${response.status}`);
+    return response;
+  } catch (basicError) {
+    log.info(`[인증] Basic 인증 실패: ${basicError.response?.status}`);
+
+    // Basic 인증 실패 시 Digest 인증 시도
+    if (basicError.response && basicError.response.status === 401) {
+      const wwwAuthenticate = basicError.response.headers['www-authenticate'];
+      log.info(`[인증] WWW-Authenticate 헤더: ${wwwAuthenticate}`);
+
+      if (wwwAuthenticate && wwwAuthenticate.startsWith('Digest')) {
+        // Digest 인증 파라미터 파싱
+        const realmMatch = wwwAuthenticate.match(/realm="([^"]+)"/);
+        const nonceMatch = wwwAuthenticate.match(/nonce="([^"]+)"/);
+        const qopMatch = wwwAuthenticate.match(/qop="([^"]+)"/);
+
+        log.info(`[인증] Digest 파싱 결과 - realm: ${realmMatch?.[1]}, nonce: ${nonceMatch?.[1]}, qop: ${qopMatch?.[1]}`);
+
+        if (realmMatch && nonceMatch && qopMatch) {
+          const realm = realmMatch[1];
+          const nonce = nonceMatch[1];
+          const qop = qopMatch[1];
+
+          // cnonce와 nc 생성
+          const cnonce = crypto.randomBytes(16).toString('hex');
+          const nc = '00000001';
+
+          // URI 추출
+          const urlObj = new URL(url);
+          const uri = urlObj.pathname + urlObj.search;
+
+          log.info(`[인증] Digest URI: ${uri}, cnonce: ${cnonce}, nc: ${nc}`);
+
+          // Digest 인증 헤더 생성
+          const authHeader = await createDigestAuth(username, password, 'GET', uri, realm, nonce, qop, nc, cnonce);
+          log.info(`[인증] Digest 헤더: ${authHeader}`);
+
+          // Digest 인증으로 두 번째 요청
+          log.info(`[인증] Digest 인증 요청 시작`);
+          return await axios.get(url, {
+            ...options,
+            headers: {
+              ...options.headers,
+              'Authorization': authHeader
+            }
+          });
+        } else {
+          log.error(`[인증] Digest 파라미터 파싱 실패 - realm: ${!!realmMatch}, nonce: ${!!nonceMatch}, qop: ${!!qopMatch}`);
+        }
+      } else {
+        log.error(`[인증] Digest 인증이 아닙니다: ${wwwAuthenticate}`);
+      }
+    }
+    throw basicError;
+  }
+}
+
+// PNT 프로토콜 PID 상수 (명세 V4.1 준수)
+// PID 타입: R=Read only, W=Parameter change(EEprom write), C=Command(Pan/tilt movement or action)
 const PNT_PID = {
-  PRESET_SAVE: 24,      // 0x18 - 프리셋 저장
-  PRESET_RECALL: 25,    // 0x19 - 프리셋 호출
-  ALARM_RESET: 26,      // 0x1A - 알람 리셋 (매뉴얼 표준)
-  AUTO_SCAN_CMD: 27,    // 0x1B - 자동 스캔 명령 (매뉴얼 표준)
-  PRESET_ACK: 32,       // 0x20 - 프리셋 호출 응답 (매뉴얼 표준)
-  TOUR: 46,             // 0x2E - 투어 제어 (1 = start, 0 = stop)
-  SET_EACH_TOUR_DATA: 222,  // 0xDE: [D0=preset(1~8), D1~D2= speed(rpm LSB/MSB), D3=delay(1~255s)]
-  PRESET_DATA: 200,     // 0xC8 - 프리셋 데이터 (Pan, Tilt, Zoom, Focus) - 매뉴얼 표준
-  LIMIT_POSI_DATA: 202  // 0xCA - PAN/TILT 제한 위치 데이터 - 매뉴얼 표준
+  // 0~100: 1 Byte 데이터
+  PRESET_SAVE: 24,      // 0x18 - 프리셋 저장 (C: Command, 1 Byte)
+  PRESET_RECALL: 25,    // 0x19 - 프리셋 호출 (C: Command, 1 Byte)
+  ALARM_RESET: 26,      // 0x1A - 알람 리셋 (C: Command, 1 Byte)
+  AUTO_SCAN_CMD: 27,    // 0x1B - 자동 스캔 명령 (C: Command, 1 Byte)
+  PRESET_ACK: 32,       // 0x20 - 프리셋 호출 응답 (R: Read only, 1 Byte)
+  TOUR: 46,             // 0x2E - 투어 제어 (C: Command, 1 Byte: 1=start, 0=stop)
+
+  // 101~191: 2 Bytes 데이터
+  // (해당 범위의 PID들은 2바이트 데이터 사용)
+
+  // 192~253: N Bytes 데이터
+  SET_EACH_TOUR_DATA: 222,  // 0xDE: W: Parameter change, N Bytes [D0=preset(1~8), D1~D2=speed(rpm LSB/MSB), D3=delay(1~255s)]
+  PRESET_DATA: 200,     // 0xC8 - 프리셋 데이터 (R: Read only, N Bytes: Pan, Tilt, Zoom, Focus)
+  LIMIT_POSI_DATA: 202  // 0xCA - PAN/TILT 제한 위치 데이터 (R: Read only, N Bytes)
 };
+
 
 // TCP로 패킷 전송 함수 (PNT 서버와 양방향 통신)
 async function sendTCPPacket(ip, port, packet) {
@@ -56,6 +154,7 @@ async function sendTCPPacket(ip, port, packet) {
       const client = new net.Socket();
       let responseData = Buffer.alloc(0);
       let isResolved = false;
+      const startTime = Date.now();
 
       // 연결 타임아웃 설정 (5초)
       client.setTimeout(5000);
@@ -123,7 +222,7 @@ async function sendTCPPacket(ip, port, packet) {
       }, 3000);
 
     }).catch(err => {
-      log.error('Net module import 오류:', err);
+      log.error(`[PNT 모듈 오류] Net module import 실패: ${err.message}`);
       reject(new Error('Net module을 불러올 수 없습니다'));
     });
   });
@@ -175,7 +274,6 @@ function parsePNTResponse(responseData) {
           }
         };
       }
-
 
       // 일반 응답 코드 처리
       switch (responseCode) {
@@ -273,7 +371,8 @@ router.delete('/detectionZone/:id', EventsController.deleteDetectionZone);
  */
 router.post('/ptz/move', async (req, res) => {
   try {
-    const { direction, speed, ip, port } = req.body;
+    const { direction, speed, ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!direction || !ip || !port) {
       return res.status(400).json({
@@ -366,7 +465,8 @@ router.post('/ptz/move', async (req, res) => {
  */
 router.post('/ptz/stop', async (req, res) => {
   try {
-    const { ip, port } = req.body;
+    const { ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!ip || !port) {
       return res.status(400).json({
@@ -440,7 +540,8 @@ router.post('/ptz/stop', async (req, res) => {
  */
 router.post('/ptz/zoom', async (req, res) => {
   try {
-    const { direction, ip, port } = req.body;
+    const { direction, ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!direction || !ip || !port) {
       return res.status(400).json({
@@ -530,7 +631,8 @@ router.post('/ptz/zoom', async (req, res) => {
  */
 router.post('/ptz/focus', async (req, res) => {
   try {
-    const { direction, ip, port } = req.body;
+    const { direction, ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!direction || !ip || !port) {
       return res.status(400).json({
@@ -619,7 +721,8 @@ router.post('/ptz/focus', async (req, res) => {
  */
 router.post('/ptz/wiper', async (req, res) => {
   try {
-    const { action, ip, port } = req.body;
+    const { action, ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!action || !ip || !port) {
       return res.status(400).json({
@@ -675,143 +778,105 @@ router.post('/ptz/wiper', async (req, res) => {
 });
 
 // =========================
-// PNT 프리셋 및 투어 API
+// 웹 API 기반 PTZ 제어 API (포트 80)
 // =========================
 
 /**
  * @swagger
- * /api/ptz/preset/save:
- *   post:
+ * /api/ptz/getPosition:
+ *   get:
  *     tags: [PTZ Control]
- *     summary: PNT 프리셋 저장
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - presetNumber
- *               - ip
- *               - port
- *             properties:
- *               presetNumber:
- *                 type: number
- *                 minimum: 1
- *                 maximum: 8
- *                 description: 프리셋 번호 (1-8)
- *               ip:
- *                 type: string
- *                 description: 카메라 IP 주소
- *               port:
- *                 type: number
- *                 description: 카메라 포트
+ *     summary: PTZ 현재 위치 조회 (웹 API)
+ *     parameters:
+ *       - in: query
+ *         name: ip
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 카메라 IP 주소
+ *       - in: query
+ *         name: ptzNumber
+ *         required: false
+ *         schema:
+ *           type: number
+ *           minimum: 1
+ *           maximum: 3
+ *           default: 1
+ *         description: PTZ 번호 (1-3, 기본값: 1)
  *     responses:
  *       200:
- *         description: 프리셋 저장 성공
+ *         description: PTZ 위치 조회 성공
  *       400:
  *         description: 잘못된 요청 파라미터
  *       500:
  *         description: 서버 내부 오류
  */
-router.post('/ptz/preset/save', async (req, res) => {
+router.get('/ptz/getPosition', async (req, res) => {
   try {
-    const { presetNumber, ip, port } = req.body;
+    const { ip, ptzNumber = 1 } = req.query;
 
-    if (!presetNumber || !ip || !port) {
+    if (!ip) {
       return res.status(400).json({
         success: false,
-        message: '필수 파라미터가 누락되었습니다: presetNumber, ip, port'
+        message: '필수 파라미터가 누락되었습니다: ip'
       });
     }
 
-    if (presetNumber < 1 || presetNumber > 8) {
+    // PTZ 번호 유효성 검사
+    const ptzNum = parseInt(ptzNumber);
+    if (ptzNum < 1 || ptzNum > 3) {
       return res.status(400).json({
         success: false,
-        message: '프리셋 번호는 1-8 사이여야 합니다'
+        message: 'PTZ 번호는 1-3 사이여야 합니다'
       });
     }
 
-    log.info(`PNT Preset Save: ${presetNumber}, target: ${ip}:${port}`);
+    log.info(`[웹 API] PTZ 현재 위치 조회: ${ip}:80, PTZNumber=${ptzNum}`);
 
-    const packet = createPNTPacket(PNT_PID.PRESET_SAVE, [presetNumber & 0xFF]);
-    log.info(`PNT Preset Save packet: ${packet.toString('hex')}`);
+    // 웹 API 호출: http://IP:80/api/ptz.cgi?PTZNumber={ptzNumber}&GetPTZPosition=do
+    const apiUrl = `http://${ip}:80/api/ptz.cgi?PTZNumber=${ptzNum}&GetPTZPosition=do`;
 
-    const response = await sendTCPPacket(ip, port, packet);
+    // Digest 인증을 사용한 요청
+    const response = await makeDigestRequest(apiUrl, 'root', 'cctv1350!!', {
+      timeout: 5000
+    });
 
-    if (response.success) {
-      // PNT 서버에서 저장된 프리셋 데이터를 조회 (매뉴얼 표준 PID 200)
-      try {
-        const presetPacket = createPNTPacket(PNT_PID.PRESET_DATA, [presetNumber & 0xFF]);
-        const presetResponse = await sendTCPPacket(ip, port, presetPacket);
+    const responseText = response.data;
+    log.info(`[웹 API] 응답: ${responseText}`);
 
-        if (presetResponse.success && presetResponse.ptzValues) {
-          res.json({
-            success: true,
-            message: `프리셋 ${presetNumber} 저장 완료`,
-            presetNumber,
-            ip,
-            port,
-            packet: packet.toString('hex'),
-            serverResponse: response.message,
-            ptzValues: presetResponse.ptzValues
-          });
-        } else {
-          // 프리셋 정보 조회 실패 시 시뮬레이션 데이터 사용
-          const currentPTZ = {
-            pan: Math.floor(Math.random() * 360) - 180,
-            tilt: Math.floor(Math.random() * 180) - 90,
-            zoom: Math.floor(Math.random() * 101)
-          };
+    // 응답 파싱: PTZ.{ptzNumber}.Position=345.88,38.00,1.0000
+    const positionMatch = responseText.match(new RegExp(`PTZ\\.${ptzNum}\\.Position=([^,]+),([^,]+),([^,]+)`));
 
-          res.json({
-            success: true,
-            message: `프리셋 ${presetNumber} 저장 완료 (시뮬레이션 데이터)`,
-            presetNumber,
-            ip,
-            port,
-            packet: packet.toString('hex'),
-            serverResponse: response.message,
-            ptzValues: currentPTZ
-          });
-        }
-      } catch (presetError) {
-        log.error('프리셋 정보 조회 오류:', presetError);
-        // 프리셋 정보 조회 실패 시 시뮬레이션 데이터 사용
-        const currentPTZ = {
-          pan: Math.floor(Math.random() * 360) - 180,
-          tilt: Math.floor(Math.random() * 180) - 90,
-          zoom: Math.floor(Math.random() * 101)
-        };
+    if (!positionMatch) {
+      throw new Error(`위치 정보를 파싱할 수 없습니다. 응답: ${responseText}`);
+    }
 
-        res.json({
-          success: true,
-          message: `프리셋 ${presetNumber} 저장 완료 (시뮬레이션 데이터)`,
-          presetNumber,
-          ip,
-          port,
-          packet: packet.toString('hex'),
-          serverResponse: response.message,
-          ptzValues: currentPTZ
-        });
-      }
-    } else {
-      res.status(400).json({
-        success: false,
-        message: `프리셋 ${presetNumber} 저장 실패: ${response.message}`,
-        presetNumber,
+    const pan = parseFloat(positionMatch[1]);
+    const tilt = parseFloat(positionMatch[2]);
+    const zoom = parseFloat(positionMatch[3]);
+
+    log.info(`[웹 API] 파싱된 위치: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+    res.json({
+      success: true,
+      message: 'PTZ 현재 위치 조회 성공',
+      data: {
         ip,
-        port,
-        packet: packet.toString('hex'),
-        serverResponse: response.message
-      });
-    }
+        port: 80,
+        ptzValues: {
+          pan,
+          tilt,
+          zoom
+        },
+        rawResponse: responseText
+      }
+    });
 
   } catch (error) {
-    log.error('PNT Preset Save Error:', error);
+    log.error('[웹 API] PTZ 위치 조회 오류:', error);
     res.status(500).json({
       success: false,
-      message: '프리셋 저장 실패',
+      message: 'PTZ 위치 조회 실패',
       error: error.message
     });
   }
@@ -819,10 +884,10 @@ router.post('/ptz/preset/save', async (req, res) => {
 
 /**
  * @swagger
- * /api/ptz/preset/recall:
+ * /api/ptz/setPosition:
  *   post:
  *     tags: [PTZ Control]
- *     summary: PNT 프리셋 호출
+ *     summary: PTZ 절대 위치 설정 (웹 API)
  *     requestBody:
  *       required: true
  *       content:
@@ -830,127 +895,284 @@ router.post('/ptz/preset/save', async (req, res) => {
  *           schema:
  *             type: object
  *             required:
- *               - presetNumber
  *               - ip
- *               - port
+ *               - pan
+ *               - tilt
+ *               - zoom
+ *               - presetNumber
  *             properties:
- *               presetNumber:
- *                 type: number
- *                 minimum: 1
- *                 maximum: 8
- *                 description: 프리셋 번호 (1-8)
  *               ip:
  *                 type: string
  *                 description: 카메라 IP 주소
- *               port:
+ *               pan:
  *                 type: number
- *                 description: 카메라 포트
+ *                 minimum: 0
+ *                 maximum: 359
+ *                 description: Pan 값 (0-359)
+ *               tilt:
+ *                 type: number
+ *                 minimum: -90
+ *                 maximum: 90
+ *                 description: Tilt 값 (-90-90)
+ *               zoom:
+ *                 type: number
+ *                 minimum: 1
+ *                 description: Zoom 값 (1-Max Zoom)
+ *               presetNumber:
+ *                 type: number
+ *                 minimum: 1
+ *                 maximum: 3
+ *                 description: 프리셋 번호 (1-3)
  *     responses:
  *       200:
- *         description: 프리셋 호출 성공
+ *         description: PTZ 위치 설정 성공
  *       400:
  *         description: 잘못된 요청 파라미터
  *       500:
  *         description: 서버 내부 오류
  */
-router.post('/ptz/preset/recall', async (req, res) => {
+router.post('/ptz/setPosition', async (req, res) => {
   try {
-    const { presetNumber, ip, port } = req.body;
+    const { ip, pan, tilt, zoom, presetNumber } = req.body;
 
-    if (!presetNumber || !ip || !port) {
+    if (!ip || pan === undefined || tilt === undefined || zoom === undefined || !presetNumber) {
       return res.status(400).json({
         success: false,
-        message: '필수 파라미터가 누락되었습니다: presetNumber, ip, port'
+        message: '필수 파라미터가 누락되었습니다: ip, pan, tilt, zoom, presetNumber'
       });
     }
 
-    if (presetNumber < 1 || presetNumber > 8) {
+    // 프리셋 번호 유효성 검사
+    if (presetNumber < 1 || presetNumber > 3) {
       return res.status(400).json({
         success: false,
-        message: '프리셋 번호는 1-8 사이여야 합니다'
+        message: '프리셋 번호는 1-3 사이여야 합니다'
       });
     }
 
-    log.info(`PNT Preset Recall: ${presetNumber}, target: ${ip}:${port}`);
 
-    const packet = createPNTPacket(PNT_PID.PRESET_RECALL, [presetNumber & 0xFF]);
-    log.info(`PNT Preset Recall packet: ${packet.toString('hex')}`);
+    log.info(`[웹 API] PTZ 위치 설정: ${ip}:80, Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}, Preset=${presetNumber}`);
 
-    const response = await sendTCPPacket(ip, port, packet);
+    // 웹 API 호출: http://IP:80/api/ptz.cgi?PTZNumber={presetNumber}&GotoAbsolutePosition=Pan,Tilt,Zoom
+    const apiUrl = `http://${ip}:80/api/ptz.cgi?PTZNumber=${presetNumber}&GotoAbsolutePosition=${pan},${tilt},${zoom}`;
 
-    if (response.success) {
-      // PNT 서버에서 프리셋 데이터를 조회 (매뉴얼 표준 PID 200)
-      try {
-        const presetPacket = createPNTPacket(PNT_PID.PRESET_DATA, [presetNumber & 0xFF]);
-        const presetResponse = await sendTCPPacket(ip, port, presetPacket);
+    // Digest 인증을 사용한 요청
+    const response = await makeDigestRequest(apiUrl, 'root', 'cctv1350!!', {
+      timeout: 10000
+    });
 
-        if (presetResponse.success && presetResponse.ptzValues) {
-          res.json({
-            success: true,
-            message: `프리셋 ${presetNumber} 호출 완료`,
-            presetNumber,
-            ip,
-            port,
-            packet: packet.toString('hex'),
-            serverResponse: response.message,
-            ptzValues: presetResponse.ptzValues
-          });
-        } else {
-          // 프리셋 정보 조회 실패 시 시뮬레이션 데이터 사용
-          const presetPTZ = {
-            pan: Math.floor(Math.random() * 360) - 180,
-            tilt: Math.floor(Math.random() * 180) - 90,
-            zoom: Math.floor(Math.random() * 101)
-          };
+    const responseText = response.data;
+    log.info(`[웹 API] 응답: ${responseText}`);
 
-          res.json({
-            success: true,
-            message: `프리셋 ${presetNumber} 호출 완료 (시뮬레이션 데이터)`,
-            presetNumber,
-            ip,
-            port,
-            packet: packet.toString('hex'),
-            serverResponse: response.message,
-            ptzValues: presetPTZ
-          });
+    // ptz_info.ini에 해당 프리셋으로 저장
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const binDir = path.resolve(process.cwd(), 'bin');
+      const ptzInfoPath = path.join(binDir, 'ptz_info.ini');
+      let iniContent = '';
+
+      // bin 디렉토리가 없으면 생성
+      if (!fs.existsSync(binDir)) {
+        fs.mkdirSync(binDir, { recursive: true });
+      }
+
+      // 기존 INI 파일이 있으면 읽기
+      if (fs.existsSync(ptzInfoPath)) {
+        try {
+          iniContent = fs.readFileSync(ptzInfoPath, 'utf-8');
+        } catch (readError) {
+          log.warn(`[INI 파일 읽기 오류] 파일 읽기 실패, 새로 생성:`, readError);
+          iniContent = '';
         }
-      } catch (presetError) {
-        log.error('프리셋 정보 조회 오류:', presetError);
-        // 프리셋 정보 조회 실패 시 시뮬레이션 데이터 사용
-        const presetPTZ = {
-          pan: Math.floor(Math.random() * 360) - 180,
-          tilt: Math.floor(Math.random() * 180) - 90,
-          zoom: Math.floor(Math.random() * 101)
-        };
+      }
 
-        res.json({
-          success: true,
-          message: `프리셋 ${presetNumber} 호출 완료 (시뮬레이션 데이터)`,
-          presetNumber,
-          ip,
-          port,
-          packet: packet.toString('hex'),
-          serverResponse: response.message,
-          ptzValues: presetPTZ
+      // 해당 프리셋 정보 추가/업데이트
+      const sectionName = `PRESET_${presetNumber}`;
+      const timestamp = new Date().toISOString();
+      const client = req.ip || 'unknown';
+
+      const presetData = `[${sectionName}]
+pan=${pan}
+tilt=${tilt}
+zoom=${zoom}
+focus=0
+timestamp=${timestamp}
+client=${client}
+
+`;
+
+      // 기존 1번 프리셋 섹션이 있으면 제거
+      const sectionRegex = new RegExp(`\\[${sectionName}\\][\\s\\S]*?(?=\\n\\[|$)`, 'g');
+      iniContent = iniContent.replace(sectionRegex, '');
+
+      // 새 1번 프리셋 정보 추가
+      iniContent += presetData;
+
+      // INI 파일 저장
+      fs.writeFileSync(ptzInfoPath, iniContent);
+      log.info(`[웹 API] 1번 프리셋 정보 저장 완료: ${ptzInfoPath}`);
+
+    } catch (fileError) {
+      log.error(`[웹 API] INI 파일 저장 오류:`, fileError);
+    }
+
+    res.json({
+      success: true,
+      message: 'PTZ 위치 설정 성공',
+      data: {
+        ip,
+        port: 80,
+        ptzValues: {
+          pan,
+          tilt,
+          zoom
+        },
+        rawResponse: responseText
+      }
+    });
+
+  } catch (error) {
+    log.error('[웹 API] PTZ 위치 설정 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: 'PTZ 위치 설정 실패',
+      error: error.message
+    });
+  }
+});
+
+// =========================
+// PNT 프리셋 및 투어 API
+// =========================
+
+
+
+
+
+/**
+ * @swagger
+ * /api/ptz/home:
+ *   post:
+ *     tags: [PTZ Control]
+ *     summary: 홈프리셋 이동 (1번 프리셋)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - ip
+ *             properties:
+ *               ip:
+ *                 type: string
+ *                 description: 카메라 IP 주소
+ *     responses:
+ *       200:
+ *         description: 홈프리셋 이동 성공
+ *       400:
+ *         description: 잘못된 요청 파라미터
+ *       500:
+ *         description: 서버 내부 오류
+ */
+router.post('/ptz/home', async (req, res) => {
+  try {
+    const { ip } = req.body;
+
+    if (!ip) {
+      return res.status(400).json({
+        success: false,
+        message: '필수 파라미터가 누락되었습니다: ip'
+      });
+    }
+
+    log.info(`[웹 API] 홈프리셋 이동: ${ip}:80`);
+
+    // ptz_info.ini에서 1번 프리셋 값 읽기
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+
+      const binDir = path.resolve(process.cwd(), 'bin');
+      const ptzInfoPath = path.join(binDir, 'ptz_info.ini');
+
+      if (!fs.existsSync(ptzInfoPath)) {
+        return res.status(404).json({
+          success: false,
+          message: '프리셋 파일이 없습니다'
         });
       }
-    } else {
-      res.status(400).json({
+
+      const iniContent = fs.readFileSync(ptzInfoPath, 'utf-8');
+      const sectionName = 'PRESET_1';
+
+      // 1번 프리셋 섹션 찾기
+      const sectionRegex = new RegExp(`\\[${sectionName}\\][\\s\\S]*?(?=\\n\\[|$)`, 'g');
+      const match = sectionRegex.exec(iniContent);
+
+      if (!match) {
+        return res.status(404).json({
+          success: false,
+          message: '1번 프리셋을 찾을 수 없습니다'
+        });
+      }
+
+      const sectionContent = match[0];
+
+      // Pan, Tilt, Zoom 값 추출
+      const panMatch = sectionContent.match(/pan=([^\n\r]+)/);
+      const tiltMatch = sectionContent.match(/tilt=([^\n\r]+)/);
+      const zoomMatch = sectionContent.match(/zoom=([^\n\r]+)/);
+
+      if (!panMatch || !tiltMatch || !zoomMatch) {
+        return res.status(400).json({
+          success: false,
+          message: '1번 프리셋 데이터 형식이 올바르지 않습니다'
+        });
+      }
+
+      const pan = parseFloat(panMatch[1]);
+      const tilt = parseFloat(tiltMatch[1]);
+      const zoom = parseFloat(zoomMatch[1]);
+
+      log.info(`[웹 API] 1번 프리셋 데이터: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+      // PTZ 위치 설정 (setPosition API 호출)
+      const setPositionUrl = `http://${ip}:80/api/ptz.cgi?PTZNumber=1&GotoAbsolutePosition=${pan},${tilt},${zoom}`;
+      const response = await makeDigestRequest(setPositionUrl, 'root', 'cctv1350!!', {
+        timeout: 10000
+      });
+
+      const responseText = response.data;
+      log.info(`[웹 API] 홈프리셋 이동 응답: ${responseText}`);
+
+      res.json({
+        success: true,
+        message: '홈프리셋 이동 성공',
+        data: {
+          ip,
+          port: 80,
+          ptzValues: { pan, tilt, zoom },
+          rawResponse: responseText
+        }
+      });
+
+    } catch (fileError) {
+      log.error('[웹 API] 홈프리셋 이동 오류:', fileError);
+      res.status(500).json({
         success: false,
-        message: `프리셋 ${presetNumber} 호출 실패: ${response.message}`,
-        presetNumber,
-        ip,
-        port,
-        packet: packet.toString('hex'),
-        serverResponse: response.message
+        message: '홈프리셋 이동 실패',
+        error: fileError.message
       });
     }
 
   } catch (error) {
-    log.error('PNT Preset Recall Error:', error);
+    log.error('[웹 API] 홈프리셋 이동 오류:', error);
     res.status(500).json({
       success: false,
-      message: '프리셋 호출 실패',
+      message: '홈프리셋 이동 실패',
       error: error.message
     });
   }
@@ -988,7 +1210,8 @@ router.post('/ptz/preset/recall', async (req, res) => {
  */
 router.post('/ptz/tour/start', async (req, res) => {
   try {
-    const { ip, port } = req.body;
+    const { ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!ip || !port) {
       return res.status(400).json({
@@ -1070,7 +1293,8 @@ router.post('/ptz/tour/start', async (req, res) => {
  */
 router.post('/ptz/tour/stop', async (req, res) => {
   try {
-    const { ip, port } = req.body;
+    const { ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!ip || !port) {
       return res.status(400).json({
@@ -1142,8 +1366,8 @@ router.post('/ptz/tour/stop', async (req, res) => {
  *               presetNumber:
  *                 type: number
  *                 minimum: 1
- *                 maximum: 8
- *                 description: 프리셋 번호 (1-8)
+ *                 maximum: 99
+ *                 description: 프리셋 번호 (1-99)
  *               speedRpm:
  *                 type: number
  *                 description: 투어 속도 (RPM)
@@ -1168,7 +1392,8 @@ router.post('/ptz/tour/stop', async (req, res) => {
  */
 router.post('/ptz/tour/step', async (req, res) => {
   try {
-    const { presetNumber, speedRpm, delaySec, ip, port } = req.body;
+    const { presetNumber, speedRpm, delaySec, ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!presetNumber || !speedRpm || !delaySec || !ip || !port) {
       return res.status(400).json({
@@ -1177,10 +1402,10 @@ router.post('/ptz/tour/step', async (req, res) => {
       });
     }
 
-    if (presetNumber < 1 || presetNumber > 8) {
+    if (presetNumber < 1 || presetNumber > 99) {
       return res.status(400).json({
         success: false,
-        message: '프리셋 번호는 1-8 사이여야 합니다'
+        message: '프리셋 번호는 1-99 사이여야 합니다'
       });
     }
 
@@ -1290,7 +1515,8 @@ router.post('/ptz/tour/step', async (req, res) => {
  */
 router.post('/ptz/tour/setup', async (req, res) => {
   try {
-    const { speedRpm, delaySec, ip, port } = req.body;
+    const { speedRpm, delaySec, ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!speedRpm || !delaySec || !ip || !port) {
       return res.status(400).json({
@@ -1384,23 +1610,28 @@ router.post('/ptz/tour/setup', async (req, res) => {
  *         description: 서버 내부 오류
  */
 router.get('/ptz/status', async (req, res) => {
+  const startTime = Date.now();
   try {
     const { ip, port } = req.query;
 
     if (!ip || !port) {
+      log.warn(`[PNT 상태 확인] 필수 파라미터 누락: ip=${ip}, port=${port}`);
       return res.status(400).json({
         success: false,
         message: '필수 파라미터가 누락되었습니다: ip, port'
       });
     }
 
-    log.info(`PNT 서버 연결 상태 확인: ${ip}:${port}`);
+    log.info(`[PNT 상태 확인] 서버 연결 테스트 시작: ${ip}:${port}`);
 
     // 간단한 연결 테스트 패킷 (프리셋 호출 0번 - 존재하지 않는 프리셋)
     const packet = createPNTPacket(PNT_PID.PRESET_RECALL, [0]);
-    log.info(`PNT 연결 테스트 패킷: ${packet.toString('hex')}`);
+    log.info(`[PNT 상태 확인] 테스트 패킷: ${packet.toString('hex')}`);
 
     const response = await sendTCPPacket(ip, port, packet);
+    const totalTime = Date.now() - startTime;
+
+    log.info(`[PNT 상태 확인] 응답 수신: ${JSON.stringify(response)}, 소요 시간: ${totalTime}ms`);
 
     res.json({
       success: true,
@@ -1408,22 +1639,27 @@ router.get('/ptz/status', async (req, res) => {
       data: {
         ip,
         port,
-        connected: true,
+        connected: response.success,
         serverResponse: response.message,
-        packet: packet.toString('hex')
+        packet: packet.toString('hex'),
+        responseTime: totalTime
       }
     });
 
   } catch (error) {
-    log.error('PNT 서버 연결 상태 확인 실패:', error);
+    const totalTime = Date.now() - startTime;
+    log.error(`[PNT 상태 확인] 연결 실패: ${error.message}, 소요 시간: ${totalTime}ms`);
+    log.error(`[PNT 상태 확인] 오류 상세:`, error.stack);
+
     res.status(500).json({
       success: false,
       message: 'PNT 서버 연결 실패',
       data: {
         ip: req.query.ip,
-        port: req.query.port,
+        port: 33000,
         connected: false,
-        error: error.message
+        error: error.message,
+        responseTime: totalTime
       }
     });
   }
@@ -1458,12 +1694,13 @@ router.get('/ptz/status', async (req, res) => {
  */
 router.get('/ptz/preset/list', async (req, res) => {
   try {
-    const { ip, port } = req.query;
+    const { ip } = req.query;
+    const port = 33000; // PNT 서버 포트 고정
 
-    if (!ip || !port) {
+    if (!ip) {
       return res.status(400).json({
         success: false,
-        message: '필수 파라미터가 누락되었습니다: ip, port'
+        message: '필수 파라미터가 누락되었습니다: ip'
       });
     }
 
@@ -1473,10 +1710,16 @@ router.get('/ptz/preset/list', async (req, res) => {
     // INI 파일을 직접 읽어서 프리셋 정보를 반환
     const fs = await import('fs');
     const path = await import('path');
-    const ini = await import('ini');
 
     try {
-      const ptzInfoPath = path.join(process.cwd(), 'bin', 'ptz_info.ini');
+      const binDir = path.join(process.cwd(), 'bin');
+      const ptzInfoPath = path.join(binDir, 'ptz_info.ini');
+
+      // bin 디렉토리가 없으면 생성
+      if (!fs.existsSync(binDir)) {
+        fs.mkdirSync(binDir, { recursive: true });
+        log.info(`bin 디렉토리가 생성되었습니다: ${binDir}`);
+      }
 
       if (!fs.existsSync(ptzInfoPath)) {
         return res.json({
@@ -1489,24 +1732,31 @@ router.get('/ptz/preset/list', async (req, res) => {
         });
       }
 
-      const iniData = ini.parse(fs.readFileSync(ptzInfoPath, 'utf-8'));
+      const iniContent = fs.readFileSync(ptzInfoPath, 'utf-8');
       const presets = [];
 
       // INI 파일에서 프리셋 정보 추출
-      for (const sectionName in iniData) {
-        if (sectionName.startsWith('PRESET_')) {
-          const presetNum = parseInt(sectionName.split('_')[1]);
-          const presetData = iniData[sectionName];
+      const presetRegex = /\[PRESET_(\d+)\][\s\S]*?pan=([^\n\r]+)[\s\S]*?tilt=([^\n\r]+)[\s\S]*?zoom=([^\n\r]+)[\s\S]*?focus=([^\n\r]+)[\s\S]*?timestamp=([^\n\r]+)[\s\S]*?client=([^\n\r]+)/g;
+      let match;
 
-          presets.push({
-            presetNumber: presetNum,
-            pan: parseInt(presetData.pan) || 0,
-            tilt: parseInt(presetData.tilt) || 0,
-            zoom: parseInt(presetData.zoom) || 0,
-            timestamp: presetData.timestamp || '',
-            client: presetData.client || ''
-          });
-        }
+      while ((match = presetRegex.exec(iniContent)) !== null) {
+        const presetNum = parseInt(match[1]);
+        const pan = parseFloat(match[2]) || 0;
+        const tilt = parseFloat(match[3]) || 0;
+        const zoom = parseFloat(match[4]) || 0;
+        const focus = parseFloat(match[5]) || 0;
+        const timestamp = match[6] || '';
+        const client = match[7] || '';
+
+        presets.push({
+          presetNumber: presetNum,
+          pan,
+          tilt,
+          zoom,
+          focus,
+          timestamp,
+          client
+        });
       }
 
       // 프리셋 번호순으로 정렬
@@ -1560,8 +1810,8 @@ router.get('/ptz/preset/list', async (req, res) => {
  *               presetNumber:
  *                 type: number
  *                 minimum: 1
- *                 maximum: 8
- *                 description: 프리셋 번호 (1-8)
+ *                 maximum: 99
+ *                 description: 프리셋 번호 (1-99)
  *               ip:
  *                 type: string
  *                 description: 카메라 IP 주소
@@ -1578,7 +1828,8 @@ router.get('/ptz/preset/list', async (req, res) => {
  */
 router.delete('/ptz/preset/delete', async (req, res) => {
   try {
-    const { presetNumber, ip, port } = req.body;
+    const { presetNumber, ip } = req.body;
+    const port = 33000; // PNT 서버 포트 고정
 
     if (!presetNumber || !ip || !port) {
       return res.status(400).json({
@@ -1587,10 +1838,10 @@ router.delete('/ptz/preset/delete', async (req, res) => {
       });
     }
 
-    if (presetNumber < 1 || presetNumber > 8) {
+    if (presetNumber < 1 || presetNumber > 99) {
       return res.status(400).json({
         success: false,
-        message: '프리셋 번호는 1-8 사이여야 합니다'
+        message: '프리셋 번호는 1-99 사이여야 합니다'
       });
     }
 
@@ -1599,10 +1850,16 @@ router.delete('/ptz/preset/delete', async (req, res) => {
     // INI 파일에서 프리셋 삭제
     const fs = await import('fs');
     const path = await import('path');
-    const ini = await import('ini');
 
     try {
-      const ptzInfoPath = path.join(process.cwd(), 'bin', 'ptz_info.ini');
+      const binDir = path.join(process.cwd(), 'bin');
+      const ptzInfoPath = path.join(binDir, 'ptz_info.ini');
+
+      // bin 디렉토리가 없으면 생성
+      if (!fs.existsSync(binDir)) {
+        fs.mkdirSync(binDir, { recursive: true });
+        log.info(`bin 디렉토리가 생성되었습니다: ${binDir}`);
+      }
 
       if (!fs.existsSync(ptzInfoPath)) {
         return res.status(404).json({
@@ -1611,14 +1868,19 @@ router.delete('/ptz/preset/delete', async (req, res) => {
         });
       }
 
-      const iniData = ini.parse(fs.readFileSync(ptzInfoPath, 'utf-8'));
+      let iniContent = fs.readFileSync(ptzInfoPath, 'utf-8');
       const sectionName = `PRESET_${presetNumber}`;
 
-      if (iniData[sectionName]) {
-        delete iniData[sectionName];
+      // 프리셋 섹션 찾기
+      const sectionRegex = new RegExp(`\\[${sectionName}\\][\\s\\S]*?(?=\\n\\[|$)`, 'g');
+      const match = sectionRegex.exec(iniContent);
+
+      if (match) {
+        // 프리셋 섹션 제거
+        iniContent = iniContent.replace(sectionRegex, '');
 
         // INI 파일 다시 저장
-        fs.writeFileSync(ptzInfoPath, ini.stringify(iniData, { section: 'PRESETS' }));
+        fs.writeFileSync(ptzInfoPath, iniContent);
 
         res.json({
           success: true,

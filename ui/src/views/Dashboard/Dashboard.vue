@@ -151,7 +151,7 @@
               // 연결 정보
               .connection-info
                 v-row
-                  v-col(cols="6")
+                  v-col(cols="8")
                     v-text-field(
                       v-model="ptzConfig.ip"
                       label="카메라 IP"
@@ -160,16 +160,7 @@
                       :error-messages="ipError"
                       @input="validateIP"
                     )
-                  v-col(cols="3")
-                    v-text-field(
-                      v-model="ptzConfig.port"
-                      label="포트"
-                      outlined
-                      dense
-                      :error-messages="portError"
-                      @input="validatePort"
-                    )
-                  v-col(cols="3")
+                  v-col(cols="4")
                     v-text-field(
                       v-model="ptzConfig.speed"
                       label="속도 (1-63)"
@@ -330,12 +321,12 @@
                     v-btn(
                       color="secondary"
                       small
-                      @click="loadPreset(1)"
+                      @click="loadPreset1"
                     ) 불러오기
                     v-btn(
-                      color="secondary"
+                      color="success"
                       small
-                      @click="savePreset(1)"
+                      @click="savePreset1"
                     ) 저장하기
                 
                 .preset-row
@@ -366,12 +357,12 @@
                     v-btn(
                       color="secondary"
                       small
-                      @click="loadPreset(2)"
+                      @click="loadPreset2"
                     ) 불러오기
                     v-btn(
-                      color="secondary"
+                      color="success"
                       small
-                      @click="savePreset(2)"
+                      @click="savePreset2"
                     ) 저장하기
                 
                 .preset-row
@@ -402,12 +393,12 @@
                     v-btn(
                       color="secondary"
                       small
-                      @click="loadPreset(3)"
+                      @click="loadPreset3"
                     ) 불러오기
                     v-btn(
-                      color="secondary"
+                      color="success"
                       small
-                      @click="savePreset(3)"
+                      @click="savePreset3"
                     ) 저장하기
 
             // 홈 프리셋으로 이동 버튼
@@ -538,8 +529,35 @@ import * as XLSX from 'xlsx';
 import * as echarts from 'echarts';
 import { getAlerts} from '@/api/alerts.api';
 import { getEventSetting } from '@/api/eventSetting.api.js';
-import { ptzMove, ptzStop, ptzZoom, ptzFocus, ptzWiper, pntPresetSave, pntPresetRecall, pntTourStart, pntTourStop, pntTourSetup } from '@/api/ptz.api';
+import { ptzMove, ptzStop, ptzZoom, ptzFocus, ptzWiper, pntTourStart, pntTourStop, pntTourSetup } from '@/api/ptz.api';
 import { getPanoramaData } from '@/api/panorama.api';
+
+// 새로운 웹 API 함수들
+const getPTZPosition = async (ip, ptzNumber = 1) => {
+  const response = await fetch(`/api/ptz/getPosition?ip=${ip}&ptzNumber=${ptzNumber}`);
+  return await response.json();
+};
+
+const setPTZPosition = async (ip, pan, tilt, zoom, presetNumber = 1) => {
+  const response = await fetch('/api/ptz/setPosition', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ip, pan, tilt, zoom, presetNumber })
+  });
+  return await response.json();
+};
+
+// 프리셋 목록 조회 API 함수
+const getPresetList = async (ip) => {
+  const response = await fetch(`/api/ptz/preset/list?ip=${ip}`);
+  return await response.json();
+};
+
+
+
+
 
 // PTZ 아이콘 import
 import { 
@@ -604,12 +622,11 @@ data() {
     ptzDialog: false,
     ptzConfig: {
       ip: '175.201.204.165',
-      port: '33000',
+      port: '80',
       speed: 32
     },
-    // IP/Port 유효성 검사 관련 데이터
+    // IP 유효성 검사 관련 데이터
     ipError: '',
-    portError: '',
     connectionStatus: null,
     // PTZ 아이콘
     ptzIcons: {
@@ -932,13 +949,9 @@ methods: {
               console.log('IP 설정이 없어 기본값 사용:', this.ptzConfig.ip);
             }
             
-            // Port 설정
-            if (objectConfig.thermalCamera.port) {
-              this.ptzConfig.port = objectConfig.thermalCamera.port;
-              console.log('Port 설정 완료:', this.ptzConfig.port);
-            } else {
-              console.log('Port 설정이 없어 기본값 사용:', this.ptzConfig.port);
-            }
+            // Port 설정 (팬틸트 제어용으로 32000, 웹 API는 별도 처리)
+            this.ptzConfig.port = '32000';
+            console.log('Port 설정 완료 (팬틸트 제어용):', this.ptzConfig.port);
             
             // Speed 설정 (있는 경우)
             if (objectConfig.thermalCamera.speed) {
@@ -961,15 +974,25 @@ methods: {
       // 연결 상태 초기화
       this.connectionStatus = null;
       this.ipError = '';
-      this.portError = '';
       
     } catch (error) {
       console.error('EventSetting 조회 실패:', error);
       console.log('기본 PTZ 설정 사용');
     }
     
+    // 연결 상태 설정 (홈프리셋 버튼 활성화를 위해)
+    this.connected = true;
+    this.connectionStatus = { 
+      type: 'success', 
+      message: `연결 준비 완료: ${this.ptzConfig.ip}:80 (웹 API)` 
+    };
+    
+    // 프리셋 팝업 열기
     this.ptzDialog = true;
     console.log('PTZ 팝업 열기 완료');
+    
+    // 3개 프리셋 값을 자동으로 로드
+    await this.loadAllPresets();
   },
 
   // IP 유효성 검사
@@ -988,40 +1011,24 @@ methods: {
     }
   },
 
-  // Port 유효성 검사
-  validatePort() {
-    const port = parseInt(this.ptzConfig.port);
-    
-    if (!this.ptzConfig.port) {
-      this.portError = '포트를 입력해주세요';
-      this.connectionStatus = { type: 'warning', message: '포트를 입력해주세요' };
-    } else if (isNaN(port) || port < 1 || port > 65535) {
-      this.portError = '포트는 1-65535 사이의 숫자여야 합니다';
-      this.connectionStatus = { type: 'warning', message: '포트는 1-65535 사이의 숫자여야 합니다' };
-    } else {
-      this.portError = '';
-      this.updateConnectionStatus();
-    }
-  },
 
   // 연결 상태 업데이트
   updateConnectionStatus() {
     console.log('🔗 연결 상태 업데이트');
     console.log('🔍 IP Error:', this.ipError);
-    console.log('🔍 Port Error:', this.portError);
     console.log('🔍 PTZ Config:', this.ptzConfig);
     
-    if (!this.ipError && !this.portError) {
+    if (!this.ipError) {
       this.connectionStatus = { 
         type: 'success', 
-        message: `연결 준비 완료: ${this.ptzConfig.ip}:${this.ptzConfig.port}` 
+        message: `연결 준비 완료: ${this.ptzConfig.ip}:80 (웹 API)` 
       };
       this.connected = true;
       console.log('✅ 연결 상태: 준비 완료');
     } else {
       this.connectionStatus = { 
         type: 'error', 
-        message: 'IP 주소와 포트를 올바르게 입력해주세요' 
+        message: 'IP 주소를 올바르게 입력해주세요' 
       };
       this.connected = false;
       console.log('❌ 연결 상태: 오류');
@@ -1029,9 +1036,9 @@ methods: {
   },
 
   async ptzMove(direction) {
-    // IP와 Port 유효성 검사
-    if (this.ipError || this.portError) {
-      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+    // IP 유효성 검사
+    if (this.ipError) {
+      this.$toast.error('IP 주소를 올바르게 입력해주세요');
       return;
     }
     
@@ -1045,9 +1052,9 @@ methods: {
   },
 
   async ptzStop() {
-    // IP와 Port 유효성 검사
-    if (this.ipError || this.portError) {
-      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+    // IP 유효성 검사
+    if (this.ipError) {
+      this.$toast.error('IP 주소를 올바르게 입력해주세요');
       return;
     }
     
@@ -1060,9 +1067,9 @@ methods: {
   },
 
   async ptzZoom(direction) {
-    // IP와 Port 유효성 검사
-    if (this.ipError || this.portError) {
-      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
+    // IP 유효성 검사
+    if (this.ipError) {
+      this.$toast.error('IP 주소를 올바르게 입력해주세요');
       return;
     }
     
@@ -1076,10 +1083,10 @@ methods: {
   },
 
   async ptzFocus(direction) {
-    // IP와 Port 유효성 검사
-    if (this.ipError || this.portError) {
-      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
-      this.connectionStatus = { type: 'error', message: 'IP 주소와 포트를 올바르게 입력해주세요' };
+    // IP 유효성 검사
+    if (this.ipError) {
+      this.$toast.error('IP 주소를 올바르게 입력해주세요');
+      this.connectionStatus = { type: 'error', message: 'IP 주소를 올바르게 입력해주세요' };
       return;
     }
     
@@ -1093,10 +1100,10 @@ methods: {
   },
 
   async ptzWiper(action) {
-    // IP와 Port 유효성 검사
-    if (this.ipError || this.portError) {
-      this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
-      this.connectionStatus = { type: 'error', message: 'IP 주소와 포트를 올바르게 입력해주세요' };
+    // IP 유효성 검사
+    if (this.ipError) {
+      this.$toast.error('IP 주소를 올바르게 입력해주세요');
+      this.connectionStatus = { type: 'error', message: 'IP 주소를 올바르게 입력해주세요' };
       return;
     }
     
@@ -1180,141 +1187,435 @@ methods: {
     }
   },
 
-
-  // 프리셋 불러오기
-  async loadPreset(presetNumber) {
+  // 현재 위치 불러오기 (웹 API)
+  async getCurrentPosition() {
     try {
-      const response = await pntPresetRecall(presetNumber, this.ptzConfig.ip, this.ptzConfig.port);
+      console.log('📍 현재 위치 불러오기 시작');
       
-      // 디버깅을 위한 로그
-      console.log('🔍 Preset Recall Response:', response);
-      console.log('🔍 Response data:', response.data);
-      console.log('🔍 PTZ Values:', response.data.ptzValues);
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('현재 위치 불러오기 실패: IP 오류');
+        return;
+      }
+
+      this.addLog('현재 위치 불러오기 요청 중...');
       
-      // PTZ 값을 입력 필드에 적용
-      if (response.data && response.data.ptzValues) {
+      const response = await getPTZPosition(this.ptzConfig.ip, 1);
+      
+      console.log('🔍 Current Position Response:', response);
+      
+      if (response.success && response.data && response.data.ptzValues) {
         const { pan, tilt, zoom } = response.data.ptzValues;
 
-        console.log(`🔍 PTZ Values extracted: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+        console.log(`🔍 Current Position: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
 
-        // 프리셋별 입력 필드에 값 적용
-        const presetKey = `preset${presetNumber}`;
-        console.log(`🔍 Preset key: ${presetKey}`);
-        console.log('🔍 Preset values before:', this.presetValues[presetKey]);
-
-        if (this.presetValues[presetKey]) {
-          this.presetValues[presetKey].pan = pan;
-          this.presetValues[presetKey].tilt = tilt;
-          this.presetValues[presetKey].zoom = zoom;
-
-          console.log('🔍 Preset values after:', this.presetValues[presetKey]);
-        }
-
-        this.$toast.success(`Preset ${presetNumber} 불러오기 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
-        this.addLog(`Preset ${presetNumber} 불러오기 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+        this.$toast.success(`현재 위치 불러오기 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`현재 위치 불러오기 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
       } else {
-        console.log('❌ PTZ Values not found in response');
-        this.$toast.success(`Preset ${presetNumber} 불러오기 완료`);
-        this.addLog(`Preset ${presetNumber} 불러오기 완료`);
+        this.$toast.error(`현재 위치 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`현재 위치 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
       }
     } catch (error) {
-      console.error('Preset Recall Error:', error);
-      this.$toast.error(`Preset ${presetNumber} 불러오기 실패`);
-      this.addLog(`Preset ${presetNumber} 불러오기 실패: ${error.message}`);
+      console.error('Current Position Error:', error);
+      this.$toast.error('현재 위치 불러오기 실패');
+      this.addLog(`현재 위치 불러오기 실패: ${error.message}`);
     }
   },
 
-  // 프리셋 저장하기
-  async savePreset(presetNumber) {
+  // 현재 위치 저장하기 (웹 API)
+  async setCurrentPosition() {
     try {
-      const response = await pntPresetSave(presetNumber, this.ptzConfig.ip, this.ptzConfig.port);
+      console.log('💾 현재 위치 저장하기 시작');
       
-      // 디버깅을 위한 로그
-      console.log('🔍 Preset Save Response:', response);
-      console.log('🔍 Response data:', response.data);
-      console.log('🔍 PTZ Values:', response.data?.ptzValues);
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('현재 위치 저장하기 실패: IP 오류');
+        return;
+      }
+
+      // 먼저 현재 위치를 불러옴
+      this.addLog('현재 위치 조회 중...');
+      const getResponse = await getPTZPosition(this.ptzConfig.ip, 1);
       
-      // 서버에서 반환된 PTZ 값을 입력 필드에 적용
-      if (response.data && response.data.ptzValues) {
-        const { pan, tilt, zoom } = response.data.ptzValues;
+      if (!getResponse.success || !getResponse.data || !getResponse.data.ptzValues) {
+        this.$toast.error('현재 위치를 조회할 수 없습니다');
+        this.addLog('현재 위치 저장하기 실패: 위치 조회 실패');
+        return;
+      }
 
-        console.log(`🔍 PTZ Values extracted: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+      const { pan, tilt, zoom } = getResponse.data.ptzValues;
+      this.addLog(`현재 위치: Pan=${pan}°, Tilt=${tilt}°, Zoom=${zoom}%`);
 
-        // 프리셋별 입력 필드에 값 적용
-        const presetKey = `preset${presetNumber}`;
-        console.log(`🔍 Preset key: ${presetKey}`);
-        console.log('🔍 Preset values before:', this.presetValues[presetKey]);
-
-        if (this.presetValues[presetKey]) {
-          this.presetValues[presetKey].pan = pan;
-          this.presetValues[presetKey].tilt = tilt;
-          this.presetValues[presetKey].zoom = zoom;
-
-          console.log('🔍 Preset values after:', this.presetValues[presetKey]);
-        }
-
-        this.$toast.success(`Preset ${presetNumber} 저장 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
-        this.addLog(`Preset ${presetNumber} 저장 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+      // 1번 프리셋으로 저장
+      this.addLog('1번 프리셋으로 저장 중...');
+      const response = await setPTZPosition(this.ptzConfig.ip, pan, tilt, zoom, 1);
+      
+      console.log('🔍 Set Position Response:', response);
+      
+      if (response.success) {
+        this.$toast.success(`현재 위치 저장 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`현재 위치 저장 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
       } else {
-        console.log('❌ PTZ Values not found in response');
-        this.$toast.success(`Preset ${presetNumber} 저장 완료`);
-        this.addLog(`Preset ${presetNumber} 저장 완료`);
+        this.$toast.error(`현재 위치 저장 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`현재 위치 저장 실패: ${response.message || '알 수 없는 오류'}`);
       }
     } catch (error) {
-      console.error('Preset Save Error:', error);
-      this.$toast.error(`Preset ${presetNumber} 저장 실패`);
-      this.addLog(`Preset ${presetNumber} 저장 실패: ${error.message}`);
+      console.error('Set Position Error:', error);
+      this.$toast.error('현재 위치 저장 실패');
+      this.addLog(`현재 위치 저장 실패: ${error.message}`);
     }
   },
 
-  // 홈 프리셋으로 이동 (프리셋 1번 적용)
+  // 1번 프리셋 불러오기
+  async loadPreset1() {
+    try {
+      console.log('📍 1번 프리셋 불러오기 시작');
+      
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('1번 프리셋 불러오기 실패: IP 오류');
+        return;
+      }
+
+      this.addLog('1번 프리셋 조회 중...');
+      
+      const response = await getPTZPosition(this.ptzConfig.ip, 1);
+      
+      console.log('🔍 Preset 1 Response:', response);
+      
+      if (response.success && response.data && response.data.ptzValues) {
+        const { pan, tilt, zoom } = response.data.ptzValues;
+
+        console.log(`🔍 Preset 1 Values: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+        // 1번 프리셋 입력 필드에 값 적용
+        this.presetValues.preset1.pan = pan;
+        this.presetValues.preset1.tilt = tilt;
+        this.presetValues.preset1.zoom = zoom;
+
+        this.$toast.success(`1번 프리셋 불러오기 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`1번 프리셋 불러오기 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+      } else {
+        this.$toast.error(`1번 프리셋 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`1번 프리셋 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Preset 1 Error:', error);
+      this.$toast.error('1번 프리셋 불러오기 실패');
+      this.addLog(`1번 프리셋 불러오기 실패: ${error.message}`);
+    }
+  },
+
+  // 2번 프리셋 불러오기
+  async loadPreset2() {
+    try {
+      console.log('📍 2번 프리셋 불러오기 시작');
+      
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('2번 프리셋 불러오기 실패: IP 오류');
+        return;
+      }
+
+      this.addLog('2번 프리셋 조회 중...');
+      
+      const response = await getPTZPosition(this.ptzConfig.ip, 2);
+      
+      console.log('🔍 Preset 2 Response:', response);
+      
+      if (response.success && response.data && response.data.ptzValues) {
+        const { pan, tilt, zoom } = response.data.ptzValues;
+
+        console.log(`🔍 Preset 2 Values: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+        // 2번 프리셋 입력 필드에 값 적용
+        this.presetValues.preset2.pan = pan;
+        this.presetValues.preset2.tilt = tilt;
+        this.presetValues.preset2.zoom = zoom;
+
+        this.$toast.success(`2번 프리셋 불러오기 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`2번 프리셋 불러오기 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+      } else {
+        this.$toast.error(`2번 프리셋 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`2번 프리셋 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Preset 2 Error:', error);
+      this.$toast.error('2번 프리셋 불러오기 실패');
+      this.addLog(`2번 프리셋 불러오기 실패: ${error.message}`);
+    }
+  },
+
+  // 3번 프리셋 불러오기
+  async loadPreset3() {
+    try {
+      console.log('📍 3번 프리셋 불러오기 시작');
+      
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('3번 프리셋 불러오기 실패: IP 오류');
+        return;
+      }
+
+      this.addLog('3번 프리셋 조회 중...');
+      
+      const response = await getPTZPosition(this.ptzConfig.ip, 3);
+      
+      console.log('🔍 Preset 3 Response:', response);
+      
+      if (response.success && response.data && response.data.ptzValues) {
+        const { pan, tilt, zoom } = response.data.ptzValues;
+
+        console.log(`🔍 Preset 3 Values: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+        // 3번 프리셋 입력 필드에 값 적용
+        this.presetValues.preset3.pan = pan;
+        this.presetValues.preset3.tilt = tilt;
+        this.presetValues.preset3.zoom = zoom;
+
+        this.$toast.success(`3번 프리셋 불러오기 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`3번 프리셋 불러오기 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+      } else {
+        this.$toast.error(`3번 프리셋 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`3번 프리셋 불러오기 실패: ${response.message || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Preset 3 Error:', error);
+      this.$toast.error('3번 프리셋 불러오기 실패');
+      this.addLog(`3번 프리셋 불러오기 실패: ${error.message}`);
+    }
+  },
+
+  // 모든 프리셋 값 자동 로드 (팝업 열 때 호출)
+  async loadAllPresets() {
+    try {
+      console.log('📍 모든 프리셋 값 자동 로드 시작');
+      
+      // IP 유효성 검사
+      if (this.ipError) {
+        console.log('IP 오류로 인해 프리셋 로드 건너뜀');
+        return;
+      }
+
+      this.addLog('서버에서 프리셋 목록 조회 중...');
+      
+      // 서버에서 프리셋 목록 조회
+      const response = await getPresetList(this.ptzConfig.ip);
+      
+      console.log('🔍 Preset List Response:', response);
+      
+      if (response.success && response.data && response.data.presets) {
+        const presets = response.data.presets;
+        console.log(`🔍 Found ${presets.length} presets:`, presets);
+        
+        // 각 프리셋에 대해 값 설정
+        for (const preset of presets) {
+          const presetNum = preset.presetNumber;
+          const pan = preset.pan || 0;
+          const tilt = preset.tilt || 0;
+          const zoom = preset.zoom || 1;
+          
+          console.log(`🔍 Preset ${presetNum} Values: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+          
+          // 해당 프리셋 입력 필드에 값 적용
+          if (presetNum === 1) {
+            this.presetValues.preset1.pan = pan;
+            this.presetValues.preset1.tilt = tilt;
+            this.presetValues.preset1.zoom = zoom;
+          } else if (presetNum === 2) {
+            this.presetValues.preset2.pan = pan;
+            this.presetValues.preset2.tilt = tilt;
+            this.presetValues.preset2.zoom = zoom;
+          } else if (presetNum === 3) {
+            this.presetValues.preset3.pan = pan;
+            this.presetValues.preset3.tilt = tilt;
+            this.presetValues.preset3.zoom = zoom;
+          }
+        }
+        
+        this.$toast.success(`프리셋 값 자동 로드 완료 (${presets.length}개)`);
+        this.addLog(`프리셋 값 자동 로드 완료 - ${presets.length}개 프리셋`);
+      } else {
+        console.log('프리셋 목록이 없거나 오류 발생, 개별 로드 시도');
+        this.addLog('프리셋 목록 조회 실패, 개별 로드 시도');
+        
+        // 개별 프리셋 로드 시도
+        await Promise.all([
+          this.loadPreset1(),
+          this.loadPreset2(),
+          this.loadPreset3()
+        ]);
+      }
+    } catch (error) {
+      console.error('Load All Presets Error:', error);
+      this.$toast.warning('프리셋 자동 로드 실패, 수동으로 불러오기를 시도해주세요');
+      this.addLog(`프리셋 자동 로드 실패: ${error.message}`);
+    }
+  },
+
+  // 1번 프리셋 저장하기
+  async savePreset1() {
+    try {
+      console.log('💾 1번 프리셋 저장하기 시작');
+      
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('1번 프리셋 저장하기 실패: IP 오류');
+        return;
+      }
+
+      // 입력된 값들을 가져옴
+      const presetData = this.presetValues.preset1;
+      
+      if (!presetData.pan || !presetData.tilt || !presetData.zoom) {
+        this.$toast.error('1번 프리셋의 Pan, Tilt, Zoom 값을 모두 입력해주세요');
+        this.addLog('1번 프리셋 저장하기 실패: 값이 누락됨');
+        return;
+      }
+
+      const { pan, tilt, zoom } = presetData;
+      this.addLog(`1번 프리셋 저장 중: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+      const response = await setPTZPosition(this.ptzConfig.ip, pan, tilt, zoom, 1);
+      
+      console.log('🔍 Preset 1 Save Response:', response);
+      
+      if (response.success) {
+        this.$toast.success(`1번 프리셋 저장 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`1번 프리셋 저장 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+      } else {
+        this.$toast.error(`1번 프리셋 저장 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`1번 프리셋 저장 실패: ${response.message || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Preset 1 Save Error:', error);
+      this.$toast.error('1번 프리셋 저장 실패');
+      this.addLog(`1번 프리셋 저장 실패: ${error.message}`);
+    }
+  },
+
+  // 2번 프리셋 저장하기
+  async savePreset2() {
+    try {
+      console.log('💾 2번 프리셋 저장하기 시작');
+      
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('2번 프리셋 저장하기 실패: IP 오류');
+        return;
+      }
+
+      // 입력된 값들을 가져옴
+      const presetData = this.presetValues.preset2;
+      
+      if (!presetData.pan || !presetData.tilt || !presetData.zoom) {
+        this.$toast.error('2번 프리셋의 Pan, Tilt, Zoom 값을 모두 입력해주세요');
+        this.addLog('2번 프리셋 저장하기 실패: 값이 누락됨');
+        return;
+      }
+
+      const { pan, tilt, zoom } = presetData;
+      this.addLog(`2번 프리셋 저장 중: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+      const response = await setPTZPosition(this.ptzConfig.ip, pan, tilt, zoom, 2);
+      
+      console.log('🔍 Preset 2 Save Response:', response);
+      
+      if (response.success) {
+        this.$toast.success(`2번 프리셋 저장 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`2번 프리셋 저장 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+      } else {
+        this.$toast.error(`2번 프리셋 저장 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`2번 프리셋 저장 실패: ${response.message || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Preset 2 Save Error:', error);
+      this.$toast.error('2번 프리셋 저장 실패');
+      this.addLog(`2번 프리셋 저장 실패: ${error.message}`);
+    }
+  },
+
+  // 3번 프리셋 저장하기
+  async savePreset3() {
+    try {
+      console.log('💾 3번 프리셋 저장하기 시작');
+      
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('3번 프리셋 저장하기 실패: IP 오류');
+        return;
+      }
+
+      // 입력된 값들을 가져옴
+      const presetData = this.presetValues.preset3;
+      
+      if (!presetData.pan || !presetData.tilt || !presetData.zoom) {
+        this.$toast.error('3번 프리셋의 Pan, Tilt, Zoom 값을 모두 입력해주세요');
+        this.addLog('3번 프리셋 저장하기 실패: 값이 누락됨');
+        return;
+      }
+
+      const { pan, tilt, zoom } = presetData;
+      this.addLog(`3번 프리셋 저장 중: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
+
+      const response = await setPTZPosition(this.ptzConfig.ip, pan, tilt, zoom, 3);
+      
+      console.log('🔍 Preset 3 Save Response:', response);
+      
+      if (response.success) {
+        this.$toast.success(`3번 프리셋 저장 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
+        this.addLog(`3번 프리셋 저장 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
+      } else {
+        this.$toast.error(`3번 프리셋 저장 실패: ${response.message || '알 수 없는 오류'}`);
+        this.addLog(`3번 프리셋 저장 실패: ${response.message || '알 수 없는 오류'}`);
+      }
+    } catch (error) {
+      console.error('Preset 3 Save Error:', error);
+      this.$toast.error('3번 프리셋 저장 실패');
+      this.addLog(`3번 프리셋 저장 실패: ${error.message}`);
+    }
+  },
+
+  // 홈 프리셋으로 이동 (웹 API)
   async goToHomePreset() {
     try {
       console.log('🏠 홈 프리셋 이동 시작');
-      console.log('🔍 IP Error:', this.ipError);
-      console.log('🔍 Port Error:', this.portError);
-      console.log('🔍 PTZ Config:', this.ptzConfig);
       
-      // IP와 Port 유효성 검사
-      if (this.ipError || this.portError) {
-        this.$toast.error('IP 주소와 포트를 올바르게 입력해주세요');
-        this.addLog('홈 프리셋 이동 실패: IP/Port 오류');
+      // IP 유효성 검사
+      if (this.ipError) {
+        this.$toast.error('IP 주소를 올바르게 입력해주세요');
+        this.addLog('홈 프리셋 이동 실패: IP 오류');
         return;
       }
 
       this.addLog('홈 프리셋 이동 요청 중...');
-      console.log('📡 API 호출: pntPresetRecall(1, ' + this.ptzConfig.ip + ', ' + this.ptzConfig.port + ')');
       
-      // 프리셋 1번 불러오기
-      const response = await pntPresetRecall(1, this.ptzConfig.ip, this.ptzConfig.port);
+      // 홈 프리셋 이동 API 호출 (INI 파일에서 1번 프리셋 값을 읽어서 setPosition 호출)
+      const response = await fetch('/api/ptz/home', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ip: this.ptzConfig.ip })
+      });
       
-      // 디버깅을 위한 로그
-      console.log('🔍 Home Preset Response:', response);
-      console.log('🔍 Response data:', response.data);
-      console.log('🔍 PTZ Values:', response.data?.ptzValues);
+      const data = await response.json();
       
-      // PTZ 값을 입력 필드에 적용
-      if (response.data && response.data.ptzValues) {
-        const { pan, tilt, zoom } = response.data.ptzValues;
-
-        console.log(`🔍 PTZ Values extracted: Pan=${pan}, Tilt=${tilt}, Zoom=${zoom}`);
-        console.log('🔍 Preset values before:', this.presetValues.preset1);
-
-        // 프리셋 1번 입력 필드에 값 적용
-        if (this.presetValues.preset1) {
-          this.presetValues.preset1.pan = pan;
-          this.presetValues.preset1.tilt = tilt;
-          this.presetValues.preset1.zoom = zoom;
-
-          console.log('🔍 Preset values after:', this.presetValues.preset1);
-        }
-
+      if (data.success) {
+        const { pan, tilt, zoom } = data.data.ptzValues;
         this.$toast.success(`홈 프리셋으로 이동 완료 (Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%)`);
         this.addLog(`홈 프리셋으로 이동 완료 - Pan: ${pan}°, Tilt: ${tilt}°, Zoom: ${zoom}%`);
       } else {
-        console.log('❌ PTZ Values not found in response');
-        this.$toast.success('홈 프리셋으로 이동 완료');
-        this.addLog('홈 프리셋으로 이동 완료 (Preset 1)');
+        this.$toast.error(`홈 프리셋 이동 실패: ${data.message || '알 수 없는 오류'}`);
+        this.addLog(`홈 프리셋 이동 실패: ${data.message || '알 수 없는 오류'}`);
       }
     } catch (error) {
       console.error('Home Preset Error:', error);

@@ -27,6 +27,424 @@ from PIL import Image
 import io
 import subprocess
 import tempfile
+import hashlib
+import random
+import string
+import paramiko
+
+def create_digest_auth(username, password, method, uri, realm, nonce, qop, nc, cnonce):
+    """Digest 인증 헤더 생성"""
+    # HA1 = MD5(username:realm:password)
+    ha1 = hashlib.md5(f"{username}:{realm}:{password}".encode('utf-8')).hexdigest()
+    
+    # HA2 = MD5(method:uri)
+    ha2 = hashlib.md5(f"{method}:{uri}".encode('utf-8')).hexdigest()
+    
+    # response = MD5(HA1:nonce:nc:cnonce:qop:HA2)
+    response = hashlib.md5(f"{ha1}:{nonce}:{nc}:{cnonce}:{qop}:{ha2}".encode('utf-8')).hexdigest()
+    
+    return f'Digest username="{username}", realm="{realm}", nonce="{nonce}", uri="{uri}", qop={qop}, nc={nc}, cnonce="{cnonce}", response="{response}"'
+
+def make_digest_request(url, username, password, timeout=10):
+    """Digest 인증을 사용한 HTTP 요청"""
+    try:
+        logger.info(f"[인증] 요청 시작: {url}")
+        
+        # 먼저 Basic 인증 시도
+        logger.info("[인증] Basic 인증 시도")
+        response = requests.get(url, auth=(username, password), timeout=timeout)
+        
+        if response.status_code == 200:
+            logger.info(f"[인증] Basic 인증 성공: {response.status_code}")
+            return response
+        elif response.status_code == 401:
+            logger.info(f"[인증] Basic 인증 실패: {response.status_code}")
+            
+            # Digest 인증 시도
+            www_authenticate = response.headers.get('www-authenticate')
+            logger.info(f"[인증] WWW-Authenticate 헤더: {www_authenticate}")
+            
+            if www_authenticate and www_authenticate.startswith('Digest'):
+                # Digest 인증 파라미터 파싱
+                import re
+                realm_match = re.search(r'realm="([^"]+)"', www_authenticate)
+                nonce_match = re.search(r'nonce="([^"]+)"', www_authenticate)
+                qop_match = re.search(r'qop="([^"]+)"', www_authenticate)
+                
+                logger.info(f"[인증] Digest 파싱 결과 - realm: {realm_match.group(1) if realm_match else None}, nonce: {nonce_match.group(1) if nonce_match else None}, qop: {qop_match.group(1) if qop_match else None}")
+                
+                if realm_match and nonce_match and qop_match:
+                    realm = realm_match.group(1)
+                    nonce = nonce_match.group(1)
+                    qop = qop_match.group(1)
+                    
+                    # cnonce와 nc 생성
+                    cnonce = ''.join(random.choices(string.ascii_letters + string.digits, k=32))
+                    nc = '00000001'
+                    
+                    # URI 추출
+                    from urllib.parse import urlparse
+                    parsed_url = urlparse(url)
+                    uri = parsed_url.path + (f"?{parsed_url.query}" if parsed_url.query else "")
+                    
+                    logger.info(f"[인증] Digest URI: {uri}, cnonce: {cnonce}, nc: {nc}")
+                    
+                    # Digest 인증 헤더 생성
+                    auth_header = create_digest_auth(username, password, 'GET', uri, realm, nonce, qop, nc, cnonce)
+                    logger.info(f"[인증] Digest 헤더: {auth_header}")
+                    
+                    # Digest 인증으로 두 번째 요청
+                    logger.info("[인증] Digest 인증 요청 시작")
+                    try:
+                        return requests.get(url, headers={'Authorization': auth_header}, timeout=timeout)
+                    except requests.exceptions.RequestException as digest_error:
+                        logger.error(f"[인증] Digest 인증 요청 실패: {digest_error}")
+                        raise digest_error
+                else:
+                    logger.error(f"[인증] Digest 파라미터 파싱 실패 - realm: {bool(realm_match)}, nonce: {bool(nonce_match)}, qop: {bool(qop_match)}")
+                    raise requests.exceptions.HTTPError(f"Digest 파라미터 파싱 실패")
+            else:
+                logger.error(f"[인증] Digest 인증이 아닙니다: {www_authenticate}")
+                raise requests.exceptions.HTTPError(f"Digest 인증이 아닙니다: {www_authenticate}")
+        else:
+            # 401이 아닌 다른 오류
+            response.raise_for_status()
+    except Exception as e:
+        logger.error(f"[인증] 요청 실패: {e}")
+        raise
+
+def create_sftp_connection():
+    """SFTP 서버 연결"""
+    try:
+        # SFTP 설정 읽기
+        sftp_ip = config.get('SFTP', 'ip')
+        sftp_port = config.getint('SFTP', 'port')
+        sftp_user = config.get('SFTP', 'user')
+        sftp_password = config.get('SFTP', 'password')
+        
+        logger.info(f"SFTP 서버 연결 시도: {sftp_user}@{sftp_ip}:{sftp_port}")
+        
+        # SSH 클라이언트 생성
+        ssh_client = paramiko.SSHClient()
+        ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        
+        # SSH 연결
+        ssh_client.connect(
+            hostname=sftp_ip,
+            port=sftp_port,
+            username=sftp_user,
+            password=sftp_password,
+            timeout=10
+        )
+        
+        # SFTP 클라이언트 생성
+        sftp_client = ssh_client.open_sftp()
+        
+        logger.info("SFTP 서버 연결 성공")
+        return ssh_client, sftp_client
+        
+    except Exception as e:
+        logger.error(f"SFTP 서버 연결 실패: {e}")
+        return None, None
+
+def close_sftp_connection(ssh_client, sftp_client):
+    """SFTP 연결 종료"""
+    try:
+        if sftp_client:
+            sftp_client.close()
+        if ssh_client:
+            ssh_client.close()
+        logger.info("SFTP 연결 종료 완료")
+    except Exception as e:
+        logger.warning(f"SFTP 연결 종료 중 오류: {e}")
+
+def create_remote_directory_tree(sftp_client, root_path, year, month, day):
+    """원격 서버에 년/월/일 폴더 구조 생성"""
+    try:
+        logger.info(f"폴더 구조 생성 시작: {root_path}")
+        
+        # 년/월/일 폴더 경로 생성
+        year_path = f"{root_path}/{year}"
+        month_path = f"{year_path}/{month:02d}"
+        day_path = f"{month_path}/{day:02d}"
+        
+        logger.info(f"생성할 경로들: {[year_path, month_path, day_path]}")
+        
+        # 각 폴더를 순차적으로 생성 (상위 폴더부터)
+        paths_to_create = [year_path, month_path, day_path]
+        
+        for i, path in enumerate(paths_to_create):
+            logger.info(f"폴더 생성 시도 {i+1}/{len(paths_to_create)}: {path}")
+            
+            # 폴더가 이미 존재하는지 확인
+            try:
+                sftp_client.stat(path)
+                logger.info(f"폴더 이미 존재: {path}")
+                continue
+            except FileNotFoundError:
+                logger.info(f"폴더가 존재하지 않음, 생성 시도: {path}")
+            except Exception as stat_error:
+                logger.warning(f"폴더 확인 중 오류: {stat_error}")
+            
+            # 폴더 생성 시도
+            try:
+                sftp_client.mkdir(path)
+                logger.info(f"폴더 생성 성공: {path}")
+            except Exception as mkdir_error:
+                logger.error(f"폴더 생성 실패 {path}: {mkdir_error}")
+                
+                # 폴더가 이미 존재하는 경우 (Failure 오류)
+                if "Failure" in str(mkdir_error):
+                    logger.info(f"폴더가 이미 존재함 (Failure 무시): {path}")
+                    # 폴더가 실제로 존재하는지 다시 확인
+                    try:
+                        sftp_client.stat(path)
+                        logger.info(f"폴더 존재 확인됨: {path}")
+                        continue  # 다음 폴더로 진행
+                    except FileNotFoundError:
+                        logger.error(f"폴더가 실제로 존재하지 않음: {path}")
+                        return None
+                # 상위 디렉토리가 없어서 실패한 경우, 단계별로 생성
+                elif "No such file" in str(mkdir_error) or "No such file or directory" in str(mkdir_error):
+                    logger.info(f"상위 디렉토리부터 단계별 생성 시도: {path}")
+                    if not create_directories_step_by_step(sftp_client, path):
+                        logger.error(f"단계별 생성 실패: {path}")
+                        return None
+                    # 단계별 생성 후 다시 시도
+                    try:
+                        sftp_client.mkdir(path)
+                        logger.info(f"폴더 생성 완료 (재시도): {path}")
+                    except Exception as retry_error:
+                        if "Failure" in str(retry_error):
+                            logger.info(f"재시도 시에도 폴더가 이미 존재함: {path}")
+                            continue
+                        else:
+                            logger.error(f"폴더 생성 재시도 실패 {path}: {retry_error}")
+                            return None
+                elif "Permission denied" in str(mkdir_error):
+                    logger.error(f"폴더 생성 권한 없음 {path}: {mkdir_error}")
+                    return None
+                else:
+                    logger.error(f"폴더 생성 실패 (기타 오류) {path}: {mkdir_error}")
+                    return None
+        
+        # 최종 확인
+        try:
+            sftp_client.stat(day_path)
+            logger.info(f"폴더 구조 생성 완료: {day_path}")
+            return day_path
+        except Exception as final_error:
+            logger.error(f"최종 폴더 확인 실패: {day_path}, 오류: {final_error}")
+            return None
+        
+    except Exception as e:
+        logger.error(f"원격 폴더 생성 실패: {e}")
+        return None
+
+def create_directories_step_by_step(sftp_client, target_path):
+    """단계별로 디렉토리 생성 (더 안전한 방법)"""
+    try:
+        logger.info(f"단계별 디렉토리 생성 시작: {target_path}")
+        
+        # 경로를 '/'로 분할
+        path_parts = target_path.split('/')
+        path_parts = [part for part in path_parts if part]  # 빈 문자열 제거
+        
+        logger.info(f"경로 분할 결과: {path_parts}")
+        
+        current_path = ''
+        
+        for i, part in enumerate(path_parts):
+            if i == 0 and target_path.startswith('/'):
+                # 절대 경로의 첫 번째 부분
+                current_path = f"/{part}"
+            else:
+                # 상대 경로이거나 절대 경로의 나머지 부분
+                current_path = f"{current_path}/{part}" if current_path else part
+            
+            logger.info(f"현재 처리 중인 경로: {current_path}")
+            
+            try:
+                # 현재 경로가 존재하는지 확인
+                sftp_client.stat(current_path)
+                logger.debug(f"디렉토리 이미 존재: {current_path}")
+            except FileNotFoundError:
+                # 존재하지 않으면 생성
+                try:
+                    sftp_client.mkdir(current_path)
+                    logger.info(f"디렉토리 생성 완료: {current_path}")
+                except Exception as mkdir_error:
+                    logger.error(f"디렉토리 생성 실패 {current_path}: {mkdir_error}")
+                    return False
+            except Exception as stat_error:
+                logger.error(f"디렉토리 확인 실패 {current_path}: {stat_error}")
+                return False
+        
+        logger.info(f"단계별 디렉토리 생성 완료: {target_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"단계별 디렉토리 생성 실패: {e}")
+        return False
+
+def create_parent_directories(sftp_client, target_path):
+    """상위 디렉토리들을 재귀적으로 생성"""
+    try:
+        logger.info(f"상위 디렉토리 생성 시작: {target_path}")
+        
+        # 절대 경로인지 확인하고 적절히 처리
+        is_absolute = target_path.startswith('/')
+        
+        # 경로를 '/'로 분할하여 각 단계별로 생성
+        path_parts = target_path.split('/')
+        
+        # 빈 문자열 제거 (split으로 인한 빈 요소들)
+        path_parts = [part for part in path_parts if part]
+        
+        current_path = ''
+        
+        for i, part in enumerate(path_parts):
+            if is_absolute and i == 0:
+                # 절대 경로의 첫 번째 부분 (루트)
+                current_path = f"/{part}"
+            else:
+                # 상대 경로이거나 절대 경로의 나머지 부분
+                current_path = f"{current_path}/{part}" if current_path else part
+            
+            try:
+                # 현재 경로가 존재하는지 확인
+                sftp_client.stat(current_path)
+                logger.debug(f"상위 폴더 이미 존재: {current_path}")
+            except FileNotFoundError:
+                # 존재하지 않으면 생성
+                try:
+                    sftp_client.mkdir(current_path)
+                    logger.info(f"상위 폴더 생성 완료: {current_path}")
+                except Exception as mkdir_error:
+                    logger.error(f"상위 폴더 생성 실패 {current_path}: {mkdir_error}")
+                    # 권한 오류인 경우 더 자세한 정보 출력
+                    if "Permission denied" in str(mkdir_error):
+                        logger.error(f"권한 없음: {current_path}")
+                    elif "Failure" in str(mkdir_error):
+                        logger.error(f"SFTP 서버 오류: {current_path}")
+                    return False
+            except Exception as stat_error:
+                logger.error(f"경로 확인 실패 {current_path}: {stat_error}")
+                return False
+        
+        logger.info(f"상위 디렉토리 생성 완료: {target_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"상위 디렉토리 생성 실패: {e}")
+        return False
+
+def upload_panorama_to_sftp(panorama_base64, timestamp):
+    """파노라마 이미지를 SFTP 서버에 업로드"""
+    try:
+        # SFTP 연결
+        ssh_client, sftp_client = create_sftp_connection()
+        if not sftp_client:
+            return False
+        
+        try:
+            # 설정에서 SFTP 정보 읽기
+            root_path = config.get('SFTP', 'root_path')
+            
+            # 타임스탬프에서 년/월/일 추출
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            year = dt.year
+            month = dt.month
+            day = dt.day
+            hour = dt.hour
+            minute = dt.minute
+            second = dt.second
+            
+            # 홈 디렉토리 기반 경로 처리
+            if root_path.startswith('~/'):
+                # 홈 디렉토리 경로를 절대 경로로 변환
+                relative_path = root_path[2:]  # ~/ 제거
+                
+                # 여러 가능한 홈 디렉토리 경로 시도
+                possible_home_dirs = [
+                    f"/home/{config.get('SFTP', 'user')}",  # 일반적인 홈 디렉토리
+                    f"/home/akj",  # 하드코딩된 사용자명
+                    "/home",  # 홈 디렉토리 루트
+                    "/tmp"  # 임시 디렉토리 (폴백)
+                ]
+                
+                home_dir = None
+                for possible_home in possible_home_dirs:
+                    try:
+                        # 디렉토리가 존재하는지 확인
+                        sftp_client.stat(possible_home)
+                        home_dir = possible_home
+                        logger.info(f"홈 디렉토리 확인: {home_dir}")
+                        break
+                    except FileNotFoundError:
+                        continue
+                    except Exception as e:
+                        logger.debug(f"홈 디렉토리 확인 실패 {possible_home}: {e}")
+                        continue
+                
+                if home_dir:
+                    root_path = f"{home_dir}/{relative_path}"
+                    logger.info(f"홈 디렉토리 경로 변환: ~/{relative_path} -> {root_path}")
+                else:
+                    # 홈 디렉토리를 찾을 수 없는 경우, 상대 경로로 시도
+                    logger.warning("홈 디렉토리를 찾을 수 없어 상대 경로로 시도")
+                    root_path = relative_path
+            
+            # 원격 폴더 구조 생성
+            remote_day_path = create_remote_directory_tree(sftp_client, root_path, year, month, day)
+            if not remote_day_path:
+                logger.error("폴더 생성 실패")
+                return False
+            
+            # 파일명 생성: {date_time}_{댐코드}.jpg 형식
+            # config.ini에서 댐코드 읽기
+            dam_code = config.get('SFTP', 'code', fallback='1001210')
+            
+            # 날짜시간 형식: YYYYMMDDHHMMSS
+            date_time = f"{year:04d}{month:02d}{day:02d}{hour:02d}{minute:02d}{second:02d}"
+            
+            # 파일명 생성: {date_time}_{댐코드}.jpg
+            filename = f"{date_time}_{dam_code}.jpg"
+            remote_file_path = f"{remote_day_path}/{filename}"
+            
+            # Base64 이미지를 바이너리로 변환
+            image_data = base64.b64decode(panorama_base64)
+            
+            # 임시 파일에 저장
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                temp_file.write(image_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # SFTP로 파일 업로드
+                sftp_client.put(temp_file_path, remote_file_path)
+                logger.info(f"파노라마 이미지 SFTP 업로드 완료: {remote_file_path}")
+                
+                # 업로드된 파일 크기 확인
+                remote_file_stat = sftp_client.stat(remote_file_path)
+                logger.info(f"업로드된 파일 크기: {remote_file_stat.st_size} bytes")
+                
+                return True
+                
+            finally:
+                # 임시 파일 삭제
+                try:
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.warning(f"임시 파일 삭제 실패: {e}")
+        
+        finally:
+            # SFTP 연결 종료
+            close_sftp_connection(ssh_client, sftp_client)
+            
+    except Exception as e:
+        logger.error(f"SFTP 업로드 실패: {e}")
+        return False
 
 def load_config():
     """설정 파일 로드"""
@@ -38,6 +456,59 @@ def load_config():
     
     config.read(config_path, encoding='utf-8')
     return config
+
+def read_ptz_info_ini(preset_number):
+    """ptz_info.ini 파일에서 프리셋 값 읽기"""
+    try:
+        # ptz_info.ini 파일 경로
+        ptz_info_path = os.path.join(os.path.dirname(__file__), 'ptz_info.ini')
+        
+        if not os.path.exists(ptz_info_path):
+            logger.error(f"ptz_info.ini 파일을 찾을 수 없습니다: {ptz_info_path}")
+            return None
+        
+        # INI 파일 읽기
+        config = ConfigParser()
+        config.read(ptz_info_path, encoding='utf-8')
+        
+        section_name = f'PRESET_{preset_number}'
+        if not config.has_section(section_name):
+            logger.error(f"프리셋 {preset_number} 섹션을 찾을 수 없습니다")
+            return None
+        
+        # 프리셋 값 읽기
+        pan = config.getfloat(section_name, 'pan')
+        tilt = config.getfloat(section_name, 'tilt')
+        zoom = config.getfloat(section_name, 'zoom')
+        
+        logger.info(f"프리셋 {preset_number} 값 읽기 성공: Pan={pan}, Tilt={tilt}, Zoom={zoom}")
+        return {'pan': pan, 'tilt': tilt, 'zoom': zoom}
+        
+    except Exception as e:
+        logger.error(f"ptz_info.ini 읽기 실패: {e}")
+        return None
+
+def call_set_position_api(ip, pan, tilt, zoom, preset_number):
+    """setPosition 웹 API 호출 (Digest 인증 사용)"""
+    try:
+        # 웹 API URL 구성
+        api_url = f"http://{ip}:80/api/ptz.cgi?PTZNumber={preset_number}&GotoAbsolutePosition={pan},{tilt},{zoom}"
+        
+        logger.info(f"웹 API 호출: {api_url}")
+        
+        # Digest 인증을 사용한 HTTP GET 요청
+        response = make_digest_request(api_url, 'root', 'cctv1350!!', timeout=10)
+        
+        if response.status_code == 200:
+            logger.info(f"프리셋 {preset_number} 이동 성공: {response.text}")
+            return True
+        else:
+            logger.error(f"프리셋 {preset_number} 이동 실패: HTTP {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"웹 API 호출 실패: {e}")
+        return False
 
 # 설정 로드
 config = load_config()
@@ -344,7 +815,8 @@ class PanoramaGenerator:
         self.thermal_camera_port = None
         
         # PTZ 이동이 활성화된 경우에만 PTZ 클라이언트 생성
-        if ENABLE_PRESET_MOVEMENT:
+        # 디버그 모드일 때는 프리셋 이동을 건너뛰므로 PTZ 클라이언트 생성하지 않음
+        if ENABLE_PRESET_MOVEMENT and not self.debug_mode:
             self.ptz_client = PNTClient()
         else:
             self.ptz_client = None
@@ -354,7 +826,10 @@ class PanoramaGenerator:
         signal.signal(signal.SIGTERM, self.signal_handler)
         atexit.register(self.cleanup)
         
-        logger.info("PanoramaGenerator 초기화 완료")
+        if self.debug_mode:
+            logger.info("PanoramaGenerator 초기화 완료 (디버그 모드 - 프리셋 이동 건너뜀)")
+        else:
+            logger.info("PanoramaGenerator 초기화 완료")
 
     def signal_handler(self, signum, frame):
         """신호 핸들러 (pnt_server.py와 동일)"""
@@ -463,42 +938,44 @@ class PanoramaGenerator:
             return False
 
     def move_to_preset(self, preset_number):
-        """지정된 프리셋으로 이동 (개선된 에러 처리 및 응답 확인)"""
+        """지정된 프리셋으로 이동 (웹 API 방식)"""
         try:
-            if ENABLE_PRESET_MOVEMENT and self.ptz_client:
+            # 디버그 모드일 때는 프리셋 이동을 건너뜀
+            if self.debug_mode:
+                logger.info(f"디버그 모드 - 프리셋 {preset_number} 이동 건너뜀")
+                time.sleep(1)  # 짧은 대기 시간
+                return True
+            
+            if ENABLE_PRESET_MOVEMENT:
                 logger.info(f"프리셋 {preset_number}로 이동 중...")
                 
-                # PNT 서버 연결 상태 확인 및 재연결 시도
-                if not self.ptz_client.connected:
-                    logger.warning(f"PNT 서버 연결이 끊어짐. 프리셋 {preset_number} 이동 전 재연결 시도...")
-                    if not self.connect_ptz():
-                        logger.error(f"프리셋 {preset_number} 이동 실패: PNT 서버 재연결 실패")
-                        return False
+                # 1. ptz_info.ini에서 프리셋 값 읽기
+                preset_values = read_ptz_info_ini(preset_number)
+                if not preset_values:
+                    logger.error(f"프리셋 {preset_number} 값을 읽을 수 없습니다")
+                    return False
                 
-                # PNT 서버에 프리셋 호출 명령 전송
-                result = self.ptz_client.preset_recall(preset_number)
+                # 2. 열화상 카메라 IP 가져오기
+                if not self.thermal_camera_ip:
+                    logger.error("열화상 카메라 IP가 설정되지 않았습니다")
+                    return False
                 
-                if result['success']:
-                    logger.info(f"프리셋 {preset_number} 이동 명령 성공")
+                # 3. 웹 API로 프리셋 이동
+                success = call_set_position_api(
+                    self.thermal_camera_ip,
+                    preset_values['pan'],
+                    preset_values['tilt'],
+                    preset_values['zoom'],
+                    preset_number
+                )
+                
+                if success:
+                    logger.info(f"프리셋 {preset_number} 이동 성공")
                     time.sleep(3)  # 카메라 이동 대기
                     logger.info(f"프리셋 {preset_number} 이동 완료")
                     return True
                 else:
-                    logger.error(f"프리셋 {preset_number} 이동 명령 실패: {result['message']}")
-                    # 연결 상태 재확인
-                    if not self.ptz_client.connected:
-                        logger.warning("PNT 서버 연결이 끊어진 것으로 보입니다. 재연결을 시도합니다.")
-                        if self.connect_ptz():
-                            logger.info("PNT 서버 재연결 성공. 프리셋 호출을 재시도합니다.")
-                            # 재연결 후 한 번 더 시도
-                            retry_result = self.ptz_client.preset_recall(preset_number)
-                            if retry_result['success']:
-                                logger.info(f"프리셋 {preset_number} 재시도 성공")
-                                time.sleep(3)
-                                logger.info(f"프리셋 {preset_number} 이동 완료")
-                                return True
-                            else:
-                                logger.error(f"프리셋 {preset_number} 재시도 실패: {retry_result['message']}")
+                    logger.error(f"프리셋 {preset_number} 이동 실패")
                     return False
             else:
                 logger.info(f"프리셋 이동 비활성화됨 - 프리셋 {preset_number} 위치에서 {PRESET_WAIT_SECONDS}초 대기...")
@@ -571,24 +1048,8 @@ class PanoramaGenerator:
                     # base64로 인코딩
                     image_base64 = base64.b64encode(stdout_data).decode('utf-8')
                     
-                    # 추가 정보를 이미지에 오버레이 (선택사항)
-                    try:
-                        # OpenCV로 이미지 디코딩
-                        img_array = np.frombuffer(stdout_data, dtype=np.uint8)
-                        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                        
-                        if img is not None:
-                            # 프리셋 정보와 타임스탬프 오버레이
-                            cv2.putText(img, f"Preset {preset_number}", (10, 30), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                            cv2.putText(img, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), (10, 70), 
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                            
-                            # 오버레이된 이미지를 다시 base64로 인코딩
-                            _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                            image_base64 = base64.b64encode(buffer).decode('utf-8')
-                    except Exception as overlay_error:
-                        logger.warning(f"이미지 오버레이 실패, 원본 이미지 사용: {overlay_error}")
+                    # 이미지 오버레이 제거 (시간 정보와 preset 정보 삭제)
+                    # 원본 이미지 그대로 사용
                     
                     logger.info(f"프리셋 {preset_number} 스냅샷 캡처 완료")
                     return image_base64
@@ -662,14 +1123,18 @@ class PanoramaGenerator:
         try:
             cursor = nvrdb.cursor()
             
+            # 현재 시간 생성
+            current_time = datetime.now()
+            timestamp = current_time.isoformat()
+            
             # 파노라마 데이터 구성 (테이블 구조에 맞게 최적화)
             panorama_data = {
                 "type": "panorama",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": timestamp,
                 "image": panorama_base64,
-                "presets": [1, 2, 3],
+                "presets": [2, 1, 3],
                 "description": "PTZ 프리셋 투어 파노라마",
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                "created_at": current_time.strftime("%Y-%m-%d %H:%M:%S")
             }
             
             # panoramaData 필드에 JSON 데이터 저장
@@ -678,6 +1143,14 @@ class PanoramaGenerator:
             cursor.close()
             
             logger.info("파노라마 데이터 저장 완료")
+            
+            # DB 저장 성공 후 SFTP 업로드 수행
+            logger.info("SFTP 업로드 시작...")
+            if upload_panorama_to_sftp(panorama_base64, timestamp):
+                logger.info("SFTP 업로드 성공")
+            else:
+                logger.warning("SFTP 업로드 실패 (DB 저장은 완료됨)")
+            
             return True
             
         except Exception as e:
@@ -689,28 +1162,20 @@ class PanoramaGenerator:
         try:
             logger.info("파노라마 생성 시작")
             
-            # 1. 열화상 카메라 설정 조회 (PTZ 이동이 활성화된 경우에만)
-            if ENABLE_PRESET_MOVEMENT:
+            # 1. 열화상 카메라 설정 조회 (PTZ 이동이 활성화되고 디버그 모드가 아닌 경우에만)
+            if ENABLE_PRESET_MOVEMENT and not self.debug_mode:
                 if not self.get_thermal_camera_config():
                     return False
-                
-                # 2. PTZ 카메라 연결
-                if not self.connect_ptz():
-                    return False
+                logger.info("웹 API 방식으로 프리셋 이동을 수행합니다")
+            elif self.debug_mode:
+                logger.info("디버그 모드 - PTZ 설정 조회 및 프리셋 이동을 건너뜁니다")
             else:
-                logger.info("프리셋 이동이 비활성화되어 PTZ 설정 조회 및 연결을 건너뜁니다")
+                logger.info("프리셋 이동이 비활성화되어 PTZ 설정 조회를 건너뜁니다")
             
             # 3. 3개 프리셋에서 스냅샷 캡처
             snapshots = []
-            for preset_num in [1, 2, 3]:
+            for preset_num in [2, 1, 3]:
                 logger.info(f"=== 프리셋 {preset_num} 처리 시작 ===")
-                
-                # 프리셋 이동 전 연결 상태 확인
-                if ENABLE_PRESET_MOVEMENT and self.ptz_client and not self.ptz_client.connected:
-                    logger.warning(f"프리셋 {preset_num} 처리 전 PNT 서버 연결이 끊어짐. 재연결 시도...")
-                    if not self.connect_ptz():
-                        logger.error(f"프리셋 {preset_num} 처리 실패: PNT 서버 재연결 실패")
-                        return False
                 
                 if not self.move_to_preset(preset_num):
                     logger.error(f"프리셋 {preset_num} 이동 실패")
@@ -742,6 +1207,16 @@ class PanoramaGenerator:
                 logger.error("데이터베이스 저장 실패")
                 return False
             
+            # 6. 파노라마 생성 완료 후 프리셋 1번으로 이동
+            if ENABLE_PRESET_MOVEMENT:
+                logger.info("파노라마 생성 완료 후 프리셋 1번으로 이동")
+                if not self.move_to_preset(1):
+                    logger.warning("프리셋 1번 이동 실패 (파노라마 생성은 완료됨)")
+                else:
+                    logger.info("프리셋 1번 이동 완료")
+            else:
+                logger.info("프리셋 이동이 비활성화되어 홈 위치 이동을 건너뜁니다")
+            
             logger.info("파노라마 생성 완료")
             return True
             
@@ -749,13 +1224,13 @@ class PanoramaGenerator:
             logger.error(f"파노라마 생성 중 오류: {e}")
             logger.error(traceback.format_exc())
             return False
-        finally:
-            if ENABLE_PRESET_MOVEMENT and self.ptz_client:
-                self.ptz_client.close()
 
     def run_scheduler(self):
         """스케줄러 실행 (설정된 간격마다)"""
-        movement_status = "활성화" if ENABLE_PRESET_MOVEMENT else "비활성화"
+        if self.debug_mode:
+            movement_status = "디버그 모드 (건너뜀)"
+        else:
+            movement_status = "활성화" if ENABLE_PRESET_MOVEMENT else "비활성화"
         logger.info(f"파노라마 생성 스케줄러 시작 (간격: {PANORAMA_INTERVAL_MINUTES}분, 프리셋 이동: {movement_status})")
         
         while self.running:
@@ -806,8 +1281,12 @@ def main():
         
         if args.once:
             # 한 번만 실행
-            logger.info("한 번만 실행 모드")
-            print("🔄 한 번만 실행 모드")
+            if args.debug:
+                logger.info("한 번만 실행 모드 (디버그)")
+                print("🔄 한 번만 실행 모드 (디버그 - 프리셋 이동 건너뜀)")
+            else:
+                logger.info("한 번만 실행 모드")
+                print("🔄 한 번만 실행 모드")
             success = generator.generate_panorama()
             if success:
                 print("✅ 파노라마 생성 완료")
@@ -817,7 +1296,10 @@ def main():
                 return 1
         else:
             # 스케줄러 실행
-            print(f"⏰ 스케줄러 모드 시작 (간격: {PANORAMA_INTERVAL_MINUTES}분)")
+            if args.debug:
+                print(f"⏰ 스케줄러 모드 시작 (간격: {PANORAMA_INTERVAL_MINUTES}분, 디버그 - 프리셋 이동 건너뜀)")
+            else:
+                print(f"⏰ 스케줄러 모드 시작 (간격: {PANORAMA_INTERVAL_MINUTES}분)")
             generator.run_scheduler()
             return 0
             
