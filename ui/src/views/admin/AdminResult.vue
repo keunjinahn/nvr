@@ -490,7 +490,16 @@
                   
                   <!-- 담당자 문자 전송 번호 입력 -->
                   <div class="phone-input-section">
-                    <label class="phone-label">담당자 문자 전송 번호 입력</label>
+                    <div class="phone-input-header">
+                      <label class="phone-label">담당자 문자 전송 번호 입력</label>
+                      <div style="flex: 1;"></div>
+                      <v-btn 
+                        class="message-input-btn-save"
+                        @click="openMessageDialog"
+                      >
+                        문자 직접 입력하기
+                      </v-btn>
+                    </div>
                     <v-text-field
                       v-model="notificationSettings.phoneNumber"
                       placeholder="전화번호를 입력하세요 (예: 010-1234-5678)"
@@ -498,7 +507,11 @@
                       dense
                       hide-details
                       class="phone-input standard-input"
+                      :disabled="useSameNumber"
                     ></v-text-field>
+                    <p v-if="useSameNumber" class="instruction-text">
+                      같은 번호로 보내기 토글 버튼이 on이면 해당 번호 입력 칸 비활성화
+                    </p>
                   </div>
                 </div>
 
@@ -571,6 +584,80 @@
         </div>
       </div>
     </div>
+
+    <!-- 문자 직접 입력 다이얼로그 -->
+    <v-dialog v-model="showMessageDialog" max-width="600px" width="600px" persistent class="message-dialog">
+      <v-card class="message-dialog-card">
+        <v-card-title class="message-dialog-title">
+          <span>문자 직접 입력</span>
+          <v-spacer></v-spacer>
+          <v-btn icon @click="closeMessageDialog" class="close-btn">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </v-card-title>
+        <v-card-text class="message-dialog-content">
+          <v-container fluid>
+            <!-- 담당자 번호와 같은 번호로 보내기 -->
+            <v-row class="input-row">
+              <v-col cols="12">
+                <div class="custom-input-group-switch">
+                  <label class="custom-label">담당자 번호와 같은 번호로 보내기</label>
+                  <v-switch
+                    v-model="useSameNumber"
+                    color="red"
+                    hide-details
+                    class="custom-switch"
+                  ></v-switch>
+                </div>
+              </v-col>
+            </v-row>
+
+            <!-- 담당자 문자 전송 번호 입력 -->
+            <v-row class="input-row" v-if="!useSameNumber">
+              <v-col cols="12">
+                <div class="custom-input-group">
+                  <label class="custom-label">담당자 문자 전송 번호 입력</label>
+                  <input
+                    v-model="messagePhoneNumber"
+                    type="text"
+                    class="custom-input"
+                    placeholder="전화번호를 입력하세요 (예: 010-1234-5678)"
+                  />
+                </div>
+              </v-col>
+            </v-row>
+
+            <!-- 안내 문구 -->
+            <v-row class="input-row" v-if="useSameNumber">
+              <v-col cols="12">
+                <p class="instruction-text-red">
+                  같은 번호로 보내기 토글 버튼이 on이면 해당 번호 입력 칸 비활성화
+                </p>
+              </v-col>
+            </v-row>
+
+            <!-- 문자 내용 입력 -->
+            <v-row class="input-row">
+              <v-col cols="12">
+                <div class="custom-input-group">
+                  <label class="custom-label">문자 내용 입력</label>
+                  <textarea
+                    v-model="messageContent"
+                    class="custom-textarea"
+                    placeholder="메시지를 입력하세요"
+                    rows="8"
+                  ></textarea>
+                </div>
+              </v-col>
+            </v-row>
+          </v-container>
+        </v-card-text>
+        <v-card-actions class="message-dialog-actions">
+          <v-btn text @click="closeMessageDialog" class="cancel-btn">취소</v-btn>
+          <v-btn text @click="sendMessage" class="save-btn">전송</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -739,7 +826,12 @@ export default {
           { count: 4 }
         ]
       },
-      savingNotification: false
+      savingNotification: false,
+      // 문자 직접 입력 다이얼로그 관련 데이터
+      showMessageDialog: false,
+      useSameNumber: false,
+      messagePhoneNumber: '',
+      messageContent: ''
     };
   },
 
@@ -1657,6 +1749,33 @@ export default {
         };
       }
       return { connected: false, hasToken: false, username: 'unknown' };
+    },
+    
+    // 문자 직접 입력 다이얼로그 관련 메서드
+    openMessageDialog() {
+      this.showMessageDialog = true;
+      this.useSameNumber = false;
+      this.messagePhoneNumber = '';
+      this.messageContent = '';
+    },
+    
+    closeMessageDialog() {
+      this.showMessageDialog = false;
+      this.messagePhoneNumber = '';
+      this.messageContent = '';
+    },
+    
+    sendMessage() {
+      // TODO: 실제 메시지 전송 로직 구현
+      console.log('메시지 전송:', {
+        useSameNumber: this.useSameNumber,
+        phoneNumber: this.messagePhoneNumber,
+        content: this.messageContent
+      });
+      
+      // 전송 성공 후 다이얼로그 닫기
+      this.$toast.success('메시지가 전송되었습니다.');
+      this.closeMessageDialog();
     }
   }
 };
@@ -2899,5 +3018,312 @@ export default {
 
 .content-header {
   position: relative;
+}
+
+/* phone-input-header 스타일 */
+.phone-input-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+.phone-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+/* 문자 직접 입력 다이얼로그 스타일 */
+.message-dialog-title {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-bottom: 1px solid #e0e0e0;
+  font-weight: bold;
+}
+
+.close-btn {
+  color: white !important;
+}
+
+.message-dialog-content {
+  padding: 20px;
+  background-color: white;
+  overflow-x: hidden !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.message-dialog-content .container {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+.input-row {
+  margin-bottom: 0;
+  padding: 0;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+::v-deep .message-dialog .v-input {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+::v-deep .message-dialog .row {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+::v-deep .message-dialog .col {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+}
+
+.custom-input-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  padding: 0;
+  width: 100%;
+}
+
+.custom-input-group-switch {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 0;
+  width: 100%;
+}
+
+.custom-label {
+  font-size: 14px;
+  color: black;
+  margin-right: 0;
+  margin-bottom: 8px;
+  font-weight: 500;
+  width: 100%;
+}
+
+.custom-input-group-switch .custom-label {
+  margin-bottom: 0;
+}
+
+.custom-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 4px;
+  background-color: white;
+  color: black;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.3s ease;
+  box-sizing: border-box;
+  min-height: 36px;
+  line-height: 1.5;
+}
+
+.custom-input:focus {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+.custom-input::placeholder {
+  color: #999;
+}
+
+.custom-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 4px;
+  background-color: white;
+  color: black;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.3s ease;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.custom-textarea:focus {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+.custom-textarea::placeholder {
+  color: #999;
+}
+
+.custom-switch {
+  flex-shrink: 0;
+}
+
+.instruction-text-red {
+  color: red;
+  font-size: 12px;
+  margin: 5px 0;
+}
+
+.message-dialog-actions {
+  padding: 0 24px 20px 24px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.cancel-btn {
+  background-color: #9e9e9e;
+  color: white;
+  min-width: 80px;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.save-btn {
+  background-color: #ff9800;
+  color: white;
+  min-width: 80px;
+  font-weight: 500;
+  text-transform: none;
+}
+
+/* v-card 스타일 */
+::v-deep .message-dialog-card {
+  background-color: white !important;
+  overflow-x: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+::v-deep .message-dialog .v-card {
+  background-color: white !important;
+  overflow-x: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
+
+::v-deep .message-dialog .v-card__text {
+  background-color: white !important;
+  overflow-x: hidden !important;
+  padding: 20px !important;
+}
+
+::v-deep .message-dialog {
+  overflow-x: hidden !important;
+}
+
+::v-deep .message-dialog .v-dialog {
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+}
+
+/* v-dialog overlay 숨기기 */
+::v-deep .message-dialog .v-dialog__container {
+  overflow: hidden !important;
+}
+
+::v-deep .message-dialog .v-overlay__content {
+  overflow: hidden !important;
+  max-width: 100% !important;
+}
+
+/* v-menu와 overlay 관련 */
+::v-deep .v-menu__content {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+::v-deep .v-overlay {
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+/* v-overlay__content 너비 제한 */
+::v-deep .message-dialog .v-overlay__content {
+  max-width: 600px !important;
+  width: 600px !important;
+  overflow: hidden !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+}
+
+/* v-dialog 전체 컨테이너 */
+::v-deep .v-dialog__container {
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+/* v-overlay 스크린 */
+::v-deep .v-overlay__scrim {
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+
+/* message-dialog 관련 요소들의 overflow 숨기기 */
+.message-dialog,
+.message-dialog *,
+.message-dialog .v-overlay__content,
+.message-dialog .v-dialog__container,
+.message-dialog .v-overlay__scrim {
+  overflow-x: hidden !important;
+}
+
+/* v-dialog 관련 요소 */
+::v-deep .v-dialog.v-dialog--active,
+::v-deep .v-dialog__container {
+  overflow-x: hidden !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* message-dialog의 v-dialog */
+::v-deep .message-dialog.v-dialog {
+  max-width: 600px !important;
+  width: 600px !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+/* v-overlay 관련 */
+::v-deep .v-overlay.v-overlay--active {
+  overflow-x: hidden !important;
+  max-width: 100vw !important;
+}
+
+/* v-card 내용 */
+::v-deep .message-dialog-card * {
+  max-width: 100% !important;
+}
+
+/* 제목 영역 패딩 최소화 */
+::v-deep .message-dialog .v-card__title {
+  padding: 12px 16px !important;
+}
+
+/* 액션 버튼 영역 패딩 최소화 */
+::v-deep .message-dialog .v-card__actions {
+  padding: 8px 16px 12px 16px !important;
+}
+
+/* 모든 여백과 패딩 최소화 */
+::v-deep .message-dialog-card > * {
+  margin: 0 !important;
+}
+
+/* 오버레이 여백 최소화 */
+::v-deep .message-dialog .v-overlay__content {
+  margin: 24px auto !important;
 }
 </style>

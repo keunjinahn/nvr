@@ -1,6 +1,6 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <template>
-  <v-dialog v-model="dialog" max-width="900px" persistent>
+  <v-dialog v-model="dialog" max-width="2100px" persistent>
     <v-card>
       <v-card-title class="dialog-title">
         <span>{{ isEditMode ? '영역 수정' : '영역 추가' }}</span>
@@ -90,25 +90,26 @@
               </v-col>
             </v-row>
 
-            <!-- 비디오 영역 -->
+            <!-- 파노라마 이미지 영역 -->
             <v-row class="video-row">
               <v-col cols="12">
-                <div class="video-container" @mouseleave="handleMouseLeave">
-                  <VideoCard
-                    v-if="selectedCamera"
-                    :key="videoKey"
-                    :ref="selectedCamera.name"
-                    :camera="selectedCamera"
-                    title
-                    titlePosition="inner-top"
-                    status
-                    :stream="selectedCamera.live"
-                    :refreshSnapshot="!selectedCamera.live"
-                    class="video-card"
-                  ></VideoCard>
+                <div class="video-container panorama-container" @mouseleave="handleMouseLeave">
+                  <!-- 파노라마 이미지 표시 -->
+                  <img 
+                    v-if="panoramaImage"
+                    :src="panoramaImage"
+                    alt="Panorama"
+                    class="panorama-image"
+                  />
+                  <div 
+                    v-else
+                    class="loading-panorama"
+                  >
+                    파노라마 이미지를 불러오는 중...
+                  </div>
                   <div 
                     class="selection-overlay"
-                    v-if="selectedCamera"
+                    v-if="panoramaImage"
                     @mousedown="startDrag"
                     @mousemove="onDrag"
                     @mouseup="endDrag"
@@ -154,7 +155,7 @@
 
 <script>
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
-import VideoCard from '@/components/camera-card.vue';
+import { getPanoramaData } from '@/api/panorama.api';
 import { mdiRefresh, mdiMapMarkerRadius, mdiCheckboxMarkedCircle, mdiUndo, mdiPlus, mdiPencil, mdiDelete } from '@mdi/js';
 import { addEventDetectionZone, getEventDetectionZone, updateEventDetectionZone, deleteEventDetectionZone, updateInPageZone } from '@/api/eventDetectionZone.api';
 
@@ -162,7 +163,6 @@ export default {
   name: 'RoiWindow',
 
   components: {
-    VideoCard
   },
 
   props: {
@@ -196,8 +196,9 @@ export default {
       videoKey: '',
       refreshing: false,
       description: '',
-      videoContainerWidth: 640,
+      videoContainerWidth: 1920,
       videoContainerHeight: 480,
+      panoramaImage: null,
       icons: {
         mdiMapMarkerRadius,
         mdiCheckboxMarkedCircle,
@@ -337,7 +338,7 @@ export default {
         return {};
       }
       
-      // 픽셀 좌표를 직접 사용 (640x480 고정 크기)
+      // 픽셀 좌표를 직접 사용 (1920x480 파노라마 고정 크기)
       const style = {
         position: 'absolute',
         left: this.region.left + 'px',
@@ -448,12 +449,7 @@ export default {
         this.loadEditData(this.editData);
       }
       
-      // 비디오 초기화
-      if (this.dialog && this.selectedCamera) {
-        setTimeout(() => {
-          this.forceVideoInit();
-        }, 300);
-      }
+      // 파노라마 이미지는 자동으로 로드됨
     });
   },
 
@@ -466,13 +462,6 @@ export default {
       console.log('데이터 준비 완료 - 화면 표시 시작');
       this.isLoading = false;
       this.isDataReady = true;
-      
-      // 비디오 초기화
-      this.$nextTick(() => {
-        setTimeout(() => {
-          this.forceVideoInit();
-        }, 200);
-      });
     },
 
     loadEditData(data) {
@@ -534,10 +523,8 @@ export default {
           // 강제 DOM 업데이트
           this.$forceUpdate();
           
-          // region 데이터 로딩 후 비디오 초기화
+          // region 데이터 로딩 후 데이터 준비 완료
           setTimeout(() => {
-            this.forceVideoInit();
-            // 데이터 준비 완료
             this.prepareDataComplete();
           }, 200);
         }, 100);
@@ -572,6 +559,9 @@ export default {
         
         // 화면 진입시 updateInPageZone 호출 (1)
         await updateInPageZone(1);
+        
+        // 파노라마 이미지 로드
+        await this.loadPanoramaImage();
         
         const response = await getCameras();
         for (const camera of response.data.result) {
@@ -613,6 +603,35 @@ export default {
       await this.loadEventDetectionZone();
     },
 
+    async loadPanoramaImage() {
+      try {
+        const response = await getPanoramaData(1);
+        if (response.data && response.data.length > 0) {
+          const panoramaData = response.data[0];
+          try {
+            const parsedData = JSON.parse(panoramaData.panoramaData);
+            if (parsedData.image) {
+              this.panoramaImage = `data:image/jpeg;base64,${parsedData.image}`;
+            } else {
+              this.panoramaImage = null;
+              this.$toast.warning('파노라마 이미지 데이터가 없습니다.');
+            }
+          } catch (error) {
+            console.error('파노라마 데이터 파싱 오류:', error);
+            this.panoramaImage = null;
+            this.$toast.error('파노라마 데이터를 파싱할 수 없습니다.');
+          }
+        } else {
+          this.panoramaImage = null;
+          this.$toast.warning('파노라마 데이터가 없습니다.');
+        }
+      } catch (error) {
+        console.error('파노라마 이미지 로드 오류:', error);
+        this.panoramaImage = null;
+        this.$toast.error('파노라마 이미지를 불러올 수 없습니다.');
+      }
+    },
+
     async updateSelectedCamera(name) {
       const camera = this.cameraList.find(cam => cam.name === name);
       if (camera) {
@@ -620,31 +639,16 @@ export default {
         this.videoKey = camera.name + '_' + Date.now();
         this.$nextTick(() => {
           this.updateVideoContainerSize();
-          // 비디오 초기화 강제 실행
-          setTimeout(() => {
-            this.forceVideoInit();
-          }, 300);
         });
       }
     },
 
     updateVideoContainerSize() {
-      // 고정된 비디오 크기 설정
-      this.videoContainerWidth = 640;
+      // 고정된 파노라마 이미지 크기 설정 (가로 3배)
+      this.videoContainerWidth = 1920;
       this.videoContainerHeight = 480;
     },
 
-    forceVideoInit() {
-      // VideoCard 컴포넌트 강제 초기화
-      if (this.selectedCamera && this.$refs[this.selectedCamera.name]) {
-        const videoCard = this.$refs[this.selectedCamera.name];
-        if (videoCard && videoCard.initialize) {
-          videoCard.initialize();
-        }
-        // 비디오 키 강제 업데이트로 컴포넌트 재생성
-        this.videoKey = this.selectedCamera.name + '_' + Date.now();
-      }
-    },
 
     async refreshVideo() {
       if (this.refreshing || !this.selectedCamera) return;
@@ -896,7 +900,7 @@ export default {
       this.options.sensitivity.value = item.options.sensitivity;
       this.options.difference.value = item.options.difference;
       
-      // Use stored coordinates directly for 640x480 fixed size
+      // Use stored coordinates directly for 1920x480 panorama fixed size
       const storedRegion = item.regions[0];
       if (storedRegion) {
         this.region = {
@@ -927,7 +931,7 @@ export default {
       this.options.sensitivity.value = item.options.sensitivity;
       this.options.difference.value = item.options.difference;
       
-      // Use stored coordinates directly for 640x480 fixed size
+      // Use stored coordinates directly for 1920x480 panorama fixed size
       const storedRegion = item.regions[0];
       if (storedRegion) {
         this.region = {
@@ -1031,7 +1035,7 @@ export default {
       // Only create region if we have valid coordinates
       if (this.dragStart.x !== 0 && this.dragStart.y !== 0 && 
           this.dragEnd.x !== 0 && this.dragEnd.y !== 0) {
-        // Get pixel coordinates for 640x480 fixed size
+        // Get pixel coordinates for 1920x480 panorama fixed size
         const left = Math.round(Math.min(this.dragStart.x, this.dragEnd.x));
         const top = Math.round(Math.min(this.dragStart.y, this.dragEnd.y));
         const right = Math.round(Math.max(this.dragStart.x, this.dragEnd.x));
@@ -1060,7 +1064,7 @@ export default {
         this.endPointX = right.toString();
         this.endPointY = bottom.toString();
         
-        console.log('Region coordinates (640x480):', {
+        console.log('Region coordinates (1920x480):', {
           left,
           top,
           right,
@@ -1076,7 +1080,7 @@ export default {
     },
     
     getZoneStyle(zone) {
-      // 픽셀 좌표를 직접 사용 (640x480 고정 크기)
+      // 픽셀 좌표를 직접 사용 (1920x480 파노라마 고정 크기)
       const style = {
         position: 'absolute',
         left: zone.left + 'px',
@@ -1218,6 +1222,8 @@ export default {
 .event-area {
   padding: 20px;
   background-color: white; // 배경을 흰색으로 변경
+  width: 100%;
+  max-width: 2060px; // 1920px + 120px (padding) + 20px (margin)
 
   .input-fields-row {
     margin-bottom: 0; // 간격 제거
@@ -1379,6 +1385,10 @@ export default {
 
   .video-row {
     margin-bottom: 20px;
+    
+    .col {
+      padding: 0 !important;
+    }
   }
 
   .button-row {
@@ -1400,18 +1410,37 @@ export default {
 
   .video-container {
     position: relative;
-    width: 640px;
+    width: 1920px;
     height: 480px;
     overflow: hidden;
     margin: 0 auto;
-    background-color: #f0f0f0; // 비디오 컨테이너 배경을 약간 어두운색으로 변경
+    background-color: #f0f0f0;
     border-radius: 8px;
-    border: 1px solid #e0e0e0; // 테두리 추가
+    border: 1px solid #e0e0e0;
+
+    .panorama-image {
+      width: 1920px;
+      height: 480px;
+      object-fit: contain;
+      display: block;
+      pointer-events: none;
+    }
+
+    .loading-panorama {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #f0f0f0;
+      color: #666;
+      font-size: 16px;
+    }
 
     .video-card {
       width: 100%;
       height: 100%;
-      z-index: 1; // 낮은 z-index로 설정
+      z-index: 1;
       position: relative;
     }
 
@@ -1442,7 +1471,7 @@ export default {
         background-color: rgba(0, 0, 0, 0.7);
         color: white;
         padding: 4px 8px;
-        borderRadius: '4px';
+        border-radius: 4px;
         pointer-events: none;
         z-index: 1000; // 가장 높은 z-index
       }
