@@ -466,29 +466,28 @@
             thead
               tr
                 th ROI
-                th Max Temp
-                th Min Temp
-                th Avg Temp
-                th Graph
-                th Download
+                th 최대온도
+                th 최소온도
+                th 평균온도
+                th 그래프
+                th 다운로드
             tbody
               tr(
                 v-for="(zone, idx) in zones"
-                :key="zone.name"
+                :key="`zone-${idx}-${zone.zone_desc}`"
                 :class="{selected: selectedZoneIdx === idx}"
-                @click="showChart(zone)"
+                @click="showChart(zone, idx)"
               )
                 td {{ zone.zone_desc }}
-                td 최대온도: {{ zone.minTemp }}
-                td 최소온도: {{ zone.maxTemp }}
-                td 평균온도: {{ zone.avgTemp }} 
-                td 경보단계: {{ zone.alertLevel }}
+                td {{ getMaxTemp(zone) }}
+                td {{ getMinTemp(zone) }}
+                td {{ zone.avgTemp && zone.avgTemp !== '--' ? (typeof zone.avgTemp === 'string' ? zone.avgTemp : zone.avgTemp.toFixed(1)) : '--' }}
                 td
                   span.icon-chart 📈
                 td
-                  span.icon-excel(@click.stop="downloadExcel(zone)") 📊
+                  span.icon-excel(@click.stop.prevent="downloadExcel(zone)") 📊
       .bottomleft-inner-bottom
-          .box-title 시계열 온도 데이터
+          .box-title.chart-title 시계열 온도 데이터
           .chart-container
             v-chart(:options="chartOption" autoresize ref="trendChart" class="trend-chart")
   .cell.cell-bottomright
@@ -512,6 +511,23 @@
           @cameraStatus="cameraStatus"
         )
         .no-camera(v-else) No visible camera available
+
+  // 경보 알림 팝업 레이어
+  .alert-popup-overlay(v-if="showAlertPopup && unclosedAlerts.length > 0")
+    .alert-popup-container
+      .alert-popup-header
+        .alert-popup-title 경보 알림
+      .alert-popup-content
+        .alert-list
+          .alert-item(v-for="alert in unclosedAlerts" :key="alert.id")
+            .alert-level 경보단계: {{ alert.levelText }}
+            .alert-zone 경보영역: {{ alert.zoneName }}
+            .alert-time 경보시간: {{ alert.time }}
+      .alert-popup-footer
+        v-btn(
+          color="secondary"
+          @click="closeAlertPopup"
+        ) 닫기
 </template>
   
 <script>
@@ -521,13 +537,13 @@ import { BarChart, LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components';
 import VideoCard from '@/components/camera-card.vue';
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
-import { getRoiDataList } from '@/api/statistic.api';
+import { getRoiDataList, getRoiTemperatureTimeSeries } from '@/api/statistic.api';
 import VChart from 'vue-echarts';
 import VueAspectRatio from 'vue-aspect-ratio';
 import socket from '@/mixins/socket';
 import * as XLSX from 'xlsx';
 import * as echarts from 'echarts';
-import { getAlerts} from '@/api/alerts.api';
+import { getAlerts, updatePopupClose} from '@/api/alerts.api';
 import { getEventSetting } from '@/api/eventSetting.api.js';
 import { ptzMove, ptzStop, ptzZoom, ptzFocus, ptzWiper, pntTourStart, pntTourStop, pntTourSetup } from '@/api/ptz.api';
 import { getPanoramaData } from '@/api/panorama.api';
@@ -606,6 +622,7 @@ data() {
       location: '서울'
     },
     timeInterval: null,
+    alertHistoryInterval: null, // 실시간 누수감지상태 정보 갱신용 인터벌
     zones: [],
     selectedZoneIdx: null,
     selectedZone: null,
@@ -616,8 +633,10 @@ data() {
     location_info: '',
     address: '',
     mapImagePreview: null,
-    selectedStatusButton: null,
+    selectedStatusButton: 'safe', // 초기값을 안전으로 설정
     latestAlertInfo: null,
+    showAlertPopup: false,
+    unclosedAlerts: [],
     // PTZ 제어 관련 데이터
     ptzDialog: false,
     ptzConfig: {
@@ -692,10 +711,12 @@ computed: {
 
     const times = temps.map(t => {
       const date = new Date(t.time);
+      // UTC 시간을 그대로 표시 (DB 시간과 동일)
       return date.toLocaleTimeString('ko-KR', { 
         hour: '2-digit', 
         minute: '2-digit',
-        hour12: false 
+        hour12: false,
+        timeZone: 'UTC'
       });
     });
     const minTemps = temps.map(t => Number(t.min));
@@ -793,10 +814,10 @@ computed: {
         }
       ],
       grid: { 
-        left: 40, 
-        right: 20, 
-        top: 60, 
-        bottom: 60,
+        left: 35, 
+        right: 15, 
+        top: 30, 
+        bottom: 30,
         containLabel: true
       }
     };
@@ -820,12 +841,19 @@ mounted() {
   }
   this.initializeData();
   this.loadAlertHistory();
+  // 실시간 누수감지상태 정보를 10초마다 갱신
+  this.alertHistoryInterval = setInterval(() => {
+    this.loadAlertHistory();
+  }, 10000); // 10초 (10000ms)
   this.loadSiteName();
   this.loadMapImage();
 },
 beforeDestroy() {
   if (this.timeInterval) {
     clearInterval(this.timeInterval);
+  }
+  if (this.alertHistoryInterval) {
+    clearInterval(this.alertHistoryInterval);
   }
   // 소켓 이벤트 리스너 제거
   this.$socket.client.off('connect', this.handleSocketConnect);
@@ -864,6 +892,52 @@ methods: {
     const seconds = String(now.getSeconds()).padStart(2, '0');
     
     this.currentTime = `${year}년 ${month}월 ${day}일 ${hours}:${minutes}:${seconds}`;
+  },
+  // zone.minTemp와 zone.maxTemp 중 작은 값을 최소온도로 반환
+  getMinTemp(zone) {
+    // getRoiDataList API는 문자열('--' 또는 숫자 문자열)을 반환할 수 있음
+    const minTemp = zone.minTemp;
+    const maxTemp = zone.maxTemp;
+    
+    if (minTemp === '--' || minTemp == null) {
+      if (maxTemp === '--' || maxTemp == null) {
+        return '--';
+      }
+      return maxTemp;
+    }
+    if (maxTemp === '--' || maxTemp == null) {
+      return minTemp;
+    }
+    // 둘 다 숫자인 경우 작은 값 반환
+    const minNum = typeof minTemp === 'string' ? parseFloat(minTemp) : minTemp;
+    const maxNum = typeof maxTemp === 'string' ? parseFloat(maxTemp) : maxTemp;
+    if (isNaN(minNum) || isNaN(maxNum)) {
+      return '--';
+    }
+    return Math.min(minNum, maxNum).toFixed(1);
+  },
+  // zone.minTemp와 zone.maxTemp 중 큰 값을 최대온도로 반환
+  getMaxTemp(zone) {
+    // getRoiDataList API는 문자열('--' 또는 숫자 문자열)을 반환할 수 있음
+    const minTemp = zone.minTemp;
+    const maxTemp = zone.maxTemp;
+    
+    if (minTemp === '--' || minTemp == null) {
+      if (maxTemp === '--' || maxTemp == null) {
+        return '--';
+      }
+      return maxTemp;
+    }
+    if (maxTemp === '--' || maxTemp == null) {
+      return minTemp;
+    }
+    // 둘 다 숫자인 경우 큰 값 반환
+    const minNum = typeof minTemp === 'string' ? parseFloat(minTemp) : minTemp;
+    const maxNum = typeof maxTemp === 'string' ? parseFloat(maxTemp) : maxTemp;
+    if (isNaN(minNum) || isNaN(maxNum)) {
+      return '--';
+    }
+    return Math.max(minNum, maxNum).toFixed(1);
   },
   async fetchWeather() {
     try {
@@ -915,6 +989,8 @@ methods: {
       if (this.zones.length > 0) {
         this.selectedZoneIdx = 0;
         this.selectedZone = this.zones[0];
+        // 첫 번째 항목의 차트 데이터도 로드
+        await this.showChart(this.zones[0]);
       }
     } catch (e) {
       console.error('영역 통계 정보를 불러오지 못했습니다:', e);
@@ -1818,25 +1894,59 @@ methods: {
       this.camStates.push(data);
     }
   },
-  downloadExcel(zone) {
+  async downloadExcel(zone) {
     try {
+      // ROI 번호 추출 (zone_type 또는 zone_desc에서)
+      let roiNumber = null;
+      if (zone.zone_type) {
+        roiNumber =  parseInt(zone.zone_type);
+      }
+      
+      
+      // 해당 ROI의 모든 시계열 온도 데이터 가져오기
+      this.$toast.info('데이터를 불러오는 중...');
+      const response = await getRoiTemperatureTimeSeries({ 
+        roiNumber: roiNumber
+      });
+      
+      if (!response.data || !response.data.success || !response.data.result) {
+        this.$toast.error('시계열 데이터를 가져올 수 없습니다.');
+        return;
+      }
+      
+      const timeSeriesData = response.data.result.timeSeriesData || [];
+      
+      if (timeSeriesData.length === 0) {
+        this.$toast.warning('다운로드할 데이터가 없습니다.');
+        return;
+      }
+      
       // Create worksheet data
       const worksheetData = [];
       
       // Add headers
       worksheetData.push(['시간', '최소온도 (°C)', '최대온도 (°C)', '평균온도 (°C)']);
       
-      // Add data rows
-      if (zone.temps && Array.isArray(zone.temps)) {
-        zone.temps.forEach(temp => {
-          worksheetData.push([
-            new Date(temp.time).toLocaleString('ko-KR'),
-            temp.min,
-            temp.max,
-            temp.avg
-          ]);
+      // Add data rows - UTC 시간으로 표시
+      timeSeriesData.forEach(temp => {
+        const date = new Date(temp.time);
+        const timeStr = date.toLocaleString('ko-KR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZone: 'UTC'
         });
-      }
+        
+        worksheetData.push([
+          timeStr,
+          typeof temp.min === 'string' ? temp.min : (temp.min ? parseFloat(temp.min).toFixed(1) : '--'),
+          typeof temp.max === 'string' ? temp.max : (temp.max ? parseFloat(temp.max).toFixed(1) : '--'),
+          typeof temp.avg === 'string' ? temp.avg : (temp.avg ? parseFloat(temp.avg).toFixed(1) : '--')
+        ]);
+      });
 
       // Create workbook and worksheet
       const wb = XLSX.utils.book_new();
@@ -1864,18 +1974,100 @@ methods: {
       link.download = `${zone.zone_desc}_temperature_data.xlsx`;
       link.click();
       URL.revokeObjectURL(link.href);
+      
+      this.$toast.success('Excel 파일 다운로드가 완료되었습니다.');
     } catch (error) {
       console.error('Error downloading Excel:', error);
       this.$toast.error('Excel 다운로드 중 오류가 발생했습니다.');
     }
   },
-  showChart(zone) {
-    console.log('Selected Zone Data:', zone);
-    this.selectedZone = zone;
-    const index = this.zones.findIndex(z => z.zone_desc === zone.zone_desc);
+  async showChart(zone, idx = null) {
+    console.log('=== showChart called ===');
+    console.log('zone:', zone);
+    console.log('idx:', idx);
+    console.log('current selectedZoneIdx:', this.selectedZoneIdx);
+    
+    // 선택된 인덱스 업데이트
+    let index = idx;
+    if (index === null || index === undefined) {
+      index = this.zones.findIndex(z => z.zone_desc === zone.zone_desc);
+    }
+    
     if (index !== -1) {
       this.selectedZoneIdx = index;
+      console.log('Updated selectedZoneIdx to:', index);
+    } else {
+      console.warn('Could not find zone index');
     }
+    
+    // ROI 번호 추출 (zone_type 또는 zone_desc에서)
+    let roiNumber = null;
+    console.log('Zone object for ROI extraction:', zone);
+    
+    if (zone.zone_type) {
+      // zone_type이 "Z1", "Z2" 형식인 경우
+      if (typeof zone.zone_type === 'string' && zone.zone_type.startsWith('Z')) {
+        roiNumber = parseInt(zone.zone_type.replace('Z', ''));
+        console.log('Extracted ROI number from zone_type (Z format):', roiNumber);
+      } else if (typeof zone.zone_type === 'string') {
+        // 숫자 문자열인 경우 (예: "1", "2")
+        roiNumber = parseInt(zone.zone_type);
+        console.log('Extracted ROI number from zone_type (number format):', roiNumber);
+      } else if (typeof zone.zone_type === 'number') {
+        // 숫자인 경우
+        roiNumber = zone.zone_type;
+        console.log('Extracted ROI number from zone_type (number):', roiNumber);
+      }
+    }
+    
+    // zone_type에서 추출 실패한 경우 zone_desc에서 시도
+    if (!roiNumber && zone.zone_desc) {
+      // zone_desc에서 숫자 추출 (예: "ROI 1" -> 1)
+      const match = zone.zone_desc.match(/\d+/);
+      if (match) {
+        roiNumber = parseInt(match[0]);
+        console.log('Extracted ROI number from zone_desc:', roiNumber);
+      }
+    }
+    
+    // ROI 온도 시계열 데이터 가져오기
+    // roiNumber가 0일 수도 있으므로 !== null && !== undefined로 체크
+    if (roiNumber !== null && roiNumber !== undefined && !isNaN(roiNumber)) {
+      try {
+        console.log('Calling API for ROI:', roiNumber);
+        const response = await getRoiTemperatureTimeSeries({ 
+          roiNumber: roiNumber
+        });
+        
+        if (response.data && response.data.success && response.data.result) {
+          // 가져온 데이터를 selectedZone.temps 형식으로 변환
+          this.selectedZone = {
+            ...zone,
+            temps: response.data.result.timeSeriesData || []
+          };
+          console.log('Loaded temperature time series data:', this.selectedZone.temps);
+        } else {
+          console.warn('No temperature data found for ROI:', roiNumber);
+          this.selectedZone = {
+            ...zone,
+            temps: zone.temps || []
+          };
+        }
+      } catch (error) {
+        console.error('Error loading temperature time series data:', error);
+        this.selectedZone = {
+          ...zone,
+          temps: zone.temps || []
+        };
+      }
+    } else {
+      console.warn('Could not extract ROI number from zone:', zone, 'roiNumber:', roiNumber);
+      this.selectedZone = {
+        ...zone,
+        temps: zone.temps || []
+      };
+    }
+    
     console.log('Updated selectedZone:', this.selectedZone);
   },
   onChartReady(chartInstance) {
@@ -1970,13 +2162,45 @@ methods: {
     async loadAlertHistory() {
       try {
         const response = await getAlerts('');
+        // 경보 데이터가 없거나 빈 배열인 경우 안전 상태로 설정
+        if (!response.data.result || response.data.result.length === 0) {
+          this.alertHistory = [];
+          // zones는 loadZones에서 ROI API로 관리하므로 여기서는 설정하지 않음
+          this.alertCount = 0;
+          this.selectedStatusButton = 'safe';
+          this.latestAlertInfo = null;
+          this.unclosedAlerts = [];
+          this.showAlertPopup = false;
+          
+          if (this.gaugeChart) {
+            this.gaugeChart.setOption({
+              series: [{
+                data: [{
+                  value: 0
+                }],
+                detail: {
+                  formatter: () => '안전',
+                  color: '#fff',
+                  fontSize: 24,
+                  offsetCenter: [0, '40%']
+                }
+              }]
+            });
+          }
+          return;
+        }
+        
         this.alertHistory = response.data.result.map(alert => {
           let minTemp = '-';
           let maxTemp = '-';
+          let avgTemp = '-';
           try {
             const info = alert.alert_info_json ? JSON.parse(alert.alert_info_json) : {};
             minTemp = (typeof info.min_roi_value === 'number') ? info.min_roi_value.toFixed(1) : '-';
             maxTemp = (typeof info.max_roi_value === 'number') ? info.max_roi_value.toFixed(1) : '-';
+            if (typeof info.min_roi_value === 'number' && typeof info.max_roi_value === 'number') {
+              avgTemp = ((info.min_roi_value + info.max_roi_value) / 2).toFixed(1);
+            }
           } catch (e) {
             // no-op
           }
@@ -1986,22 +2210,134 @@ methods: {
             type: alert.alert_type,
             level: alert.alert_level,
             maxTemp,
-            minTemp
+            minTemp,
+            avgTemp,
+            popup_close: alert.popup_close || 0,
+            fk_detect_zone_id: alert.fk_detect_zone_id
           }
         });
 
+        // alert API는 경보 정보만 처리하고, zones는 loadZones에서 ROI API로 관리
+
+        // popup_close가 0인 경보만 필터링하여 팝업 표시
+        const unclosedAlertsData = response.data.result
+          .filter(alert => (alert.popup_close || 0) === 0)
+          .map(alert => {
+            // alert_type에서 ROI 번호 추출 (S001 -> ROI 0, S002 -> ROI 1, ...)
+            let roiNumber = '미지정';
+            if (alert.alert_type) {
+              // alert_type에서 숫자 추출 (예: "S001" -> "001" -> 1 -> ROI 0)
+              const match = alert.alert_type.match(/\d+/);
+              if (match) {
+                const number = parseInt(match[0]);
+                roiNumber = `ROI ${number - 1}`;
+              }
+            }
+            
+            return {
+              id: alert.id,
+              levelText: this.getLevelText(alert.alert_level),
+              zoneName: roiNumber,
+              time: this.formatDate(alert.alert_accur_time)
+            };
+          });
+        
+        this.unclosedAlerts = unclosedAlertsData;
+        this.showAlertPopup = unclosedAlertsData.length > 0;
+
         // 최신 경보단계로 gaugeChart 값 반영 (한글 문구로)
         if (this.alertHistory.length > 0) {
-          this.alertCount = Number(this.alertHistory[0].level) || 0;
-          const levelLabel = this.getLevelText(this.alertHistory[0].level);
+          // alert_level이 가장 높은 경보 찾기
+          let highestAlert = this.alertHistory[0];
+          let highestLevel = Number(highestAlert.level) || 0;
+          
+          for (let i = 1; i < this.alertHistory.length; i++) {
+            const currentLevel = Number(this.alertHistory[i].level) || 0;
+            if (currentLevel > highestLevel) {
+              highestLevel = currentLevel;
+              highestAlert = this.alertHistory[i];
+            }
+          }
+          
+          const alertLevel = highestAlert.level;
+          
+          // alert_level이 없거나, 0이거나, 유효하지 않은 경우 안전 상태로 설정
+          if (!alertLevel || alertLevel === '0' || alertLevel === '' || alertLevel === null || alertLevel === undefined) {
+            this.alertCount = 0;
+            this.selectedStatusButton = 'safe';
+            this.latestAlertInfo = null;
+            
+            if (this.gaugeChart) {
+              this.gaugeChart.setOption({
+                series: [{
+                  data: [{
+                    value: 0
+                  }],
+                  detail: {
+                    formatter: () => '안전',
+                    color: '#fff',
+                    fontSize: 24,
+                    offsetCenter: [0, '40%']
+                  }
+                }]
+              });
+            }
+          } else {
+            // 유효한 경보 레벨이 있는 경우
+            this.alertCount = Number(alertLevel) || 0;
+            const levelLabel = this.getLevelText(alertLevel);
+            if (this.gaugeChart) {
+              this.gaugeChart.setOption({
+                series: [{
+                  data: [{
+                    value: this.alertCount
+                  }],
+                  detail: {
+                    formatter: () => levelLabel,
+                    color: '#fff',
+                    fontSize: 24,
+                    offsetCenter: [0, '40%']
+                  }
+                }]
+              });
+            }
+            
+            // alert_level에 따른 버튼 매핑
+            // alert_level 0 -> 안전, 1 -> 관심, 2 -> 주의, 3 -> 점검, 4 -> 대비
+            const alertLevelNum = Number(alertLevel);
+            const buttonMapping = {
+              0: 'safe',      // 안전
+              1: 'attention', // 관심
+              2: 'caution',   // 주의
+              3: 'check',     // 점검
+              4: 'prepare'    // 대비
+            };
+            
+            const defaultButton = buttonMapping[alertLevelNum] || 'safe'; // 기본값을 safe로 변경
+            this.selectedStatusButton = defaultButton; // 버튼 타입 설정
+            
+            // 최신 경보 정보 설정 (가장 높은 레벨의 경보 정보 사용)
+            this.latestAlertInfo = {
+              level: this.getLevelText(alertLevel),
+              maxTemp: highestAlert.maxTemp,
+              minTemp: highestAlert.minTemp,
+              time: highestAlert.time
+            };
+          }
+        } else {
+          // 경보 데이터가 없는 경우 안전 상태로 설정
+          this.alertCount = 0;
+          this.selectedStatusButton = 'safe';
+          this.latestAlertInfo = null;
+          
           if (this.gaugeChart) {
             this.gaugeChart.setOption({
               series: [{
                 data: [{
-                  value: this.alertCount
+                  value: 0
                 }],
                 detail: {
-                  formatter: () => levelLabel,
+                  formatter: () => '안전',
                   color: '#fff',
                   fontSize: 24,
                   offsetCenter: [0, '40%']
@@ -2009,27 +2345,6 @@ methods: {
               }]
             });
           }
-          
-          // 기본적으로 최신 경보 레벨에 해당하는 버튼 선택 (level에 1을 더함)
-          const latestLevel = Number(this.alertHistory[0].level) + 1;
-          const buttonMapping = {
-            1: 'safe',
-            2: 'attention', 
-            3: 'caution',
-            4: 'check',
-            5: 'prepare'
-          };
-          
-          const defaultButton = buttonMapping[latestLevel] || 'prepare';
-          this.selectedStatusButton = defaultButton; // 버튼 타입 설정
-          
-          // 최신 경보 정보 설정
-          this.latestAlertInfo = {
-            level: this.getLevelText(this.alertHistory[0].level),
-            maxTemp: this.alertHistory[0].maxTemp,
-            minTemp: this.alertHistory[0].minTemp,
-            time: this.alertHistory[0].time
-          };
         }
       } catch (error) {
         console.error('알림 이력 조회 실패:', error);
@@ -2089,6 +2404,25 @@ methods: {
         '5': '비상'
       };
       return levels[adjustedLevel] || adjustedLevel;
+    },
+    async closeAlertPopup() {
+      try {
+        // 모든 unclosedAlerts의 popup_close를 1로 업데이트
+        const updatePromises = this.unclosedAlerts.map(alert => 
+          updatePopupClose(alert.id)
+        );
+        await Promise.all(updatePromises);
+        
+        // 팝업 닫기
+        this.showAlertPopup = false;
+        this.unclosedAlerts = [];
+        
+        // 경보 이력 다시 로드하여 팝업 상태 업데이트
+        await this.loadAlertHistory();
+      } catch (error) {
+        console.error('팝업 닫기 실패:', error);
+        this.$toast?.error('팝업을 닫는 중 오류가 발생했습니다.');
+      }
     },
     async loadSiteName() {
       try {
@@ -2273,6 +2607,19 @@ methods: {
   overflow: auto;
   display: flex;
   flex-direction: column;
+  
+  .box-title {
+    background: #666;
+    color: #fff;
+    font-weight: bold;
+    padding: 4px 12px;
+    border-bottom: 1px solid #555;
+    border-radius: 8px 8px 0 0;
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1.2;
+    display: block; // flex가 아닌 block으로 설정
+  }
 }
 
 .bottomleft-inner-bottom {
@@ -2289,10 +2636,18 @@ methods: {
   background: #666;
   color: #fff;
   font-weight: bold;
-  padding: 8px 16px;
-  border-bottom: 2px solid #555;
+  padding: 4px 12px;
+  border-bottom: 1px solid #555;
   border-radius: 8px 8px 0 0;
   flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1.2;
+  
+  // 시계열 온도 데이터 제목은 더 작게
+  &.chart-title {
+    padding: 2px 8px;
+    font-size: 12px;
+  }
 }
 
 .video-container {
@@ -2868,12 +3223,16 @@ methods: {
   th {
     background: #444;
     color: #fff;
-    display: none;
+    font-weight: bold;
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
 
   tr {
     cursor: pointer;
     transition: background-color 0.3s;
+    user-select: none;
 
     &:hover {
       background-color: #444d67;
@@ -2903,18 +3262,21 @@ methods: {
 .chart-container {
   flex: 1;
   min-height: 0;
-  padding: 2vw 1vw 1vw 1vw;
+  padding: 5px;
   background: #2a3042;
   border-radius: 0 0 8px 8px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: stretch;
   margin-top: 0;
   height: 100%;
+  overflow: hidden;
 
   .trend-chart {
     width: 100%;
-    height:215px;
+    height: 100%;
+    min-height: 150px;
     background: #2a3042;
   }
 
@@ -3172,6 +3534,83 @@ methods: {
           }
         }
       }
+    }
+  }
+}
+
+// 경보 알림 팝업 레이어 스타일
+.alert-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  
+  .alert-popup-container {
+    background: #2a3042;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    
+    .alert-popup-header {
+      padding: 20px 24px;
+      border-bottom: 2px solid #444;
+      
+      .alert-popup-title {
+        font-size: 20px;
+        font-weight: bold;
+        color: #fff;
+      }
+    }
+    
+    .alert-popup-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      
+      .alert-list {
+        .alert-item {
+          padding: 16px;
+          margin-bottom: 12px;
+          background: #1e2130;
+          border-radius: 4px;
+          border-left: 4px solid #ff4d4f;
+          
+          .alert-level {
+            font-size: 16px;
+            font-weight: bold;
+            color: #ff4d4f;
+            margin-bottom: 8px;
+          }
+          
+          .alert-zone {
+            font-size: 14px;
+            color: #ccc;
+            margin-bottom: 6px;
+          }
+          
+          .alert-time {
+            font-size: 14px;
+            color: #999;
+          }
+        }
+      }
+    }
+    
+    .alert-popup-footer {
+      padding: 16px 24px;
+      border-top: 2px solid #444;
+      display: flex;
+      justify-content: flex-end;
     }
   }
 }

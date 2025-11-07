@@ -608,7 +608,7 @@ export default {
         
         videoElement.addEventListener('error', (e) => {
           console.error('Video 1 load error:', e);
-          this.$toast.error('비디오 1을 로드할 수 없습니다.');
+          // 오류 메시지 출력 제거
         });
       }
     },
@@ -626,7 +626,7 @@ export default {
         
         videoElement.addEventListener('error', (e) => {
           console.error('Video 2 load error:', e);
-          this.$toast.error('비디오 2를 로드할 수 없습니다.');
+          // 오류 메시지 출력 제거
         });
       }
     },
@@ -755,8 +755,8 @@ export default {
       console.error('Video error:', event);
       const videoElement = event.target;
       
-      // MP4 파일 에러 처리
-      this.$toast.error('비디오를 재생할 수 없습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.');
+      // MP4 파일 에러 처리 - 오류 메시지 출력 제거
+      // this.$toast.error('비디오를 재생할 수 없습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.');
       
       // 재시도 로직
       setTimeout(() => {
@@ -944,13 +944,23 @@ export default {
         const start = new Date(segment.startTime);
         const end = new Date(segment.endTime);
 
-        // 0시 기준 초 단위로 변환 (UTC 기준, 9시간 추가)
-        const startSeconds = (start.getUTCHours() + 9) * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
-        const endSeconds = (end.getUTCHours() + 9) * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
+        // 0시 기준 초 단위로 변환 (UTC 기준, 9시간 추가, 24시간 초과 시 wrap 처리)
+        let startSeconds = (start.getUTCHours() + 9) * 3600 + start.getUTCMinutes() * 60 + start.getUTCSeconds();
+        let endSeconds = (end.getUTCHours() + 9) * 3600 + end.getUTCMinutes() * 60 + end.getUTCSeconds();
+        
+        // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+        const totalSecondsInDay = 24 * 60 * 60;
+        startSeconds = startSeconds % totalSecondsInDay;
+        endSeconds = endSeconds % totalSecondsInDay;
+        
+        // endSeconds가 startSeconds보다 작으면 하루를 더한 값으로 처리 (자정을 넘어가는 경우)
+        if (endSeconds < startSeconds) {
+          endSeconds += totalSecondsInDay;
+        }
 
-        const startPercent = (startSeconds / (24 * 60 * 60)) * 100;
+        const startPercent = (startSeconds / totalSecondsInDay) * 100;
         const duration = endSeconds - startSeconds;
-        const widthPercent = (duration / (24 * 60 * 60)) * 100;
+        const widthPercent = (duration / totalSecondsInDay) * 100;
 
         // 모든 구간을 파란색으로 통일 (첫 번째 카메라의 모든 영상)
         const backgroundColor = '#3B82F6';
@@ -1426,14 +1436,23 @@ export default {
           if (!video.startTime || !video.endTime) return;
           
           const startDate = new Date(video.startTime);
-          const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+          let startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                              startDate.getUTCMinutes() * 60 + 
                              startDate.getUTCSeconds();
           
           const endDate = new Date(video.endTime);
-          const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+          let endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
                            endDate.getUTCMinutes() * 60 + 
                            endDate.getUTCSeconds();
+          
+          // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+          startSeconds = startSeconds % totalSeconds;
+          endSeconds = endSeconds % totalSeconds;
+          
+          // endSeconds가 startSeconds보다 작으면 하루를 더한 값으로 처리 (자정을 넘어가는 경우)
+          if (endSeconds < startSeconds) {
+            endSeconds += totalSeconds;
+          }
           
           const videoRef = this.$refs[`videoPlayer${index + 1}`];
           if (!videoRef) return;
@@ -1442,7 +1461,16 @@ export default {
           if (!element) return;
           
           // 재생 중이고 타임라인 위치가 범위 내에 있는 비디오 찾기
-          if (!element.paused && currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+          // currentTimeSeconds도 0-86400 범위에 있으므로 비교 가능
+          let checkTime = currentTimeSeconds;
+          if (endSeconds >= totalSeconds) {
+            // 자정을 넘어가는 경우, currentTimeSeconds도 범위를 벗어날 수 있으므로 체크
+            if (currentTimeSeconds < startSeconds) {
+              checkTime = currentTimeSeconds + totalSeconds;
+            }
+          }
+          
+          if (!element.paused && checkTime >= startSeconds && checkTime <= endSeconds) {
             activeVideo = video;
             videoElement = element;
           }
@@ -1458,11 +1486,16 @@ export default {
           }
           
           const startDate = new Date(activeVideo.startTime);
-          const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+          let startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                              startDate.getUTCMinutes() * 60 + 
                              startDate.getUTCSeconds();
           
-          const timelinePosition = startSeconds + currentVideoTime;
+          // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+          startSeconds = startSeconds % totalSeconds;
+          
+          let timelinePosition = startSeconds + currentVideoTime;
+          // 24시간을 초과하면 wrap
+          timelinePosition = timelinePosition % totalSeconds;
           const percent = (timelinePosition / totalSeconds) * 100;
           
           // 타임라인 위치 업데이트 (드래그 중이 아닐 때만)
@@ -1489,17 +1522,26 @@ export default {
       this.selectedVideos.forEach((video, index) => {
         if (!video.startTime || !video.endTime) return;
 
-        // 시작 시간을 초 단위로 변환 (9시간 추가)
+        // 시작 시간을 초 단위로 변환 (9시간 추가, 24시간 초과 시 wrap 처리)
         const startDate = new Date(video.startTime);
-        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+        let startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                            startDate.getUTCMinutes() * 60 + 
                            startDate.getUTCSeconds();
 
-        // 종료 시간을 초 단위로 변환 (9시간 추가)
+        // 종료 시간을 초 단위로 변환 (9시간 추가, 24시간 초과 시 wrap 처리)
         const endDate = new Date(video.endTime);
-        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+        let endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
                          endDate.getUTCMinutes() * 60 + 
                          endDate.getUTCSeconds();
+        
+        // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+        startSeconds = startSeconds % totalSeconds;
+        endSeconds = endSeconds % totalSeconds;
+        
+        // endSeconds가 startSeconds보다 작으면 하루를 더한 값으로 처리 (자정을 넘어가는 경우)
+        if (endSeconds < startSeconds) {
+          endSeconds += totalSeconds;
+        }
 
         // 비디오 요소 찾기
         const videoRef = this.$refs[`videoPlayer${index + 1}`];
@@ -1509,9 +1551,17 @@ export default {
         if (!videoElement) return;
 
         // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
-        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+        let checkTime = currentTimeSeconds;
+        if (endSeconds >= totalSeconds) {
+          // 자정을 넘어가는 경우, currentTimeSeconds도 범위를 벗어날 수 있으므로 체크
+          if (currentTimeSeconds < startSeconds) {
+            checkTime = currentTimeSeconds + totalSeconds;
+          }
+        }
+        
+        if (checkTime >= startSeconds && checkTime <= endSeconds) {
           // 범위 내에 있으면 해당 위치에서 재생
-          const videoTime = currentTimeSeconds - startSeconds;
+          const videoTime = checkTime - startSeconds;
           const videoDuration = endSeconds - startSeconds;
           
           // 비디오 시간이 범위를 벗어나면 조정
@@ -1639,13 +1689,16 @@ export default {
         // 영상의 시작 시간을 Date 객체로 변환
         const startDate = new Date(videoItem.startTime);
         
-        // UTC 시간을 한국 시간으로 변환 (9시간 추가)
-        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+        // UTC 시간을 한국 시간으로 변환 (9시간 추가, 24시간 초과 시 wrap 처리)
+        let startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                            startDate.getUTCMinutes() * 60 + 
                            startDate.getUTCSeconds();
         
-        // 24시간(86400초)을 기준으로 퍼센트 계산
+        // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
         const totalSeconds = 86400; // 24시간
+        startSeconds = startSeconds % totalSeconds;
+        
+        // 24시간(86400초)을 기준으로 퍼센트 계산
         const percent = (startSeconds / totalSeconds) * 100;
         
         // 타임라인바 위치 업데이트 (애니메이션 효과)
@@ -1725,7 +1778,7 @@ export default {
         // 해당 구간의 비디오를 찾기
         const video = this.recordingHistory.find(record => record.id === segment.id);
         if (!video) {
-          console.warn('Video not found for segment:', segment);
+          // 비디오를 찾을 수 없습니다 관련 오류 메시지 제거
           return;
         }
 
@@ -1772,19 +1825,36 @@ export default {
         if (!video.startTime || !video.endTime) return;
         
         const startDate = new Date(video.startTime);
-        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+        let startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                            startDate.getUTCMinutes() * 60 + 
                            startDate.getUTCSeconds();
         
         const endDate = new Date(video.endTime);
-        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+        let endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
                          endDate.getUTCMinutes() * 60 + 
                          endDate.getUTCSeconds();
 
+        // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+        startSeconds = startSeconds % totalSeconds;
+        endSeconds = endSeconds % totalSeconds;
+        
+        // endSeconds가 startSeconds보다 작으면 하루를 더한 값으로 처리 (자정을 넘어가는 경우)
+        if (endSeconds < startSeconds) {
+          endSeconds += totalSeconds;
+        }
+
         // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
-        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+        let checkTime = currentTimeSeconds;
+        if (endSeconds >= totalSeconds) {
+          // 자정을 넘어가는 경우, currentTimeSeconds도 범위를 벗어날 수 있으므로 체크
+          if (currentTimeSeconds < startSeconds) {
+            checkTime = currentTimeSeconds + totalSeconds;
+          }
+        }
+        
+        if (checkTime >= startSeconds && checkTime <= endSeconds) {
           isWithinVideoRange = true;
-      }
+        }
       });
 
       // 범위 내에 있을 때만 비디오 시간 설정
@@ -1815,14 +1885,18 @@ export default {
     resetTimelineToEarliestVideo() {
       // 가장 빠른 비디오의 시작 위치 찾기
       let earliestVideoStart = Infinity;
+      const totalSeconds = 86400; // 24시간
       
       this.selectedVideos.forEach((video) => {
         if (!video.startTime) return;
 
         const startDate = new Date(video.startTime);
-        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+        let startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                            startDate.getUTCMinutes() * 60 + 
                            startDate.getUTCSeconds();
+        
+        // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+        startSeconds = startSeconds % totalSeconds;
         
         if (startSeconds < earliestVideoStart) {
           earliestVideoStart = startSeconds;
@@ -1831,7 +1905,6 @@ export default {
       
       // 타임라인을 가장 빠른 비디오의 시작 위치로 설정
       if (earliestVideoStart !== Infinity) {
-        const totalSeconds = 86400; // 24시간
         this.verticalBarPercent = (earliestVideoStart / totalSeconds) * 100;
         this.updateVideosTime(this.verticalBarPercent);
       }
@@ -1849,17 +1922,34 @@ export default {
         if (!video.startTime || !video.endTime) return;
         
         const startDate = new Date(video.startTime);
-        const startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
+        let startSeconds = (startDate.getUTCHours() + 9) * 3600 + 
                            startDate.getUTCMinutes() * 60 + 
                            startDate.getUTCSeconds();
         
         const endDate = new Date(video.endTime);
-        const endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
+        let endSeconds = (endDate.getUTCHours() + 9) * 3600 + 
                          endDate.getUTCMinutes() * 60 + 
                          endDate.getUTCSeconds();
         
+        // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+        startSeconds = startSeconds % totalSeconds;
+        endSeconds = endSeconds % totalSeconds;
+        
+        // endSeconds가 startSeconds보다 작으면 하루를 더한 값으로 처리 (자정을 넘어가는 경우)
+        if (endSeconds < startSeconds) {
+          endSeconds += totalSeconds;
+        }
+        
         // 현재 타임라인 위치가 이 비디오 범위 내에 있는지 확인
-        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+        let checkTime = currentTimeSeconds;
+        if (endSeconds >= totalSeconds) {
+          // 자정을 넘어가는 경우, currentTimeSeconds도 범위를 벗어날 수 있으므로 체크
+          if (currentTimeSeconds < startSeconds) {
+            checkTime = currentTimeSeconds + totalSeconds;
+          }
+        }
+        
+        if (checkTime >= startSeconds && checkTime <= endSeconds) {
           isWithinVideoRange = true;
         }
       });
@@ -2009,29 +2099,54 @@ export default {
       // 가장 가까운 시간대의 영상 찾기
       let closestVideo = null;
       let minTimeDiff = Infinity;
+      const totalSeconds = 86400; // 24시간
       
       for (const recording of recordings) {
         const recordStart = new Date(recording.startTime);
         const recordEnd = new Date(recording.endTime);
         
-        // UTC 시간을 한국 시간으로 변환 (9시간 추가)
-        const startSeconds = (recordStart.getUTCHours() + 9) * 3600 + 
+        // UTC 시간을 한국 시간으로 변환 (9시간 추가, 24시간 초과 시 wrap 처리)
+        let startSeconds = (recordStart.getUTCHours() + 9) * 3600 + 
                            recordStart.getUTCMinutes() * 60 + 
                            recordStart.getUTCSeconds();
-        const endSeconds = (recordEnd.getUTCHours() + 9) * 3600 + 
+        let endSeconds = (recordEnd.getUTCHours() + 9) * 3600 + 
                          recordEnd.getUTCMinutes() * 60 + 
                          recordEnd.getUTCSeconds();
         
+        // 24시간(86400초)을 초과하면 모듈로 연산으로 wrap
+        startSeconds = startSeconds % totalSeconds;
+        endSeconds = endSeconds % totalSeconds;
+        
+        // endSeconds가 startSeconds보다 작으면 하루를 더한 값으로 처리 (자정을 넘어가는 경우)
+        if (endSeconds < startSeconds) {
+          endSeconds += totalSeconds;
+        }
+        
         // 현재 시간이 녹화 범위 내에 있는지 확인
-        if (currentTimeSeconds >= startSeconds && currentTimeSeconds <= endSeconds) {
+        let checkTime = currentTimeSeconds;
+        if (endSeconds >= totalSeconds) {
+          // 자정을 넘어가는 경우, currentTimeSeconds도 범위를 벗어날 수 있으므로 체크
+          if (currentTimeSeconds < startSeconds) {
+            checkTime = currentTimeSeconds + totalSeconds;
+          }
+        }
+        
+        if (checkTime >= startSeconds && checkTime <= endSeconds) {
           return recording; // 정확히 같은 시간대
         }
         
-        // 가장 가까운 시간대 계산
-        const timeDiff = Math.min(
+        // 가장 가까운 시간대 계산 (wrap 고려)
+        const timeDiff1 = Math.min(
           Math.abs(currentTimeSeconds - startSeconds),
-          Math.abs(currentTimeSeconds - endSeconds)
+          Math.abs((currentTimeSeconds + totalSeconds) - startSeconds),
+          Math.abs(currentTimeSeconds - (startSeconds + totalSeconds))
         );
+        const timeDiff2 = Math.min(
+          Math.abs(currentTimeSeconds - endSeconds),
+          Math.abs((currentTimeSeconds + totalSeconds) - endSeconds),
+          Math.abs(currentTimeSeconds - (endSeconds + totalSeconds))
+        );
+        const timeDiff = Math.min(timeDiff1, timeDiff2);
         
         if (timeDiff < minTimeDiff) {
           minTimeDiff = timeDiff;

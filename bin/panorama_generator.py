@@ -32,6 +32,14 @@ import random
 import string
 import paramiko
 
+# 컬러바 분석 모듈 import (logger 설정 전에 import 시도, 실패 시 나중에 처리)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'temp_extractor', 'temp_extractor'))
+try:
+    from colorbar_analyzer import analyze_colorbar, get_temperature_from_color_with_map
+    COLORBAR_ANALYZER_AVAILABLE = True
+except ImportError:
+    COLORBAR_ANALYZER_AVAILABLE = False
+
 def create_digest_auth(username, password, method, uri, realm, nonce, qop, nc, cnonce):
     """Digest 인증 헤더 생성"""
     # HA1 = MD5(username:realm:password)
@@ -528,12 +536,16 @@ config = load_config()
 API_BASE_URL = config.get('API', 'base_url', fallback='http://localhost:9001')
 
 # 글로벌 상수 설정
-PANORAMA_INTERVAL_SECONDS = 3600  # 1시간 = 3600초
+PANORAMA_INTERVAL_SECONDS = 600  # 1시간 = 3600초
 PANORAMA_INTERVAL_MINUTES = PANORAMA_INTERVAL_SECONDS // 60  # 60분
 
 # PTZ 프리셋 이동 여부 설정
 ENABLE_PRESET_MOVEMENT = True  # True: 실제 이동, False: 이동 없이 대기만
 PRESET_WAIT_SECONDS = 5  # 프리셋 이동 비활성화 시 대기 시간 (초)
+
+# 컬러바 온도 설정 (컬러바 이미지에 명시된 온도 범위)
+TEMP_MIN_GLOBAL = 35.0  # 최저 온도 (도)
+TEMP_MAX_GLOBAL = 51.0  # 최고 온도 (도)
 
 ### mariadb 연결정보 ####
 DBSERVER_IP = config.get('DATABASE', 'host')
@@ -570,6 +582,10 @@ console_handler.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 ))
 logger.addHandler(console_handler)
+
+# 컬러바 분석 모듈 사용 가능 여부 로깅
+if not COLORBAR_ANALYZER_AVAILABLE:
+    logger.warning("colorbar_analyzer 모듈을 찾을 수 없습니다. 밝기 기반 온도 계산을 사용합니다.")
 
 # =========================
 # PNT Protocol Constants (pnt_server.py와 동일)
@@ -825,6 +841,34 @@ class PanoramaGenerator:
         self.thermal_camera_ip = None
         self.thermal_camera_port = None
         
+        # 컬러바 관련 설정
+        self.colorbar_image_path = None
+        self.color_mapping = None
+        self.temp_min = TEMP_MIN_GLOBAL
+        self.temp_max = TEMP_MAX_GLOBAL
+        
+        # 컬러바 이미지 경로 설정 (config에서 가져오거나 기본값 사용)
+        # config.ini에 COLORBAR 섹션이 있으면 사용, 없으면 기본 경로 시도
+        try:
+            self.colorbar_image_path = config.get('COLORBAR', 'image_path', fallback=None)
+            if self.colorbar_image_path:
+                # 상대 경로를 절대 경로로 변환
+                if not os.path.isabs(self.colorbar_image_path):
+                    base_dir = os.path.dirname(os.path.dirname(__file__))
+                    self.colorbar_image_path = os.path.join(base_dir, self.colorbar_image_path)
+                
+                # 컬러바 온도 범위 설정 (config에서 가져오거나 기본값 사용)
+                self.temp_min = config.getfloat('COLORBAR', 'temp_min', fallback=TEMP_MIN_GLOBAL)
+                self.temp_max = config.getfloat('COLORBAR', 'temp_max', fallback=TEMP_MAX_GLOBAL)
+                
+                logger.info(f"컬러바 이미지 경로: {self.colorbar_image_path}")
+                logger.info(f"컬러바 온도 범위: {self.temp_min}°C ~ {self.temp_max}°C")
+            else:
+                logger.info("컬러바 이미지 경로가 설정되지 않았습니다. 밝기 기반 온도 계산을 사용합니다.")
+        except Exception as e:
+            logger.warning(f"컬러바 설정 로드 실패: {e}. 밝기 기반 온도 계산을 사용합니다.")
+            self.colorbar_image_path = None
+        
         # PTZ 이동이 활성화된 경우에만 PTZ 클라이언트 생성
         # 디버그 모드일 때는 프리셋 이동을 건너뛰므로 PTZ 클라이언트 생성하지 않음
         if ENABLE_PRESET_MOVEMENT and not self.debug_mode:
@@ -982,7 +1026,7 @@ class PanoramaGenerator:
                 
                 if success:
                     logger.info(f"프리셋 {preset_number} 이동 성공")
-                    time.sleep(3)  # 카메라 이동 대기
+                    time.sleep(7)  # 카메라 이동 대기 (간격 단축 시 충분한 안정화 시간 확보)
                     logger.info(f"프리셋 {preset_number} 이동 완료")
                     return True
                 else:
@@ -1047,8 +1091,8 @@ class PanoramaGenerator:
                     stderr=subprocess.PIPE
                 )
                 
-                # 출력 데이터 수집 (타임아웃 설정)
-                stdout_data, stderr_data = process.communicate(timeout=30)
+                # 출력 데이터 수집 (타임아웃 설정 - 간격 단축 시 안정성을 위해 증가)
+                stdout_data, stderr_data = process.communicate(timeout=45)
                 
                 # 디버깅을 위한 로그
                 if stderr_data:
@@ -1129,6 +1173,108 @@ class PanoramaGenerator:
             logger.error(f"이미지 머지 실패: {e}")
             return None
 
+    def _load_colorbar_mapping(self):
+        """컬러바 매핑 로드 (lazy loading)"""
+        if self.color_mapping is not None:
+            return self.color_mapping
+        
+        if not COLORBAR_ANALYZER_AVAILABLE:
+            logger.warning("colorbar_analyzer 모듈을 사용할 수 없습니다.")
+            return None
+        
+        if not self.colorbar_image_path or not os.path.exists(self.colorbar_image_path):
+            logger.warning(f"컬러바 이미지 파일을 찾을 수 없습니다: {self.colorbar_image_path}")
+            return None
+        
+        try:
+            logger.info("컬러바 이미지 분석 시작...")
+            self.color_mapping = analyze_colorbar(
+                self.colorbar_image_path, 
+                self.temp_min, 
+                self.temp_max
+            )
+            
+            if self.color_mapping is None:
+                logger.warning("컬러바 분석에 실패했습니다.")
+                return None
+            
+            logger.info(f"컬러바 분석 완료: {len(self.color_mapping)}개 색상-온도 매핑 생성")
+            return self.color_mapping
+            
+        except Exception as e:
+            logger.error(f"컬러바 분석 오류: {e}")
+            logger.error(traceback.format_exc())
+            return None
+
+    def extract_temperature_from_image(self, panorama_base64):
+        """파노라마 이미지에서 온도 데이터 추출 및 최고/최저 온도 계산 (컬러바 분석 기반)"""
+        try:
+            # base64 이미지를 디코딩하여 OpenCV로 로드
+            image_data = base64.b64decode(panorama_base64)
+            nparr = np.frombuffer(image_data, np.uint8)
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if image is None:
+                logger.warning("파노라마 이미지 디코딩 실패 - 온도 계산 건너뜀")
+                return None, None
+            
+            # 이미지 크기 확인
+            height, width = image.shape[:2]
+            logger.info(f"파노라마 이미지 크기: {width}x{height}")
+            
+            # 컬러바 매핑 로드 (컬러바 분석 기반 사용 가능한 경우)
+            color_mapping = self._load_colorbar_mapping()
+            use_colorbar = color_mapping is not None and COLORBAR_ANALYZER_AVAILABLE
+            
+            if use_colorbar:
+                logger.info("컬러바 분석 기반 온도 추정 사용")
+            else:
+                logger.info("밝기 기반 가상 온도 계산 사용 (컬러바 분석 불가)")
+            
+            # 온도 데이터 추출 (모든 픽셀에서 샘플링)
+            temperatures = []
+            sample_interval = 4  # 4픽셀마다 샘플링 (성능 최적화)
+            
+            for y in range(0, height, sample_interval):
+                for x in range(0, width, sample_interval):
+                    # BGR 이미지에서 픽셀 값 추출
+                    pixel = image[y, x]
+                    pixel_color_bgr = pixel
+                    
+                    if use_colorbar:
+                        # 컬러바 분석 기반 온도 추정
+                        temperature = get_temperature_from_color_with_map(
+                            pixel_color_bgr, 
+                            color_mapping, 
+                            self.temp_min, 
+                            self.temp_max
+                        )
+                    else:
+                        # 밝기 기반 가상 온도 계산 (fallback)
+                        b, g, r = pixel[0], pixel[1], pixel[2]
+                        brightness = (r + g + b) / 3
+                        temperature = 20 + (brightness / 255) * 40  # 20-60도 범위
+                    
+                    temperatures.append(temperature)
+            
+            if not temperatures:
+                logger.warning("온도 데이터가 없습니다")
+                return None, None
+            
+            # 최고/최저 온도 계산
+            min_temp = min(temperatures)
+            max_temp = max(temperatures)
+            
+            method_name = "컬러바 분석" if use_colorbar else "밝기 기반"
+            logger.info(f"온도 계산 완료 ({method_name}): 최저온도={min_temp:.2f}°C, 최고온도={max_temp:.2f}°C (샘플링: {len(temperatures)}개 픽셀)")
+            
+            return min_temp, max_temp
+            
+        except Exception as e:
+            logger.error(f"온도 추출 오류: {e}")
+            logger.error(traceback.format_exc())
+            return None, None
+
     def save_panorama_to_db(self, panorama_base64):
         """파노라마 이미지를 데이터베이스에 저장"""
         try:
@@ -1137,6 +1283,9 @@ class PanoramaGenerator:
             # 현재 시간 생성
             current_time = datetime.now()
             timestamp = current_time.isoformat()
+            
+            # 파노라마 이미지에서 온도 데이터 추출 및 최고/최저 온도 계산
+            min_temp, max_temp = self.extract_temperature_from_image(panorama_base64)
             
             # 파노라마 데이터 구성 (테이블 구조에 맞게 최적화)
             panorama_data = {
@@ -1147,6 +1296,12 @@ class PanoramaGenerator:
                 "description": "PTZ 프리셋 투어 파노라마",
                 "created_at": current_time.strftime("%Y-%m-%d %H:%M:%S")
             }
+            
+            # 온도 데이터가 추출된 경우에만 추가
+            if min_temp is not None and max_temp is not None:
+                panorama_data["minTemp"] = round(min_temp, 2)
+                panorama_data["maxTemp"] = round(max_temp, 2)
+                logger.info(f"온도 데이터 추가: minTemp={panorama_data['minTemp']}, maxTemp={panorama_data['maxTemp']}")
             
             # panoramaData 필드에 JSON 데이터 저장
             query = "INSERT INTO tb_video_panorama_data (panoramaData) VALUES (%s)"
@@ -1202,10 +1357,10 @@ class PanoramaGenerator:
                 
                 logger.info(f"=== 프리셋 {preset_num} 처리 완료 ===")
                 
-                # 프리셋 간 잠시 대기 (연결 안정화)
+                # 프리셋 간 잠시 대기 (연결 안정화 및 간격 단축 시 충분한 대기 시간)
                 if preset_num < 3:  # 마지막 프리셋이 아닌 경우
                     logger.info("다음 프리셋 처리 전 잠시 대기...")
-                    time.sleep(2)
+                    time.sleep(3)  # 2초 → 3초로 증가 (연결 안정화)
             
             # 4. 3개 이미지를 수평으로 머지
             panorama_base64 = self.merge_images_horizontally(snapshots)
@@ -1244,23 +1399,48 @@ class PanoramaGenerator:
             movement_status = "활성화" if ENABLE_PRESET_MOVEMENT else "비활성화"
         logger.info(f"파노라마 생성 스케줄러 시작 (간격: {PANORAMA_INTERVAL_MINUTES}분, 프리셋 이동: {movement_status})")
         
+        # 중복 실행 방지를 위한 플래그
+        self.is_generating = False
+        
         while self.running:
             try:
+                # 이전 파노라마 생성이 진행 중이면 대기
+                if self.is_generating:
+                    logger.warning("이전 파노라마 생성이 진행 중입니다. 10초 대기 후 다시 확인합니다...")
+                    time.sleep(10)
+                    continue
+                
                 current_time = datetime.now()
                 logger.info(f"현재 시간: {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 
-                # 파노라마 생성 실행
-                if self.generate_panorama():
-                    logger.info("파노라마 생성 성공")
-                else:
-                    logger.error("파노라마 생성 실패")
+                # 파노라마 생성 시작 시간 기록
+                start_time = time.time()
+                self.is_generating = True
                 
-                # 다음 실행까지 대기
-                logger.info(f"다음 실행까지 {PANORAMA_INTERVAL_MINUTES}분 대기...")
-                for i in range(PANORAMA_INTERVAL_SECONDS):  # 설정된 간격을 1초씩 나누어 대기
-                    if not self.running:
-                        break
-                    time.sleep(1)
+                try:
+                    # 파노라마 생성 실행
+                    if self.generate_panorama():
+                        logger.info("파노라마 생성 성공")
+                    else:
+                        logger.error("파노라마 생성 실패")
+                finally:
+                    # 생성 완료 플래그 해제
+                    self.is_generating = False
+                
+                # 실제 소요 시간 계산
+                elapsed_time = time.time() - start_time
+                logger.info(f"파노라마 생성 소요 시간: {elapsed_time:.2f}초")
+                
+                # 다음 실행까지 대기 (생성 시간을 고려하여 조정)
+                remaining_time = max(0, PANORAMA_INTERVAL_SECONDS - int(elapsed_time))
+                if remaining_time > 0:
+                    logger.info(f"다음 실행까지 {remaining_time}초 ({remaining_time // 60}분) 대기...")
+                    for i in range(remaining_time):
+                        if not self.running:
+                            break
+                        time.sleep(1)
+                else:
+                    logger.warning(f"파노라마 생성 시간({elapsed_time:.2f}초)이 설정된 간격({PANORAMA_INTERVAL_SECONDS}초)보다 깁니다. 즉시 다음 실행을 시작합니다.")
                 
             except KeyboardInterrupt:
                 logger.info("사용자에 의해 중단됨")
@@ -1268,6 +1448,7 @@ class PanoramaGenerator:
             except Exception as e:
                 logger.error(f"스케줄러 실행 중 오류: {e}")
                 logger.error(traceback.format_exc())
+                self.is_generating = False  # 오류 발생 시 플래그 해제
                 time.sleep(60)  # 오류 발생 시 1분 대기 후 재시도
 
 def main():

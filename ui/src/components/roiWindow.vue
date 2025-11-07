@@ -1,6 +1,10 @@
 <!-- eslint-disable vue/multi-word-component-names -->
 <template>
-  <v-dialog v-model="dialog" max-width="2100px" persistent>
+  <v-dialog 
+    v-model="dialog" 
+    max-width="2100px"
+    persistent
+  >
     <v-card>
       <v-card-title class="dialog-title">
         <span>{{ isEditMode ? '영역 수정' : '영역 추가' }}</span>
@@ -94,25 +98,39 @@
             <v-row class="video-row">
               <v-col cols="12">
                 <div class="video-container panorama-container" @mouseleave="handleMouseLeave">
+                  <!-- 파노라마 이미지 로딩 중 -->
+                  <div 
+                    v-if="isLoadingPanorama && !panoramaImage"
+                    class="loading-panorama"
+                  >
+                    <v-progress-circular
+                      indeterminate
+                      color="primary"
+                      size="64"
+                    ></v-progress-circular>
+                    <div class="loading-text">파노라마 이미지를 불러오는 중...</div>
+                  </div>
                   <!-- 파노라마 이미지 표시 -->
                   <img 
                     v-if="panoramaImage"
                     :src="panoramaImage"
                     alt="Panorama"
                     class="panorama-image"
+                    @load="onPanoramaImageLoad"
+                    @error="onPanoramaImageError"
                   />
+                  <!-- 파노라마 이미지 없음 (로딩 완료 후 이미지가 없는 경우) -->
                   <div 
-                    v-else
+                    v-if="!isLoadingPanorama && !panoramaImage"
                     class="loading-panorama"
                   >
-                    파노라마 이미지를 불러오는 중...
+                    <v-icon size="48" color="grey">mdi-image-off</v-icon>
+                    <div class="loading-text">파노라마 이미지가 없습니다.</div>
                   </div>
                   <div 
                     class="selection-overlay"
-                    v-if="panoramaImage"
+                    v-if="panoramaImage && !isLoadingPanorama"
                     @mousedown="startDrag"
-                    @mousemove="onDrag"
-                    @mouseup="endDrag"
                   >
                     <div 
                       class="selection-box"
@@ -199,6 +217,7 @@ export default {
       videoContainerWidth: 1920,
       videoContainerHeight: 480,
       panoramaImage: null,
+      isLoadingPanorama: false, // 파노라마 이미지 로딩 상태
       icons: {
         mdiMapMarkerRadius,
         mdiCheckboxMarkedCircle,
@@ -248,6 +267,7 @@ export default {
       dragStart: { x: 0, y: 0 },
       dragEnd: { x: 0, y: 0 },
       mousePosition: null,
+      overlayRect: null, // selection-overlay의 rect를 저장
       // 새로운 입력 필드들
       roiId: '',
       startPointX: '',
@@ -269,6 +289,7 @@ export default {
         this.$emit('input', value);
       }
     },
+    
     
     // 디버깅용 computed
     debugInfo() {
@@ -604,32 +625,187 @@ export default {
     },
 
     async loadPanoramaImage() {
+      // 로딩 상태 시작
+      this.isLoadingPanorama = true;
+      this.panoramaImage = null; // 이전 이미지 초기화
+      
       try {
-        const response = await getPanoramaData(1);
+        // 최근 5장의 파노라마 이미지 가져오기
+        console.log('파노라마 이미지 조회 시작...');
+        const response = await getPanoramaData(5);
+        console.log('파노라마 데이터 응답:', response);
+        
         if (response.data && response.data.length > 0) {
-          const panoramaData = response.data[0];
-          try {
-            const parsedData = JSON.parse(panoramaData.panoramaData);
-            if (parsedData.image) {
-              this.panoramaImage = `data:image/jpeg;base64,${parsedData.image}`;
-            } else {
-              this.panoramaImage = null;
-              this.$toast.warning('파노라마 이미지 데이터가 없습니다.');
+          console.log(`파노라마 데이터 ${response.data.length}개 조회됨`);
+          
+          // 가로 크기가 1600 이상인 이미지 중 최근 이미지 찾기
+          let selectedPanorama = null;
+          let selectedWidth = 0;
+          
+          for (let i = 0; i < response.data.length; i++) {
+            const panoramaData = response.data[i];
+            try {
+              const parsedData = JSON.parse(panoramaData.panoramaData);
+              if (parsedData.image) {
+                // 이미지 크기 확인
+                const imageWidth = await this.getImageWidth(parsedData.image);
+                console.log(`[${i + 1}/${response.data.length}] 파노라마 이미지 크기 확인: ${imageWidth}px`);
+                
+                // 가로 크기가 1600 이상인 경우 선택
+                if (imageWidth >= 1600) {
+                  selectedPanorama = parsedData.image;
+                  selectedWidth = imageWidth;
+                  console.log(`✅ 적합한 파노라마 이미지 선택: ${imageWidth}px (${i + 1}번째 이미지)`);
+                  break; // 가장 최근 이미지 선택 (이미 정렬되어 있음)
+                } else {
+                  console.log(`❌ 이미지 크기 부족: ${imageWidth}px < 1600px`);
+                }
+              } else {
+                console.warn(`[${i + 1}/${response.data.length}] 이미지 데이터 없음`);
+              }
+            } catch (error) {
+              console.error(`[${i + 1}/${response.data.length}] 파노라마 데이터 파싱 오류:`, error);
+              continue; // 다음 이미지 확인
             }
-          } catch (error) {
-            console.error('파노라마 데이터 파싱 오류:', error);
+          }
+          
+          if (selectedPanorama) {
+            console.log(`파노라마 이미지 설정: ${selectedWidth}px`);
+            // 이미지 소스 설정
+            const imageSrc = `data:image/jpeg;base64,${selectedPanorama}`;
+            this.panoramaImage = imageSrc;
+            console.log('panoramaImage 설정 완료:', this.panoramaImage ? '설정됨' : 'null');
+            
+            // 타임아웃 설정 (이미지 로드가 실패하거나 @load 이벤트가 발생하지 않을 경우 대비)
+            const timeoutId = setTimeout(() => {
+              console.warn('이미지 로드 타임아웃 (3초) - 강제로 로딩 상태 해제');
+              this.isLoadingPanorama = false;
+            }, 3000);
+            
+            // 이미지가 이미 로드되어 있을 경우를 대비해 체크
+            this.$nextTick(() => {
+              setTimeout(() => {
+                const imgElement = this.$el?.querySelector('.panorama-image');
+                console.log('이미지 요소 확인:', imgElement ? '찾음' : '없음');
+                
+                if (imgElement) {
+                  console.log('이미지 상태:', {
+                    complete: imgElement.complete,
+                    naturalWidth: imgElement.naturalWidth,
+                    naturalHeight: imgElement.naturalHeight
+                  });
+                  
+                  if (imgElement.complete && imgElement.naturalWidth > 0) {
+                    // 이미 로드된 경우
+                    console.log('이미지가 이미 로드되어 있음 - 즉시 표시');
+                    clearTimeout(timeoutId);
+                    this.isLoadingPanorama = false;
+                    // 컨테이너와 이미지 너비 강제 설정
+                    const container = imgElement.closest('.video-container');
+                    if (container) {
+                      container.style.width = '1920px';
+                      container.style.minWidth = '1920px';
+                      imgElement.style.width = '1920px';
+                      imgElement.style.minWidth = '1920px';
+                      console.log('컨테이너와 이미지 너비를 1920px로 강제 설정 (이미 로드됨)');
+                    }
+                  } else {
+                    // 이미지 로드 대기 중 - @load 이벤트에서 처리됨
+                    console.log('이미지 로드 대기 중... (@load 이벤트 대기)');
+                    
+                    // 추가 이벤트 리스너 (이중 체크)
+                    imgElement.addEventListener('load', () => {
+                      console.log('이미지 load 이벤트 리스너에서 로드 완료 확인');
+                      clearTimeout(timeoutId);
+                      this.isLoadingPanorama = false;
+                      // 컨테이너와 이미지 너비 강제 설정
+                      const container = imgElement.closest('.video-container');
+                      if (container) {
+                        container.style.width = '1920px';
+                        container.style.minWidth = '1920px';
+                        imgElement.style.width = '1920px';
+                        imgElement.style.minWidth = '1920px';
+                        console.log('컨테이너와 이미지 너비를 1920px로 강제 설정');
+                      }
+                    }, { once: true });
+                  }
+                } else {
+                  console.warn('이미지 요소를 찾을 수 없음');
+                }
+              }, 200); // DOM 업데이트 대기
+            });
+          } else {
             this.panoramaImage = null;
-            this.$toast.error('파노라마 데이터를 파싱할 수 없습니다.');
+            this.isLoadingPanorama = false;
+            console.warn('가로 크기 1600px 이상인 파노라마 이미지를 찾을 수 없습니다.');
+            this.$toast.warning('가로 크기 1600px 이상인 파노라마 이미지를 찾을 수 없습니다.');
           }
         } else {
           this.panoramaImage = null;
+          this.isLoadingPanorama = false;
+          console.warn('파노라마 데이터가 없습니다.');
           this.$toast.warning('파노라마 데이터가 없습니다.');
         }
       } catch (error) {
         console.error('파노라마 이미지 로드 오류:', error);
         this.panoramaImage = null;
+        this.isLoadingPanorama = false;
         this.$toast.error('파노라마 이미지를 불러올 수 없습니다.');
       }
+    },
+    
+    // 파노라마 이미지 로드 완료 핸들러
+        onPanoramaImageLoad(event) {
+          console.log('파노라마 이미지 @load 이벤트 발생');
+          if (event && event.target) {
+            console.log('이미지 크기:', event.target.naturalWidth, 'x', event.target.naturalHeight);
+            // 이미지 로드 후 컨테이너 크기 강제 업데이트
+            this.$nextTick(() => {
+              const container = event.target.closest('.video-container');
+              if (container) {
+                // 컨테이너 너비를 강제로 1920px로 설정
+                if (container.style.width !== '1920px') {
+                  container.style.width = '1920px';
+                  container.style.minWidth = '1920px';
+                  console.log('컨테이너 너비를 1920px로 강제 설정');
+                }
+                // 이미지 너비도 강제 설정
+                if (event.target.style.width !== '1920px') {
+                  event.target.style.width = '1920px';
+                  event.target.style.minWidth = '1920px';
+                  console.log('이미지 너비를 1920px로 강제 설정');
+                }
+              }
+            });
+          }
+          this.isLoadingPanorama = false;
+          console.log('파노라마 이미지 로드 완료 - 로딩 상태 해제');
+        },
+    
+    // 파노라마 이미지 로드 오류 핸들러
+    onPanoramaImageError(event) {
+      console.error('파노라마 이미지 로드 오류:', event);
+      this.isLoadingPanorama = false;
+      this.panoramaImage = null;
+      this.$toast.error('파노라마 이미지 로드에 실패했습니다.');
+    },
+    
+    // 이미지 가로 크기 확인 함수
+    getImageWidth(imageBase64) {
+      return new Promise((resolve, reject) => {
+        try {
+          const img = new Image();
+          img.onload = () => {
+            resolve(img.naturalWidth || img.width);
+          };
+          img.onerror = () => {
+            reject(new Error('이미지 로드 실패'));
+          };
+          img.src = `data:image/jpeg;base64,${imageBase64}`;
+        } catch (error) {
+          reject(error);
+        }
+      });
     },
 
     async updateSelectedCamera(name) {
@@ -644,7 +820,7 @@ export default {
     },
 
     updateVideoContainerSize() {
-      // 고정된 파노라마 이미지 크기 설정 (가로 3배)
+      // 고정된 파노라마 이미지 크기 설정
       this.videoContainerWidth = 1920;
       this.videoContainerHeight = 480;
     },
@@ -984,17 +1160,32 @@ export default {
 
     handleMouseLeave() {
       if (this.isDragging) {
+        // 전역 이벤트 리스너 제거
+        document.removeEventListener('mousemove', this.onDrag);
+        document.removeEventListener('mouseup', this.endDrag);
+        
         this.isDragging = false;
         this.dragStart = { x: 0, y: 0 };
         this.dragEnd = { x: 0, y: 0 };
         this.mousePosition = null;
+        this.overlayRect = null;
       }
     },
 
     startDrag(event) {
       // customizing을 강제로 true로 설정하여 항상 드래그 가능하도록 변경
       this.customizing = true;
-      const rect = event.target.getBoundingClientRect();
+      
+      // selection-overlay 요소를 직접 찾아서 rect 저장
+      const overlayElement = event.currentTarget || event.target.closest('.selection-overlay');
+      if (!overlayElement) {
+        console.error('selection-overlay 요소를 찾을 수 없습니다.');
+        return;
+      }
+      
+      const rect = overlayElement.getBoundingClientRect();
+      this.overlayRect = rect; // rect 저장
+      
       this.isDragging = true;
       this.dragStart = {
         x: event.clientX - rect.left,
@@ -1003,6 +1194,10 @@ export default {
       this.dragEnd = { ...this.dragStart };
       this.updateMousePosition(event);
       
+      // 전역 mousemove와 mouseup 이벤트 리스너 추가
+      document.addEventListener('mousemove', this.onDrag);
+      document.addEventListener('mouseup', this.endDrag);
+      
       // Clear existing region when starting new drag
       this.region = null;
     },
@@ -1010,7 +1205,19 @@ export default {
     onDrag(event) {
       if (!this.isDragging) return;
       
-      const rect = event.target.getBoundingClientRect();
+      // 저장된 overlayRect 사용 (없으면 다시 계산)
+      let rect = this.overlayRect;
+      if (!rect) {
+        const overlayElement = this.$el?.querySelector('.selection-overlay');
+        if (overlayElement) {
+          rect = overlayElement.getBoundingClientRect();
+          this.overlayRect = rect;
+        } else {
+          console.warn('selection-overlay 요소를 찾을 수 없습니다.');
+          return;
+        }
+      }
+      
       this.dragEnd = {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top
@@ -1021,7 +1228,18 @@ export default {
     },
     
     updateMousePosition(event) {
-      const rect = event.target.getBoundingClientRect();
+      // 저장된 overlayRect 사용 (없으면 다시 계산)
+      let rect = this.overlayRect;
+      if (!rect) {
+        const overlayElement = this.$el?.querySelector('.selection-overlay');
+        if (overlayElement) {
+          rect = overlayElement.getBoundingClientRect();
+          this.overlayRect = rect;
+        } else {
+          return;
+        }
+      }
+      
       const x = Math.round(event.clientX - rect.left);
       const y = Math.round(event.clientY - rect.top);
       this.mousePosition = { x, y };
@@ -1029,6 +1247,10 @@ export default {
     
     endDrag() {
       if (!this.isDragging) return;
+      
+      // 전역 이벤트 리스너 제거
+      document.removeEventListener('mousemove', this.onDrag);
+      document.removeEventListener('mouseup', this.endDrag);
       
       this.isDragging = false;
       
@@ -1179,10 +1401,14 @@ export default {
       } finally {
         this.isSaving = false;
       }
-    }
+    },
+    
   },
 
   beforeDestroy() {
+    // 전역 이벤트 리스너 정리
+    document.removeEventListener('mousemove', this.onDrag);
+    document.removeEventListener('mouseup', this.endDrag);
   }
 };
 </script>
@@ -1219,11 +1445,30 @@ export default {
   font-weight: bold;
 }
 
+// v-dialog와 v-card-text의 기본 여백 제거 및 가로 스크롤 방지
+::v-deep .v-dialog {
+  overflow-x: hidden !important;
+}
+
+::v-deep .v-dialog .v-card {
+  overflow-x: hidden !important;
+  max-width: 100% !important;
+}
+
+::v-deep .v-dialog .v-card__text {
+  padding: 16px !important;
+  overflow-x: hidden !important;
+  max-width: 100% !important;
+}
+
 .event-area {
   padding: 20px;
   background-color: white; // 배경을 흰색으로 변경
   width: 100%;
-  max-width: 2060px; // 1920px + 120px (padding) + 20px (margin)
+  min-width: 1960px; // 최소 너비 보장 (1920px + 40px padding)
+  margin: 0 auto; // 중앙 정렬
+  box-sizing: border-box;
+  overflow-x: auto; // 필요시 가로 스크롤 허용
 
   .input-fields-row {
     margin-bottom: 0; // 간격 제거
@@ -1385,10 +1630,54 @@ export default {
 
   .video-row {
     margin-bottom: 20px;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    
+    .video-col {
+      padding: 0 !important;
+      margin: 0 !important;
+    }
     
     .col {
       padding: 0 !important;
+      margin: 0 !important;
     }
+  }
+  
+  // v-container와 v-row의 기본 패딩 제거 및 정렬
+  ::v-deep .event-area .v-container {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  ::v-deep .event-area .video-row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  
+  ::v-deep .event-area .video-row .video-col {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  // v-col의 기본 패딩 완전 제거
+  ::v-deep .event-area .v-row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  ::v-deep .event-area .v-col {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
   }
 
   .button-row {
@@ -1410,18 +1699,20 @@ export default {
 
   .video-container {
     position: relative;
-    width: 1920px;
+    width: 100%;
+    min-width: 1920px; // 최소 너비 고정
     height: 480px;
-    overflow: hidden;
-    margin: 0 auto;
+    overflow: hidden; // 가로 스크롤 제거
+    margin: 0 auto; // 중앙 정렬
     background-color: #f0f0f0;
     border-radius: 8px;
     border: 1px solid #e0e0e0;
 
     .panorama-image {
-      width: 1920px;
-      height: 480px;
-      object-fit: contain;
+      width: 100%;
+      min-width: 1920px; // 최소 너비 고정
+      height: 100%;
+      object-fit: cover; // 레이어에 꽉 차게 표시
       display: block;
       pointer-events: none;
     }
@@ -1429,12 +1720,20 @@ export default {
     .loading-panorama {
       width: 100%;
       height: 100%;
+      min-height: 480px;
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       background-color: #f0f0f0;
       color: #666;
       font-size: 16px;
+      
+      .loading-text {
+        margin-top: 16px;
+        font-size: 14px;
+        color: #666;
+      }
     }
 
     .video-card {
