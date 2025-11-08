@@ -15,7 +15,6 @@
               @loadeddata="handleVideoLoaded"
               crossorigin="anonymous"
               preload="metadata"
-              :style="expandedVideo === 1 ? 'width: 1280px; height: 720px;' : 'width: 640px; height: 480px;'"
             )
           
           // 두 번째 비디오 플레이어
@@ -28,7 +27,6 @@
               @loadeddata="handleVideoLoaded"
               crossorigin="anonymous"
               preload="metadata"
-              :style="expandedVideo === 2 ? 'width: 1280px; height: 720px;' : 'width: 640px; height: 480px;'"
             )
           
           // 세 번째 박스 (컨트롤 + 카메라 목록 + 달력)
@@ -44,6 +42,28 @@
                   v-btn.control-btn.common-dark-btn(color="gray" @click="stopAllVideos")
                     v-icon(left class="common-dark-btn__icon") {{ icons.mdiStop }}
                     span 중지
+                  // 배속 슬라이더
+                  .playback-speed-control.tw-mt-2
+                    .tw-text-white.tw-text-sm.tw-mb-2 배속: {{ playbackSpeed }}x
+                    v-slider(
+                      v-model="playbackSpeed"
+                      :min="0.25"
+                      :max="2"
+                      :step="0.25"
+                      color="secondary"
+                      track-color="gray"
+                      thumb-color="secondary"
+                      @change="updatePlaybackSpeed"
+                    )
+                    .tw-flex.tw-justify-between.tw-text-xs.tw-text-gray-400.tw-mt-1
+                      span 0.25x
+                      span 0.5x
+                      span 0.75x
+                      span 1x
+                      span 1.25x
+                      span 1.5x
+                      span 1.75x
+                      span 2x
             
             // 오른쪽 박스 (달력)
             .tw-w-96.tw-ml-4
@@ -251,6 +271,7 @@ export default {
     },
     expandedVideo: 0,
     isPaused: true,
+    playbackSpeed: 1.0, // 배속 (0.25 ~ 2.0)
 
     selectedDate: new Date().toISOString().substr(0, 10),
     playhead: 0, // 0~1 (0=00:00, 1=24:00)
@@ -599,11 +620,13 @@ export default {
       if (this.$refs.videoPlayer1 && this.selectedVideo1) {
         const videoElement = this.$refs.videoPlayer1;
         videoElement.src = this.selectedVideo1;
+        videoElement.playbackRate = this.playbackSpeed; // 배속 설정
         videoElement.load();
         
         // 비디오 로드 완료 시 이벤트 리스너
         videoElement.addEventListener('loadeddata', () => {
           console.log('Video 1 loaded successfully');
+          videoElement.playbackRate = this.playbackSpeed; // 로드 후 배속 재설정
         });
         
         videoElement.addEventListener('error', (e) => {
@@ -617,11 +640,13 @@ export default {
       if (this.$refs.videoPlayer2 && this.selectedVideo2) {
         const videoElement = this.$refs.videoPlayer2;
         videoElement.src = this.selectedVideo2;
+        videoElement.playbackRate = this.playbackSpeed; // 배속 설정
         videoElement.load();
         
         // 비디오 로드 완료 시 이벤트 리스너
         videoElement.addEventListener('loadeddata', () => {
           console.log('Video 2 loaded successfully');
+          videoElement.playbackRate = this.playbackSpeed; // 로드 후 배속 재설정
         });
         
         videoElement.addEventListener('error', (e) => {
@@ -640,14 +665,16 @@ export default {
           return; // 범위 밖에 있으면 재생하지 않음
         }
         
-        // 두 비디오 모두 재생
+        // 두 비디오 모두 재생 및 배속 적용
         if (this.$refs.videoPlayer1) {
+          this.$refs.videoPlayer1.playbackRate = this.playbackSpeed;
           this.$refs.videoPlayer1.play().catch(error => {
             console.error('Error playing video 1:', error);
           });
         }
         
         if (this.$refs.videoPlayer2) {
+          this.$refs.videoPlayer2.playbackRate = this.playbackSpeed;
           this.$refs.videoPlayer2.play().catch(error => {
             console.error('Error playing video 2:', error);
           });
@@ -684,6 +711,17 @@ export default {
       this.stopTimelineUpdate();
       // 타임라인을 가장 빠른 비디오의 시작 위치로 리셋
       this.resetTimelineToEarliestVideo();
+    },
+
+    updatePlaybackSpeed() {
+      // 두 비디오 모두 배속 적용
+      if (this.$refs.videoPlayer1) {
+        this.$refs.videoPlayer1.playbackRate = this.playbackSpeed;
+      }
+      
+      if (this.$refs.videoPlayer2) {
+        this.$refs.videoPlayer2.playbackRate = this.playbackSpeed;
+      }
     },
 
     formatTime(date) {
@@ -2233,11 +2271,20 @@ export default {
 <style lang="scss">
 .recording-compare {
   padding: 20px;
+  width: 100%;
+  box-sizing: border-box;
 
   .video-container {
     display: flex;
     gap: 20px;
     margin-bottom: 20px;
+  }
+
+  // 비디오 플레이어를 포함하는 flex 컨테이너
+  .tw-flex {
+    width: 100%;
+    min-width: 0; // flex 아이템이 부모를 넘지 않도록
+    box-sizing: border-box;
   }
 
   .video-player {
@@ -2247,11 +2294,20 @@ export default {
     overflow: hidden;
     transition: all 0.3s;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0; // flex 아이템이 부모를 넘지 않도록
+    position: relative;
+    max-height: calc(100vh - 300px); // 화면 높이에 맞춰 제한
 
     video {
       width: 100%;
-      height: 100%;
+      height: auto;
+      max-width: 100%;
+      max-height: 100%;
       object-fit: contain;
+      aspect-ratio: 16 / 9; // 기본 비율 유지
     }
   }
 
@@ -2293,6 +2349,33 @@ export default {
     color: white !important;
     transform: translateY(1px);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .playback-speed-control {
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+
+    .tw-text-white {
+      font-weight: 500;
+    }
+
+    // Vuetify 슬라이더 스타일 커스터마이징
+    ::v-deep .v-slider {
+      margin-top: 8px;
+    }
+
+    ::v-deep .v-slider__thumb {
+      background-color: var(--cui-primary) !important;
+      border: 2px solid white !important;
+    }
+
+    ::v-deep .v-slider__track {
+      background-color: rgba(255, 255, 255, 0.2) !important;
+    }
+
+    ::v-deep .v-slider__track-fill {
+      background-color: var(--cui-primary) !important;
+    }
   }
 
   .control-btn .v-icon {

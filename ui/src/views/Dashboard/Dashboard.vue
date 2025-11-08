@@ -9,6 +9,18 @@
           .layer-title 실증현장 정보
           .site-info-content
             .site-name(v-if="location_info") {{ location_info }}
+        .dam-data-layer
+          .layer-title 실시간 댐 데이터
+          .dam-data-content
+            .dam-data-item
+              .dam-data-label 댐 수위
+              .dam-data-value {{ damData.rwl != null ? damData.rwl : '-' }}
+            .dam-data-item
+              .dam-data-label 우량
+              .dam-data-value {{ damData.dambasrf != null ? damData.dambasrf : '-' }}
+            .dam-data-item
+              .dam-data-label 방류량
+              .dam-data-value {{ damData.dqty != null ? damData.dqty : '-' }}
         .leak-status-layer
           .layer-title 실시간누수감지상태
           .status-buttons
@@ -623,6 +635,7 @@ data() {
     },
     timeInterval: null,
     alertHistoryInterval: null, // 실시간 누수감지상태 정보 갱신용 인터벌
+    damDataInterval: null, // 실시간 댐 데이터 갱신용 인터벌
     zones: [],
     selectedZoneIdx: null,
     selectedZone: null,
@@ -634,6 +647,11 @@ data() {
     address: '',
     mapImagePreview: null,
     selectedStatusButton: 'safe', // 초기값을 안전으로 설정
+    damData: {
+      rwl: null,
+      dambasrf: null,
+      dqty: null
+    },
     latestAlertInfo: null,
     showAlertPopup: false,
     unclosedAlerts: [],
@@ -847,6 +865,10 @@ mounted() {
   }, 10000); // 10초 (10000ms)
   this.loadSiteName();
   this.loadMapImage();
+  // 실시간 댐 데이터를 1분마다 갱신
+  this.damDataInterval = setInterval(() => {
+    this.loadSiteName();
+  }, 60000); // 1분 (60000ms)
 },
 beforeDestroy() {
   if (this.timeInterval) {
@@ -854,6 +876,9 @@ beforeDestroy() {
   }
   if (this.alertHistoryInterval) {
     clearInterval(this.alertHistoryInterval);
+  }
+  if (this.damDataInterval) {
+    clearInterval(this.damDataInterval);
   }
   // 소켓 이벤트 리스너 제거
   this.$socket.client.off('connect', this.handleSocketConnect);
@@ -2432,10 +2457,22 @@ methods: {
           this.location_info = system.location_info || '';
           this.address = system.address || '';
           this.weather.location = system.address || '';
+          
+          // 실시간 댐 데이터 로드
+          this.damData = {
+            rwl: system.rwl || null,
+            dambasrf: system.dambasrf || null,
+            dqty: system.dqty || null
+          };
         }
       } catch (e) {
         this.location_info = '';
         this.address = '';
+        this.damData = {
+          rwl: null,
+          dambasrf: null,
+          dqty: null
+        };
       }
     },
 
@@ -3038,7 +3075,7 @@ methods: {
   color: white;
   padding: 0px;
   border-top: 1px solid #2a3042;
-  height: 50%;
+  height: 25%;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -3064,6 +3101,61 @@ methods: {
       text-align: center;
       line-height: 1.3;
       word-break: break-all;
+    }
+  }
+}
+
+.dam-data-layer {
+  background: #2a3042;
+  color: white;
+  padding: 0px;
+  border-top: 1px solid #2a3042;
+  height: 25%;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  margin: 5px 0;
+  
+  .layer-title {
+    background: #666;
+    color: white;
+    font-weight: bold;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+    text-align: left;
+  }
+  
+  .dam-data-content {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 10px;
+    gap: 10px;
+    
+    .dam-data-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 4px;
+      
+      .dam-data-label {
+        font-size: 14px;
+        color: #ccc;
+        font-weight: normal;
+        margin-bottom: 8px;
+        text-align: center;
+      }
+      
+      .dam-data-value {
+        font-size: 18px;
+        color: #fff;
+        font-weight: bold;
+        text-align: center;
+      }
     }
   }
 }
