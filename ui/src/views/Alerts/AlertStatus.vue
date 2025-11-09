@@ -812,7 +812,7 @@ export default {
       this.stopAlertRefresh();
       this.alertRefreshTimer = setInterval(() => {
         this.loadAlertHistory();
-      }, 2000);
+      }, 10000); // 10초마다 자동 갱신
     },
 
     stopAlertRefresh() {
