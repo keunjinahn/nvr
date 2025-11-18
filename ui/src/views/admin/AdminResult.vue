@@ -610,6 +610,7 @@
       :is-edit-mode="isEditMode"
       :roi-table-data="roiTableData"
       :check-duplicate="checkDuplicateRoiNumber"
+      max-width="2000px"
       @saved="onRoiSaved"
     />
 
@@ -1428,16 +1429,28 @@ export default {
                 let roi = null;
                 if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
                   const zoneType = alertInfo.roi_polygon.main_roi.zone_type;
-                  if (zoneType) {
+                  if (zoneType !== null && zoneType !== undefined && zoneType !== '') {
                     const match = zoneType.toString().match(/Z?0*(\d+)/);
                     if (match) {
                       roi = parseInt(match[1]);
+                    } else {
+                      // 매치되지 않으면 숫자로 직접 변환 시도
+                      const num = parseInt(zoneType);
+                      if (!isNaN(num)) {
+                        roi = num;
+                      }
                     }
                   }
-                } else if (alertInfo.zone_type) {
+                } else if (alertInfo.zone_type !== null && alertInfo.zone_type !== undefined && alertInfo.zone_type !== '') {
                   const match = alertInfo.zone_type.toString().match(/Z?0*(\d+)/);
                   if (match) {
                     roi = parseInt(match[1]);
+                  } else {
+                    // 매치되지 않으면 숫자로 직접 변환 시도
+                    const num = parseInt(alertInfo.zone_type);
+                    if (!isNaN(num)) {
+                      roi = num;
+                    }
                   }
                 } else if (alert.alert_type) {
                   const match = alert.alert_type.toString().match(/S?0*(\d+)/);
@@ -1486,21 +1499,33 @@ export default {
                 // ROI 번호 추출
                 if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
                   const zoneType = alertInfo.roi_polygon.main_roi.zone_type;
-                  if (zoneType) {
-                    // "Z1" -> "ROI 1", "Z001" -> "ROI 1" 형식으로 변환
+                  if (zoneType !== null && zoneType !== undefined && zoneType !== '') {
+                    // "Z1" -> "ROI 1", "Z001" -> "ROI 1", 0 -> "ROI 0" 형식으로 변환
                     const match = zoneType.toString().match(/Z?0*(\d+)/);
                     if (match) {
                       roi = `ROI ${parseInt(match[1])}`;
                     } else {
-                      roi = zoneType;
+                      // 매치되지 않으면 숫자로 직접 변환 시도
+                      const num = parseInt(zoneType);
+                      if (!isNaN(num)) {
+                        roi = `ROI ${num}`;
+                      } else {
+                        roi = zoneType;
+                      }
                     }
                   }
-                } else if (alertInfo.zone_type) {
+                } else if (alertInfo.zone_type !== null && alertInfo.zone_type !== undefined && alertInfo.zone_type !== '') {
                   const match = alertInfo.zone_type.toString().match(/Z?0*(\d+)/);
                   if (match) {
                     roi = `ROI ${parseInt(match[1])}`;
                   } else {
-                    roi = alertInfo.zone_type;
+                    // 매치되지 않으면 숫자로 직접 변환 시도
+                    const num = parseInt(alertInfo.zone_type);
+                    if (!isNaN(num)) {
+                      roi = `ROI ${num}`;
+                    } else {
+                      roi = alertInfo.zone_type;
+                    }
                   }
                 } else if (alert.alert_type) {
                   // alert_type에서 추출 (예: "S001" -> "ROI 0")
@@ -1540,10 +1565,25 @@ export default {
               console.error('alert_info_json 파싱 오류:', e, 'alert:', alert);
             }
             
+            // level4인 경우 정보 없음 -> ROI 0으로 표현
+            const alarmLevel = parseInt(alert.alert_level) || 1;
+            // roi가 '정보 없음' 또는 '정보없음'인 경우 모두 처리
+            if (alarmLevel === 4 && (roi === '정보 없음' || roi === '정보없음' || !roi || roi.trim() === '')) {
+              const originalRoi = roi; // 원본 값 저장
+              roi = 'ROI 0';
+              console.log('level4 ROI 변환:', {
+                alert_level: alert.alert_level,
+                alarmLevel: alarmLevel,
+                originalRoi: originalRoi,
+                convertedRoi: 'ROI 0',
+                alert_id: alert.id || alert.alert_id
+              });
+            }
+            
             return {
               no: (this.alarmPage - 1) * 10 + idx + 1,
               locationInfo: locationInfo,
-              alarmLevel: alert.alert_level || 1,
+              alarmLevel: alarmLevel,
               roi: roi,
               maxTemp: maxTemp,
               minTemp: minTemp,
@@ -1617,10 +1657,16 @@ export default {
             .map(zone => {
               // zone_type에서 ROI 번호 추출
               let roiNumber = null;
-              if (zone.zone_type) {
+              if (zone.zone_type !== null && zone.zone_type !== undefined && zone.zone_type !== '') {
                 const match = zone.zone_type.toString().match(/Z?0*(\d+)/);
                 if (match) {
                   roiNumber = parseInt(match[1]);
+                } else {
+                  // 매치되지 않으면 숫자로 직접 변환 시도
+                  const num = parseInt(zone.zone_type);
+                  if (!isNaN(num)) {
+                    roiNumber = num;
+                  }
                 }
               } else if (zone.zone_desc) {
                 const match = zone.zone_desc.toString().match(/ROI[-\s]?(\d+)/i);
@@ -1657,7 +1703,36 @@ export default {
       try {
         if (item.alert_info_json) {
           const alertInfo = JSON.parse(item.alert_info_json);
-          roiNumber = alertInfo.zone_type || '정보 없음';
+          // zone_type이 0이어도 유효한 값이므로 처리
+          if (alertInfo.zone_type !== null && alertInfo.zone_type !== undefined && alertInfo.zone_type !== '') {
+            const match = alertInfo.zone_type.toString().match(/Z?0*(\d+)/);
+            if (match) {
+              roiNumber = `ROI ${parseInt(match[1])}`;
+            } else {
+              // 매치되지 않으면 숫자로 직접 변환 시도
+              const num = parseInt(alertInfo.zone_type);
+              if (!isNaN(num)) {
+                roiNumber = `ROI ${num}`;
+              } else {
+                roiNumber = alertInfo.zone_type.toString();
+              }
+            }
+          } else if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
+            const zoneType = alertInfo.roi_polygon.main_roi.zone_type;
+            if (zoneType !== null && zoneType !== undefined && zoneType !== '') {
+              const match = zoneType.toString().match(/Z?0*(\d+)/);
+              if (match) {
+                roiNumber = `ROI ${parseInt(match[1])}`;
+              } else {
+                const num = parseInt(zoneType);
+                if (!isNaN(num)) {
+                  roiNumber = `ROI ${num}`;
+                } else {
+                  roiNumber = zoneType.toString();
+                }
+              }
+            }
+          }
         }
       } catch (e) {
         console.error('ROI 정보 파싱 오류:', e);

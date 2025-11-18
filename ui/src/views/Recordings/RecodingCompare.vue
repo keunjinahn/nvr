@@ -13,7 +13,6 @@
               :src="selectedVideo1"
               @error="handleVideoError"
               @loadeddata="handleVideoLoaded"
-              crossorigin="anonymous"
               preload="metadata"
             )
           
@@ -25,7 +24,6 @@
               :src="selectedVideo2"
               @error="handleVideoError"
               @loadeddata="handleVideoLoaded"
-              crossorigin="anonymous"
               preload="metadata"
             )
           
@@ -214,6 +212,8 @@ import moment from 'moment';
 import { getRecordingHistory, getRecordingSegments } from '@/api/recordingService.api.js';
 import { getApiBaseUrl } from '@/config/api.config.js';
 
+// API_BASE_URL은 프록시 경로(/api)를 사용하도록 설정
+// 비디오 스트림도 같은 프록시를 통해 처리되도록 상대 경로 사용
 const API_BASE_URL = getApiBaseUrl();
 export default {
   name: 'RecodingCompare',
@@ -273,7 +273,15 @@ export default {
     isPaused: true,
     playbackSpeed: 1.0, // 배속 (0.25 ~ 2.0)
 
-    selectedDate: new Date().toISOString().substr(0, 10),
+    selectedDate: (() => {
+      // 한국 시간 기준 현재 날짜 가져오기
+      const now = new Date();
+      const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+      const year = koreaTime.getUTCFullYear();
+      const month = String(koreaTime.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(koreaTime.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    })(),
     playhead: 0, // 0~1 (0=00:00, 1=24:00)
     dragging: false,
     selectedVideos: [],
@@ -284,6 +292,8 @@ export default {
     isTimelineUpdating: false, // 타임라인 업데이트 중 플래그
     activeVideoIds: [], // 현재 활성화된 비디오 ID들
     downloadingVideos: [], // 다운로드 중인 비디오 ID들
+    videoRetryCount: { video1: 0, video2: 0 }, // 비디오 재시도 횟수 (최대 3회)
+    videoLoadedHandlers: { video1: null, video2: null }, // 비디오 로드 핸들러 저장 (중복 방지)
     
     // 🕐 타임라인 영역 관련 변수들
     timelineStartTime: null, // 전체 영상 시작 시간
@@ -425,12 +435,13 @@ export default {
       },
       deep: true
     },
-    selectedVideo1() {
-      this.setupVideoPlayer1();
-    },
-    selectedVideo2() {
-      this.setupVideoPlayer2();
-    },
+    // watcher 제거 - 명시적으로 호출할 때만 비디오 로드
+    // selectedVideo1() {
+    //   this.setupVideoPlayer1();
+    // },
+    // selectedVideo2() {
+    //   this.setupVideoPlayer2();
+    // },
     
     // 🕐 녹화 기록이 변경될 때 타임라인 정보 업데이트
     recordingHistory: {
@@ -485,11 +496,19 @@ export default {
   beforeDestroy() {
     // 비디오 플레이어 정리
     if (this.$refs.videoPlayer1) {
+      // 이벤트 리스너 제거
+      if (this.videoLoadedHandlers.video1) {
+        this.$refs.videoPlayer1.removeEventListener('loadeddata', this.videoLoadedHandlers.video1);
+      }
       this.$refs.videoPlayer1.pause();
       this.$refs.videoPlayer1.src = '';
       this.$refs.videoPlayer1.load();
     }
     if (this.$refs.videoPlayer2) {
+      // 이벤트 리스너 제거
+      if (this.videoLoadedHandlers.video2) {
+        this.$refs.videoPlayer2.removeEventListener('loadeddata', this.videoLoadedHandlers.video2);
+      }
       this.$refs.videoPlayer2.pause();
       this.$refs.videoPlayer2.src = '';
       this.$refs.videoPlayer2.load();
@@ -515,16 +534,22 @@ export default {
         this.loading = true;
         const response = await getRecordingHistory();
         if (response && Array.isArray(response)) {
-          this.recordingHistory = response.map(record => {
-            const data = record.dataValues || record;
-            return {
-              ...data,
-              id: data.id || '',
-              cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
-              filename: data.filename || 'Unknown File',
-              startTime: data.startTime || data.start_time || new Date().toISOString(),
-              endTime: data.endTime || data.end_time || null,
-              status: data.status || 'error',
+          // status가 'completed'인 레코딩만 필터링
+          this.recordingHistory = response
+            .filter(record => {
+              const data = record.dataValues || record;
+              return data.status === 'completed';
+            })
+            .map(record => {
+              const data = record.dataValues || record;
+              return {
+                ...data,
+                id: data.id || '',
+                cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
+                filename: data.filename || 'Unknown File',
+                startTime: data.startTime || data.start_time || new Date().toISOString(),
+                endTime: data.endTime || data.end_time || null,
+                status: data.status || 'error',
             selected: false
             };
           });
@@ -547,19 +572,25 @@ export default {
         console.log('Recording history response:', response);
         
         if (Array.isArray(response)) {
-          this.recordingHistory = response.map(record => {
-            const data = record.dataValues || record;
-            return {
-              ...data,
-              id: data.id || '',
-              cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
-              filename: data.filename || 'Unknown File',
-              startTime: data.startTime || data.start_time || new Date().toISOString(),
-              endTime: data.endTime || data.end_time || null,
-              status: data.status || 'error',
-            selected: false
-            };
-          });
+          // status가 'completed'인 레코딩만 필터링
+          this.recordingHistory = response
+            .filter(record => {
+              const data = record.dataValues || record;
+              return data.status === 'completed';
+            })
+            .map(record => {
+              const data = record.dataValues || record;
+              return {
+                ...data,
+                id: data.id || '',
+                cameraName: data.cameraName || data.camera_name || 'Unknown Camera',
+                filename: data.filename || 'Unknown File',
+                startTime: data.startTime || data.start_time || new Date().toISOString(),
+                endTime: data.endTime || data.end_time || null,
+                status: data.status || 'error',
+              selected: false
+              };
+            });
           
           // 🕐 녹화 기록 로드 후 타임라인 정보 업데이트
           this.updateTimelineInfo();
@@ -617,42 +648,70 @@ export default {
 
     // 새로운 MP4 비디오 플레이어 설정 메서드
     setupVideoPlayer1() {
-      if (this.$refs.videoPlayer1 && this.selectedVideo1) {
-        const videoElement = this.$refs.videoPlayer1;
+      if (!this.$refs.videoPlayer1 || !this.selectedVideo1) {
+        return;
+      }
+      
+      const videoElement = this.$refs.videoPlayer1;
+      
+      // 기존 이벤트 리스너 제거 (중복 방지)
+      if (this.videoLoadedHandlers.video1) {
+        videoElement.removeEventListener('loadeddata', this.videoLoadedHandlers.video1);
+      }
+      
+      // 새로운 핸들러 생성 및 저장
+      this.videoLoadedHandlers.video1 = () => {
+        console.log('Video 1 loaded successfully');
+        videoElement.playbackRate = this.playbackSpeed; // 로드 후 배속 재설정
+        // 성공적으로 로드되면 재시도 카운터 리셋
+        this.videoRetryCount.video1 = 0;
+      };
+      
+      // 새 리스너 추가
+      videoElement.addEventListener('loadeddata', this.videoLoadedHandlers.video1);
+      
+      // 비디오 소스 설정 및 로드
+      try {
         videoElement.src = this.selectedVideo1;
         videoElement.playbackRate = this.playbackSpeed; // 배속 설정
         videoElement.load();
-        
-        // 비디오 로드 완료 시 이벤트 리스너
-        videoElement.addEventListener('loadeddata', () => {
-          console.log('Video 1 loaded successfully');
-          videoElement.playbackRate = this.playbackSpeed; // 로드 후 배속 재설정
-        });
-        
-        videoElement.addEventListener('error', (e) => {
-          console.error('Video 1 load error:', e);
-          // 오류 메시지 출력 제거
-        });
+      } catch (error) {
+        console.error('Video 1 setup error:', error);
+        this.handleVideoError({ target: videoElement });
       }
     },
 
     setupVideoPlayer2() {
-      if (this.$refs.videoPlayer2 && this.selectedVideo2) {
-        const videoElement = this.$refs.videoPlayer2;
+      if (!this.$refs.videoPlayer2 || !this.selectedVideo2) {
+        return;
+      }
+      
+      const videoElement = this.$refs.videoPlayer2;
+      
+      // 기존 이벤트 리스너 제거 (중복 방지)
+      if (this.videoLoadedHandlers.video2) {
+        videoElement.removeEventListener('loadeddata', this.videoLoadedHandlers.video2);
+      }
+      
+      // 새로운 핸들러 생성 및 저장
+      this.videoLoadedHandlers.video2 = () => {
+        console.log('Video 2 loaded successfully');
+        videoElement.playbackRate = this.playbackSpeed; // 로드 후 배속 재설정
+        // 성공적으로 로드되면 재시도 카운터 리셋
+        this.videoRetryCount.video2 = 0;
+      };
+      
+      // 새 리스너 추가
+      videoElement.addEventListener('loadeddata', this.videoLoadedHandlers.video2);
+      
+      // 비디오 소스 설정 및 로드
+      try {
         videoElement.src = this.selectedVideo2;
         videoElement.playbackRate = this.playbackSpeed; // 배속 설정
         videoElement.load();
-        
-        // 비디오 로드 완료 시 이벤트 리스너
-        videoElement.addEventListener('loadeddata', () => {
-          console.log('Video 2 loaded successfully');
-          videoElement.playbackRate = this.playbackSpeed; // 로드 후 배속 재설정
-        });
-        
-        videoElement.addEventListener('error', (e) => {
-          console.error('Video 2 load error:', e);
-          // 오류 메시지 출력 제거
-        });
+      } catch (error) {
+        console.error('Video 2 setup error:', error);
+        this.handleVideoError({ target: videoElement });
       }
     },
 
@@ -789,21 +848,80 @@ export default {
       return cameraName;
     },
 
-    handleVideoError(event) {
-      console.error('Video error:', event);
-      const videoElement = event.target;
+    // streamUrl을 상대 경로로 정규화하는 메서드
+    normalizeStreamUrl(url) {
+      if (!url) return null;
       
-      // MP4 파일 에러 처리 - 오류 메시지 출력 제거
-      // this.$toast.error('비디오를 재생할 수 없습니다. 파일이 손상되었거나 지원되지 않는 형식일 수 있습니다.');
+      // 이미 상대 경로인 경우 그대로 반환
+      if (url.startsWith('/')) {
+        return url;
+      }
       
-      // 재시도 로직
-      setTimeout(() => {
-        if (videoElement === this.$refs.videoPlayer1 && this.selectedVideo1) {
-          this.setupVideoPlayer1();
-        } else if (videoElement === this.$refs.videoPlayer2 && this.selectedVideo2) {
-          this.setupVideoPlayer2();
+      // 절대 URL인 경우 상대 경로로 변환
+      try {
+        const urlObj = new URL(url);
+        // /api/recordings/stream/{id} 형식의 경로 추출
+        const pathMatch = urlObj.pathname.match(/\/api\/recordings\/stream\/(\d+)/);
+        if (pathMatch) {
+          return `/api/recordings/stream/${pathMatch[1]}`;
         }
-      }, 2000);
+        // 다른 형식의 경우 경로만 반환
+        return urlObj.pathname;
+      } catch (e) {
+        // URL 파싱 실패 시 원본 반환
+        console.warn('Failed to normalize stream URL:', url, e);
+        return url;
+      }
+    },
+
+    handleVideoError(event) {
+      const videoElement = event.target;
+      const isVideo1 = videoElement === this.$refs.videoPlayer1;
+      const isVideo2 = videoElement === this.$refs.videoPlayer2;
+      const retryKey = isVideo1 ? 'video1' : (isVideo2 ? 'video2' : null);
+      
+      if (!retryKey) return;
+      
+      // 에러 정보 로깅
+      const error = videoElement.error;
+      if (error) {
+        console.error(`Video ${isVideo1 ? '1' : '2'} error:`, {
+          code: error.code,
+          message: error.message
+        });
+      }
+      
+      // 재시도 횟수 증가
+      this.videoRetryCount[retryKey] = (this.videoRetryCount[retryKey] || 0) + 1;
+      
+      // 최대 3회까지만 재시도
+      if (this.videoRetryCount[retryKey] <= 3) {
+        console.warn(`Video ${isVideo1 ? '1' : '2'} load error (재시도 ${this.videoRetryCount[retryKey]}/3)`);
+        
+        // 재시도 로직 - 비디오 소스 재설정
+        setTimeout(() => {
+          if (isVideo1 && this.selectedVideo1) {
+            // 비디오 소스 초기화 후 재설정
+            videoElement.src = '';
+            videoElement.load();
+            setTimeout(() => {
+              this.setupVideoPlayer1();
+            }, 100);
+          } else if (isVideo2 && this.selectedVideo2) {
+            // 비디오 소스 초기화 후 재설정
+            videoElement.src = '';
+            videoElement.load();
+            setTimeout(() => {
+              this.setupVideoPlayer2();
+            }, 100);
+          }
+        }, 1000);
+      } else {
+        // 최대 재시도 횟수 초과 시 에러 로그만 출력 (사용자에게는 표시하지 않음)
+        console.error(`Video ${isVideo1 ? '1' : '2'} load failed after 3 retries`);
+        // 재시도 카운터 리셋
+        this.videoRetryCount[retryKey] = 0;
+      }
     },
 
     handleVideoLoaded(event) {
@@ -902,22 +1020,24 @@ export default {
         }
         
         if (response && response.segments && Array.isArray(response.segments)) {
-          // 모든 segment 파일을 표시 (최대 제한 없음)
-          this.recordingHistory = response.segments.map(segment => ({
-            id: segment.id,
-            cameraId: segment.cameraId,
-            cameraName: segment.cameraName,
-            filename: segment.filename,
-            startTime: segment.startTime,
-            endTime: segment.endTime,
-            duration: segment.duration,
-            fileSize: segment.fileSize,
-            status: segment.status,
-            filePath: segment.filePath,
-            streamUrl: segment.streamUrl,
-            fileType: segment.fileType,
-            selected: false
-          }));
+          // status가 'completed'인 segment만 필터링하여 표시
+          this.recordingHistory = response.segments
+            .filter(segment => segment.status === 'completed')
+            .map(segment => ({
+              id: segment.id,
+              cameraId: segment.cameraId,
+              cameraName: segment.cameraName,
+              filename: segment.filename,
+              startTime: segment.startTime,
+              endTime: segment.endTime,
+              duration: segment.duration,
+              fileSize: segment.fileSize,
+              status: segment.status,
+              filePath: segment.filePath,
+              streamUrl: segment.streamUrl,
+              fileType: segment.fileType,
+              selected: false
+            }));
 
           // 녹화 기록이 있으면 카메라별로 그룹화하여 자동 선택
           if (this.recordingHistory.length > 0) {
@@ -928,7 +1048,8 @@ export default {
               // 첫 번째 카메라의 첫 번째 영상을 왼쪽 플레이어에
               if (cameraGroups[0].recordings.length > 0) {
                 const firstVideo = cameraGroups[0].recordings[0];
-                this.selectedVideo1 = firstVideo.streamUrl;
+                // streamUrl이 절대 URL인 경우 상대 경로로 변환
+                this.selectedVideo1 = this.normalizeStreamUrl(firstVideo.streamUrl || `${API_BASE_URL}/recordings/stream/${firstVideo.id}`);
                 this.selectedVideos.push({
                   ...firstVideo,
                   segments: [{ startTime: firstVideo.startTime, endTime: firstVideo.endTime }]
@@ -939,7 +1060,8 @@ export default {
               // 두 번째 카메라의 첫 번째 영상을 오른쪽 플레이어에 (있는 경우)
               if (cameraGroups.length > 1 && cameraGroups[1].recordings.length > 0) {
                 const secondVideo = cameraGroups[1].recordings[0];
-                this.selectedVideo2 = secondVideo.streamUrl;
+                // streamUrl이 절대 URL인 경우 상대 경로로 변환
+                this.selectedVideo2 = this.normalizeStreamUrl(secondVideo.streamUrl || `${API_BASE_URL}/recordings/stream/${secondVideo.id}`);
                 this.selectedVideos.push({
                   ...secondVideo,
                   segments: [{ startTime: secondVideo.startTime, endTime: secondVideo.endTime }]
@@ -950,6 +1072,13 @@ export default {
               // 타임라인을 가장 빠른 비디오의 시작 위치로 설정
               this.$nextTick(() => {
                 this.resetTimelineToEarliestVideo();
+                // 비디오 플레이어 설정 (비디오 로드)
+                if (this.selectedVideo1) {
+                  this.setupVideoPlayer1();
+                }
+                if (this.selectedVideo2) {
+                  this.setupVideoPlayer2();
+                }
               });
             }
           }
@@ -1394,7 +1523,7 @@ export default {
         this.activeVideoIds = []; // 활성 비디오 ID 초기화
         
         if (leftVideo) {
-          this.selectedVideo1 = leftVideo.streamUrl;
+          this.selectedVideo1 = this.normalizeStreamUrl(leftVideo.streamUrl || `${API_BASE_URL}/recordings/stream/${leftVideo.id}`);
           this.selectedVideos.push({
             ...leftVideo,
             segments: [{ startTime: leftVideo.startTime, endTime: leftVideo.endTime }]
@@ -1410,7 +1539,7 @@ export default {
         }
         
         if (rightVideo) {
-          this.selectedVideo2 = rightVideo.streamUrl;
+          this.selectedVideo2 = this.normalizeStreamUrl(rightVideo.streamUrl || `${API_BASE_URL}/recordings/stream/${rightVideo.id}`);
           this.selectedVideos.push({
             ...rightVideo,
             segments: [{ startTime: rightVideo.startTime, endTime: rightVideo.endTime }]
@@ -1821,7 +1950,7 @@ export default {
         }
 
         // 첫 번째 플레이어에 해당 비디오 설정
-        this.selectedVideo1 = video.streamUrl;
+        this.selectedVideo1 = this.normalizeStreamUrl(video.streamUrl || `${API_BASE_URL}/recordings/stream/${video.id}`);
         this.selectedVideos = [{
           ...video,
           segments: [{ startTime: video.startTime, endTime: video.endTime }]
@@ -2051,7 +2180,7 @@ export default {
         this.activeVideoIds = []; // 활성 비디오 ID 초기화
         
         if (leftVideo) {
-          this.selectedVideo1 = leftVideo.streamUrl;
+          this.selectedVideo1 = this.normalizeStreamUrl(leftVideo.streamUrl || `${API_BASE_URL}/recordings/stream/${leftVideo.id}`);
           this.selectedVideos.push({
             ...leftVideo,
             segments: [{ startTime: leftVideo.startTime, endTime: leftVideo.endTime }]
@@ -2067,7 +2196,7 @@ export default {
         }
         
         if (rightVideo) {
-          this.selectedVideo2 = rightVideo.streamUrl;
+          this.selectedVideo2 = this.normalizeStreamUrl(rightVideo.streamUrl || `${API_BASE_URL}/recordings/stream/${rightVideo.id}`);
           this.selectedVideos.push({
             ...rightVideo,
             segments: [{ startTime: rightVideo.startTime, endTime: rightVideo.endTime }]
@@ -2089,6 +2218,16 @@ export default {
         }
         
         console.log('Videos set for display - Left:', leftVideo, 'Right:', rightVideo);
+        
+        // 비디오 플레이어 설정 (비디오 로드)
+        this.$nextTick(() => {
+          if (leftVideo && this.selectedVideo1) {
+            this.setupVideoPlayer1();
+          }
+          if (rightVideo && this.selectedVideo2) {
+            this.setupVideoPlayer2();
+          }
+        });
         
         // 클릭된 영상의 시작 시간으로 타임라인바 이동
         this.moveTimelineToVideoStart(item);

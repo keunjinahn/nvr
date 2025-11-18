@@ -34,13 +34,49 @@ import random
 import string
 import pickle
 
-# 컬러바 분석 모듈 import (logger 설정 전에 import 시도, 실패 시 나중에 처리)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'temp_extractor', 'temp_extractor'))
-try:
-    from colorbar_analyzer import analyze_colorbar, get_temperature_from_color_with_map
-    COLORBAR_ANALYZER_AVAILABLE = True
-except ImportError:
-    COLORBAR_ANALYZER_AVAILABLE = False
+# 컬러바 분석 함수 직접 구현
+def analyze_colorbar(colorbar_image_path, temp_min, temp_max, num_steps=256):
+    """컬러바 이미지를 분석하여 색상-온도 매핑 생성"""
+    colorbar_img = cv2.imread(colorbar_image_path)
+    if colorbar_img is None:
+        return None
+    h, w, _ = colorbar_img.shape
+    center_column = colorbar_img[:, w // 2, :]
+    color_to_temp_map = {}
+    for i in range(num_steps):
+        pixel_y = int(i * (h - 1) / (num_steps - 1))
+        b, g, r = center_column[pixel_y]
+        norm_pos = pixel_y / (h - 1)
+        # 이미지 상단(pixel_y=0)이 최고 온도(temp_max), 하단(pixel_y=h-1)이 최저 온도(temp_min)
+        # 따라서 norm_pos를 반대로 계산: (1 - norm_pos)
+        temperature = temp_min + (1 - norm_pos) * (temp_max - temp_min)
+        color_to_temp_map[tuple(map(int, (r, g, b)))] = temperature
+    return color_to_temp_map
+
+def get_temperature_from_color_with_map(pixel_color_bgr, color_map, temp_min, temp_max):
+    """픽셀 색상으로부터 온도 추정 (가장 가까운 색상 매핑 사용)"""
+    r_pixel, g_pixel, b_pixel = pixel_color_bgr[2], pixel_color_bgr[1], pixel_color_bgr[0]  # BGR을 RGB로
+
+    if (r_pixel, g_pixel, b_pixel) in color_map:
+        return color_map[(r_pixel, g_pixel, b_pixel)]
+    
+    min_dist = float('inf')
+    closest_temp = (temp_min + temp_max) / 2  # 기본값
+
+    for map_rgb, map_temp in color_map.items():
+        r_map, g_map, b_map = map_rgb[0], map_rgb[1], map_rgb[2]
+
+        diff_r = np.int64(r_map) - np.int64(r_pixel)
+        diff_g = np.int64(g_map) - np.int64(g_pixel)
+        diff_b = np.int64(b_map) - np.int64(b_pixel)
+
+        dist = np.sqrt(diff_r**2 + diff_g**2 + diff_b**2)
+
+        if dist < min_dist:
+            min_dist = dist
+            closest_temp = map_temp
+            
+    return closest_temp
 
 def create_digest_auth(username, password, method, uri, realm, nonce, qop, nc, cnonce):
     """Digest 인증 헤더 생성"""
@@ -199,11 +235,14 @@ PANORAMA_INTERVAL_MINUTES = PANORAMA_INTERVAL_SECONDS // 60  # 60분
 
 # PTZ 프리셋 이동 여부 설정
 ENABLE_PRESET_MOVEMENT = True  # True: 실제 이동, False: 이동 없이 대기만
-PRESET_WAIT_SECONDS = 5  # 프리셋 이동 비활성화 시 대기 시간 (초)
+PRESET_WAIT_SECONDS = 7  # 프리셋 이동 비활성화 시 대기 시간 (초)
 
 # 컬러바 온도 설정 (컬러바 이미지에 명시된 온도 범위)
 TEMP_MIN_GLOBAL = 35.0  # 최저 온도 (도)
 TEMP_MAX_GLOBAL = 51.0  # 최고 온도 (도)
+
+# 컬러바 매핑 샘플링 개수 (속도 개선을 위해 줄임: 기본 256 -> 64)
+COLORBAR_NUM_STEPS = 32  # 매핑 개수 (낮을수록 빠르지만 정확도 감소)
 
 ### mariadb 연결정보 ####
 DBSERVER_IP = config.get('DATABASE', 'host')
@@ -215,15 +254,17 @@ DBSERVER_CHARSET = config.get('DATABASE', 'charset')
 nvrdb = None
 ########################
 
-# 로깅 설정
-log_dir = Path(config.get('LOGGING', 'log_dir'))
+# 로깅 설정 - 프로젝트 루트의 ./logs 폴더에 로그 파일 생성
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)  # bin의 상위 디렉토리 (프로젝트 루트)
+log_dir = Path(project_root) / 'logs'
 log_dir.mkdir(exist_ok=True)
 log_file = log_dir / 'panorama_generator.log'
 
 handler = RotatingFileHandler(
     log_file,
-    maxBytes=config.getint('LOGGING', 'max_bytes'),
-    backupCount=config.getint('LOGGING', 'backup_count'),
+    maxBytes=1024 * 1024,  # 1MB
+    backupCount=5,  # 5개까지 생성, 이후 덮어쓰기
     encoding='utf-8'
 )
 handler.setFormatter(logging.Formatter(
@@ -234,16 +275,7 @@ logger = logging.getLogger("PanoramaGenerator")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 
-# 콘솔 출력을 위한 핸들러 추가
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-))
-logger.addHandler(console_handler)
-
-# 컬러바 분석 모듈 사용 가능 여부 로깅
-if not COLORBAR_ANALYZER_AVAILABLE:
-    logger.warning("colorbar_analyzer 모듈을 찾을 수 없습니다. 밝기 기반 온도 계산을 사용합니다.")
+# 컬러바 분석 함수는 직접 구현되어 있음 (별도 확인 불필요)
 
 # =========================
 # PNT Protocol Constants (pnt_server.py와 동일)
@@ -522,10 +554,13 @@ class PanoramaGenerator:
                 logger.info(f"컬러바 이미지 경로: {self.colorbar_image_path}")
                 logger.info(f"컬러바 온도 범위: {self.temp_min}°C ~ {self.temp_max}°C")
             else:
-                logger.info("컬러바 이미지 경로가 설정되지 않았습니다. 밝기 기반 온도 계산을 사용합니다.")
+                logger.error("컬러바 이미지 경로가 설정되지 않았습니다. 컬러바 기반 온도 측정이 불가능합니다.")
+                logger.error("프로그램을 종료합니다.")
+                sys.exit(1)
         except Exception as e:
-            logger.warning(f"컬러바 설정 로드 실패: {e}. 밝기 기반 온도 계산을 사용합니다.")
-            self.colorbar_image_path = None
+            logger.error(f"컬러바 설정 로드 실패: {e}")
+            logger.error("컬러바 기반 온도 측정이 불가능합니다. 프로그램을 종료합니다.")
+            sys.exit(1)
         
         # PTZ 이동이 활성화된 경우에만 PTZ 클라이언트 생성
         # 디버그 모드일 때는 프리셋 이동을 건너뛰므로 PTZ 클라이언트 생성하지 않음
@@ -787,7 +822,7 @@ class PanoramaGenerator:
             return None
 
     def merge_images_horizontally(self, images_base64):
-        """3개 이미지를 수평으로 머지"""
+        """3개 이미지를 수평으로 머지 (각 이미지 640x480, 최종 1920x480)"""
         try:
             logger.info("이미지 머지 시작...")
             
@@ -806,19 +841,23 @@ class PanoramaGenerator:
                 logger.error("3개 이미지가 모두 필요합니다")
                 return None
             
-            # 이미지 크기 통일 (가장 작은 높이에 맞춤)
-            min_height = min(img.shape[0] for img in images)
+            # 각 이미지를 640x480으로 리사이즈
+            target_width = 640
+            target_height = 480
             resized_images = []
             
-            for img in images:
-                # 비율을 유지하면서 높이를 맞춤
-                ratio = min_height / img.shape[0]
-                new_width = int(img.shape[1] * ratio)
-                resized_img = cv2.resize(img, (new_width, min_height))
+            for i, img in enumerate(images):
+                # 각 이미지를 640x480으로 리사이즈
+                resized_img = cv2.resize(img, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
                 resized_images.append(resized_img)
+                logger.info(f"이미지 {i+1} 리사이즈 완료: {img.shape[1]}x{img.shape[0]} -> {target_width}x{target_height}")
             
-            # 수평으로 머지
+            # 수평으로 머지 (640 * 3 = 1920, 높이 480)
             panorama = np.hstack(resized_images)
+            
+            # 머지된 이미지 크기 확인
+            panorama_height, panorama_width = panorama.shape[:2]
+            logger.info(f"머지된 이미지 크기: {panorama_width}x{panorama_height} (예상: 1920x480)")
             
             # 머지된 이미지를 base64로 인코딩
             _, buffer = cv2.imencode('.jpg', panorama, [cv2.IMWRITE_JPEG_QUALITY, 90])
@@ -836,33 +875,35 @@ class PanoramaGenerator:
         if self.color_mapping is not None:
             return self.color_mapping
         
-        if not COLORBAR_ANALYZER_AVAILABLE:
-            logger.warning("colorbar_analyzer 모듈을 사용할 수 없습니다.")
-            return None
-        
         if not self.colorbar_image_path or not os.path.exists(self.colorbar_image_path):
-            logger.warning(f"컬러바 이미지 파일을 찾을 수 없습니다: {self.colorbar_image_path}")
-            return None
+            logger.error(f"컬러바 이미지 파일을 찾을 수 없습니다: {self.colorbar_image_path}")
+            logger.error("컬러바 기반 온도 측정이 불가능합니다. 프로그램을 종료합니다.")
+            sys.exit(1)
         
         try:
             logger.info("컬러바 이미지 분석 시작...")
             self.color_mapping = analyze_colorbar(
                 self.colorbar_image_path, 
                 self.temp_min, 
-                self.temp_max
+                self.temp_max,
+                num_steps=COLORBAR_NUM_STEPS  # 매핑 개수 제한으로 속도 개선
             )
             
             if self.color_mapping is None:
-                logger.warning("컬러바 분석에 실패했습니다.")
-                return None
+                logger.error("컬러바 분석에 실패했습니다.")
+                logger.error("컬러바 기반 온도 측정이 불가능합니다. 프로그램을 종료합니다.")
+                sys.exit(1)
             
             logger.info(f"컬러바 분석 완료: {len(self.color_mapping)}개 색상-온도 매핑 생성")
             return self.color_mapping
             
+        except SystemExit:
+            raise  # sys.exit(1) 재발생
         except Exception as e:
             logger.error(f"컬러바 분석 오류: {e}")
             logger.error(traceback.format_exc())
-            return None
+            logger.error("컬러바 기반 온도 측정이 불가능합니다. 프로그램을 종료합니다.")
+            sys.exit(1)
 
     def extract_temperature_from_image(self, panorama_base64):
         """파노라마 이미지에서 온도 데이터 추출 및 최고/최저 온도 계산 (컬러바 분석 기반)"""
@@ -893,18 +934,25 @@ class PanoramaGenerator:
             else:
                 logger.info(f"이미지 크기 확인: {width}x{height} (정상)")
             
-            # 컬러바 매핑 로드 (컬러바 분석 기반 사용 가능한 경우)
+            # 컬러바 매핑 로드 (필수)
             color_mapping = self._load_colorbar_mapping()
-            use_colorbar = color_mapping is not None and COLORBAR_ANALYZER_AVAILABLE
             
-            if use_colorbar:
-                logger.info("컬러바 분석 기반 온도 추정 사용")
-            else:
-                logger.info("밝기 기반 가상 온도 계산 사용 (컬러바 분석 불가)")
+            if color_mapping is None:
+                logger.error("컬러바 매핑을 로드할 수 없습니다.")
+                logger.error("컬러바 기반 온도 측정이 불가능합니다. 프로그램을 종료합니다.")
+                sys.exit(1)
             
-            # 온도 데이터 추출 (1920x480 크기만큼 모든 픽셀)
+            logger.info("컬러바 분석 기반 온도 추정 사용")
+            
+            # 온도 데이터 추출 (1920x480 = 921,600개 모든 픽셀 처리)
             temperatures = []
             sample_interval = 1  # 모든 픽셀 샘플링 (1920x480 = 921,600개)
+            
+            total_pixels = width * height  # 1920 * 480 = 921,600
+            processed_pixels = 0
+            progress_interval = max(1, total_pixels // 20)  # 5% 간격으로 진행률 표시
+            
+            logger.info(f"온도 매트릭스 생성 시작: 총 {total_pixels}개 픽셀 처리 예정")
             
             for y in range(0, height, sample_interval):
                 for x in range(0, width, sample_interval):
@@ -912,27 +960,27 @@ class PanoramaGenerator:
                     pixel = image[y, x]
                     pixel_color_bgr = pixel
                     
-                    if use_colorbar:
-                        # 컬러바 분석 기반 온도 추정
-                        temperature = get_temperature_from_color_with_map(
-                            pixel_color_bgr, 
-                            color_mapping, 
-                            self.temp_min, 
-                            self.temp_max
-                        )
-                    else:
-                        # 밝기 기반 가상 온도 계산 (fallback)
-                        b, g, r = pixel[0], pixel[1], pixel[2]
-                        brightness = (r + g + b) / 3
-                        temperature = 20 + (brightness / 255) * 40  # 20-60도 범위
+                    # 컬러바 분석 기반 온도 추정
+                    temperature = get_temperature_from_color_with_map(
+                        pixel_color_bgr, 
+                        color_mapping, 
+                        self.temp_min, 
+                        self.temp_max
+                    )
                     
                     temperatures.append(temperature)
+                    processed_pixels += 1
+                    
+                    # 진행률 표시 (5% 간격)
+                    if processed_pixels % progress_interval == 0 or processed_pixels == total_pixels:
+                        progress_percent = (processed_pixels / total_pixels) * 100
+                        logger.info(f"온도 매트릭스 생성 진행률: {progress_percent:.1f}% ({processed_pixels:,}/{total_pixels:,} 픽셀)")
             
             # temperatures 크기 확인 (1920x480 = 921,600개)
-            expected_count = target_width * target_height
+            expected_count = target_width * target_height  # 1920 * 480 = 921,600
             actual_count = len(temperatures)
             if actual_count != expected_count:
-                logger.warning(f"temperatures 크기 불일치: 예상={expected_count}개, 실제={actual_count}개")
+                logger.warning(f"temperatures 크기 불일치: 예상={expected_count}개 (1920x480), 실제={actual_count}개")
             else:
                 logger.info(f"temperatures 크기 확인: {actual_count}개 (1920x480 = {expected_count}개)")
             
@@ -944,8 +992,7 @@ class PanoramaGenerator:
             min_temp = min(temperatures)
             max_temp = max(temperatures)
             
-            method_name = "컬러바 분석" if use_colorbar else "밝기 기반"
-            logger.info(f"온도 계산 완료 ({method_name}): 최저온도={min_temp:.2f}°C, 최고온도={max_temp:.2f}°C (샘플링: {len(temperatures)}개 픽셀)")
+            logger.info(f"온도 계산 완료 (컬러바 분석): 최저온도={min_temp:.2f}°C, 최고온도={max_temp:.2f}°C (샘플링: {len(temperatures)}개 픽셀)")
             
             # temperatures 파일 저장 (주석처리)
             # try:
@@ -1112,6 +1159,16 @@ class PanoramaGenerator:
                     logger.info("다음 프리셋 처리 전 잠시 대기...")
                     time.sleep(3)  # 2초 → 3초로 증가 (연결 안정화)
             
+            # 6. 파노라마 생성 완료 후 프리셋 1번으로 이동
+            if ENABLE_PRESET_MOVEMENT:
+                logger.info("파노라마 생성 완료 후 프리셋 1번으로 이동")
+                if not self.move_to_preset(1):
+                    logger.warning("프리셋 1번 이동 실패 (파노라마 생성은 완료됨)")
+                else:
+                    logger.info("프리셋 1번 이동 완료")
+            else:
+                logger.info("프리셋 이동이 비활성화되어 홈 위치 이동을 건너뜁니다")
+                            
             # 4. 3개 이미지를 수평으로 머지
             panorama_base64 = self.merge_images_horizontally(snapshots)
             if not panorama_base64:
@@ -1123,15 +1180,7 @@ class PanoramaGenerator:
                 logger.error("데이터베이스 저장 실패")
                 return False
             
-            # 6. 파노라마 생성 완료 후 프리셋 1번으로 이동
-            if ENABLE_PRESET_MOVEMENT:
-                logger.info("파노라마 생성 완료 후 프리셋 1번으로 이동")
-                if not self.move_to_preset(1):
-                    logger.warning("프리셋 1번 이동 실패 (파노라마 생성은 완료됨)")
-                else:
-                    logger.info("프리셋 1번 이동 완료")
-            else:
-                logger.info("프리셋 이동이 비활성화되어 홈 위치 이동을 건너뜁니다")
+
             
             logger.info("파노라마 생성 완료")
             return True

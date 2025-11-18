@@ -17,19 +17,19 @@
           v-icon {{ icons.mdiRefresh }}
       .roi-filter-section
         v-select(
-          v-model="roiFilter"
-          :items="roiOptions"
-          label="ROI 필터"
-          prepend-inner-icon="mdi-map-marker"
+          v-model="scenarioFilter"
+          :items="scenarioOptions"
+          label="시나리오 필터"
+          prepend-inner-icon="mdi-filter"
           dense
           outlined
           hide-details
-          @change="applyRoiFilter()"
+          @change="applyScenarioFilter()"
         )
       .alert-history-content
         .alert-history-table
           .table-row(
-            v-for="(alert, index) in (filteredAlertHistory.length > 0 ? filteredAlertHistory : alertHistory)" 
+            v-for="(alert, index) in displayAlertHistory" 
             :key="alert.id"
             :class="getAlertRowClass(alert, index)"
             @click="selectAlert(index)"
@@ -65,6 +65,7 @@
           :src="thermalImageSrc"
           alt="열화상 이미지"
           @load="onThermalImageLoad"
+          @click="onPanoramaImageClick"
         )
         .thermal-image-placeholder(v-else)
           .placeholder-text 열화상 이미지
@@ -101,7 +102,7 @@
           .header-cell 경보레벨
           .header-cell 발생일자
         .table-body
-          .table-row(v-for="alert in (filteredAlertHistory.length > 0 ? filteredAlertHistory : alertHistory)" :key="alert.id")
+          .table-row(v-for="alert in displayAlertHistory" :key="alert.id")
             .table-cell {{ getLevelText(alert.level) }}
             .table-cell {{ alert.time }}
 
@@ -147,7 +148,7 @@ import {
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
 import { getAlerts, getRecentAlertCounts } from '@/api/alerts.api';
 import { getEventSetting } from '@/api/eventSetting.api';
-import { getRoiTimeSeriesData, getRoiDataList } from '@/api/statistic.api';
+import { getRoiTimeSeriesData } from '@/api/statistic.api';
 import VideoCard from '@/components/camera-card.vue';
 import socket from '@/mixins/socket';
 import * as echarts from 'echarts';
@@ -206,9 +207,13 @@ export default {
       minTemp: 0,
       avgTemp: 0
     },
-    // ROI 필터 관련
-    roiFilter: null,
-    roiOptions: [],
+    // 시나리오 필터 관련
+    scenarioFilter: null,
+    scenarioOptions: [
+      { text: '전체', value: null },
+      { text: '시나리오1', value: 1 },
+      { text: '시나리오2', value: 2 }
+    ],
     filteredAlertHistory: []
   }),
 
@@ -217,6 +222,17 @@ export default {
       return this.selectedCameraIndex !== null && this.cameras.length > 0 
         ? this.cameras[this.selectedCameraIndex] 
         : null;
+    },
+    
+    // 필터가 적용되었는지 여부에 따라 표시할 경보 리스트 반환
+    displayAlertHistory() {
+      // 필터가 적용된 경우 (scenarioFilter가 null이 아닌 경우)
+      if (this.scenarioFilter !== null && this.scenarioFilter !== undefined) {
+        // 필터링된 결과만 반환 (빈 배열이어도 반환)
+        return this.filteredAlertHistory;
+      }
+      // 필터가 적용되지 않은 경우 원본 리스트 반환
+      return this.alertHistory;
     },
     
     lastEventTime() {
@@ -260,7 +276,6 @@ export default {
     this.updateTime();
     this.timeInterval = setInterval(this.updateTime, 1000);
     await this.initializeData();
-    await this.loadRoiOptions();
     await this.loadAlertHistory();
   },
 
@@ -275,7 +290,8 @@ export default {
     
     // 윈도우 resize 이벤트 리스너 추가
     window.addEventListener('resize', this.handleWindowResize);
-    //this.startAlertRefresh();
+    // 경보 이력 자동 갱신 시작 (10초마다)
+    this.startAlertRefresh();
   },
 
   beforeDestroy() {
@@ -677,27 +693,42 @@ export default {
           }
         });
 
-        // ROI 필터 적용
-        this.applyRoiFilter();
+        // 현재 선택된 경보의 ID 저장 (자동 갱신 시 선택 유지용)
+        let selectedAlertId = null;
+        if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.displayAlertHistory.length) {
+          selectedAlertId = this.displayAlertHistory[this.selectedAlertIndex]?.id;
+        }
+
+        // 시나리오 필터 적용
+        this.applyScenarioFilter();
+
+        // 자동 갱신 시 선택된 경보 유지
+        if (selectedAlertId && this.displayAlertHistory.length > 0) {
+          // 같은 ID를 가진 경보 찾기
+          const foundIndex = this.displayAlertHistory.findIndex(alert => alert.id === selectedAlertId);
+          if (foundIndex >= 0) {
+            this.selectedAlertIndex = foundIndex;
+          } else {
+            // 선택된 경보가 없어진 경우 최신 경보 선택
+            this.selectedAlertIndex = 0;
+          }
+        } else if (this.displayAlertHistory.length > 0) {
+          // 처음 로드하거나 선택된 경보가 없는 경우 최신 경보 선택
+          this.selectedAlertIndex = 0;
+        }
 
         // 최신 경보의 snapshotImages 파싱하여 이미지 분류
-        if (this.filteredAlertHistory.length > 0) {
-          this.selectedAlertIndex = 0; // 최신 경보를 기본 선택
-          this.parseSnapshotImages(this.filteredAlertHistory[0].snapshotImages);
+        // 필터가 적용된 경우 filteredAlertHistory만 사용, 그렇지 않으면 alertHistory 사용
+        if (this.displayAlertHistory.length > 0 && this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.displayAlertHistory.length) {
+          this.parseSnapshotImages(this.displayAlertHistory[this.selectedAlertIndex].snapshotImages);
           this.updateAlertBoxes();
-          this.updateCurrentScenario(this.filteredAlertHistory[0]);
-        } else if (this.alertHistory.length > 0) {
-          this.selectedAlertIndex = 0;
-          this.parseSnapshotImages(this.alertHistory[0].snapshotImages);
-          this.updateAlertBoxes();
-          this.updateCurrentScenario(this.alertHistory[0]);
+          this.updateCurrentScenario(this.displayAlertHistory[this.selectedAlertIndex]);
         }
 
         // 최신 경보단계로 gaugeChart 값 반영 (한글 문구로)
-        const displayAlerts = this.filteredAlertHistory.length > 0 ? this.filteredAlertHistory : this.alertHistory;
-        if (displayAlerts.length > 0) {
-          this.alertCount = Number(displayAlerts[0].level) || 0;
-          const levelLabel = this.getLevelText(displayAlerts[0].level);
+        if (this.displayAlertHistory.length > 0) {
+          this.alertCount = Number(this.displayAlertHistory[0].level) || 0;
+          const levelLabel = this.getLevelText(this.displayAlertHistory[0].level);
           if (this.gaugeChart) {
             this.gaugeChart.setOption({
               series: [{
@@ -721,24 +752,46 @@ export default {
       }
     },
 
-    formatDate(dateStr) {
-      if (!dateStr) return '-';
+    formatDate(time) {
+      if (!time) return '';
       
       try {
-        // ISO 문자열이면 포맷팅 (AdminResult.vue와 동일한 방식)
-        if (typeof dateStr === 'string') {
-          return dateStr.replace('T', ' ').substring(0, 19);
+        let dateStr = String(time).trim();
+        
+        // ISO 형식에서 T를 공백으로 변환
+        if (dateStr.includes('T')) {
+          dateStr = dateStr.replace('T', ' ');
         }
         
-        // Date 객체인 경우
-        if (dateStr instanceof Date) {
-          return dateStr.toISOString().replace('T', ' ').substring(0, 19);
+        // .000Z, .0000Z 같은 밀리초 및 Z 제거
+        dateStr = dateStr.replace(/\.\d+[Zz]?$/i, '').replace(/[Zz]$/i, '');
+        
+        // MySQL DATETIME 형식: "YYYY-MM-DD HH:mm:ss" 또는 "YYYY-MM-DD HH:mm"
+        // 시간대 변환 없이 직접 파싱하여 포맷팅
+        const dateTimeMatch = dateStr.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+        if (dateTimeMatch) {
+          const year = dateTimeMatch[1];
+          const month = dateTimeMatch[2];
+          const day = dateTimeMatch[3];
+          const hours = dateTimeMatch[4];
+          const minutes = dateTimeMatch[5];
+          const seconds = dateTimeMatch[6] || '00';
+          
+          // 시간대 변환 없이 그대로 포맷팅 (DB에 저장된 로컬 시간 그대로 사용)
+          return `${year}. ${month}. ${day}. ${hours}:${minutes}:${seconds}`;
         }
         
-        return String(dateStr);
+        // 시간만 있는 경우: "14:30:00" 또는 "14:30"
+        if (dateStr.includes(':') && !dateStr.includes('-')) {
+          const [hours, minutes] = dateStr.split(':');
+          return `${hours}:${minutes}`;
+        }
+        
+        // 파싱 실패 시 원본 반환
+        return dateStr;
       } catch (error) {
-        console.error('날짜 포맷팅 오류:', error);
-        return String(dateStr);
+        console.error('[formatDate] Date formatting error:', error, time);
+        return String(time); // 에러 발생 시 원본 반환
       }
     },
 
@@ -832,10 +885,9 @@ export default {
     },
 
     selectAlert(index) {
-      const displayAlerts = this.filteredAlertHistory.length > 0 ? this.filteredAlertHistory : this.alertHistory;
-      if (index >= 0 && index < displayAlerts.length) {
+      if (index >= 0 && index < this.displayAlertHistory.length) {
         this.selectedAlertIndex = index;
-        const selectedAlert = displayAlerts[index];
+        const selectedAlert = this.displayAlertHistory[index];
         console.log('Selected alert:', selectedAlert);
         
         // temperature_stats 정보 출력
@@ -858,6 +910,27 @@ export default {
         
         // 시나리오 정보 업데이트
         this.updateCurrentScenario(selectedAlert);
+        
+        // 선택된 경보의 level로 게이지 업데이트
+        const selectedLevel = Number(selectedAlert.level) || 0;
+        const levelLabel = this.getLevelText(selectedAlert.level);
+        this.alertCount = selectedLevel;
+        if (this.gaugeChart) {
+          this.gaugeChart.setOption({
+            series: [{
+              data: [{
+                value: selectedLevel,
+                name: levelLabel
+              }],
+              detail: {
+                formatter: () => levelLabel,
+                color: '#fff',
+                fontSize: 24,
+                offsetCenter: [0, '40%']
+              }
+            }]
+          });
+        }
       }
     },
 
@@ -1097,13 +1170,12 @@ export default {
     },
 
     updateAlertBoxes() {
-      const displayAlerts = this.filteredAlertHistory.length > 0 ? this.filteredAlertHistory : this.alertHistory;
-      if (displayAlerts.length === 0 || this.selectedAlertIndex >= displayAlerts.length) {
+      if (this.displayAlertHistory.length === 0 || this.selectedAlertIndex >= this.displayAlertHistory.length) {
         this.alertBoxes = [];
         return;
       }
 
-      const selectedAlert = displayAlerts[this.selectedAlertIndex];
+      const selectedAlert = this.displayAlertHistory[this.selectedAlertIndex];
       try {
         let alertInfo = {};
         
@@ -1360,6 +1432,63 @@ export default {
       */
     },
 
+    // 파노라마 이미지 클릭 이벤트
+    onPanoramaImageClick() {
+      console.log('Panorama image clicked');
+      
+      // 현재 선택된 경보의 ROI 정보 가져오기
+      if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.displayAlertHistory.length) {
+        const selectedAlert = this.displayAlertHistory[this.selectedAlertIndex];
+        try {
+          let alertInfo = {};
+          if (selectedAlert.alert_info_json && typeof selectedAlert.alert_info_json === 'string') {
+            const jsonStr = selectedAlert.alert_info_json.trim();
+            if (jsonStr.endsWith('}') || jsonStr.endsWith(']')) {
+              alertInfo = JSON.parse(jsonStr);
+            } else {
+              const lastCompleteJson = this.findLastCompleteJson(jsonStr);
+              if (lastCompleteJson) {
+                alertInfo = JSON.parse(lastCompleteJson);
+              }
+            }
+          } else if (selectedAlert.alert_info_json && typeof selectedAlert.alert_info_json === 'object') {
+            alertInfo = selectedAlert.alert_info_json;
+          }
+          
+          // ROI 정보 추출
+          if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
+            const roiNumber = alertInfo.roi_polygon.main_roi.zone_type;
+            this.selectedRoiNumber = roiNumber;
+            // 다이얼로그를 먼저 열고, 렌더링 완료 후 데이터 로드
+            this.showRoiDataDialog = true;
+            this.$nextTick(() => {
+              // 다이얼로그가 완전히 렌더링된 후 데이터 로드
+              setTimeout(() => {
+                this.loadRoiTimeSeriesData(roiNumber);
+              }, 100);
+            });
+          } else if (alertInfo.zone_type) {
+            // fallback: zone_type 직접 사용
+            const roiNumber = alertInfo.zone_type;
+            this.selectedRoiNumber = roiNumber;
+            this.showRoiDataDialog = true;
+            this.$nextTick(() => {
+              setTimeout(() => {
+                this.loadRoiTimeSeriesData(roiNumber);
+              }, 100);
+            });
+          } else {
+            this.$toast.warning('ROI 정보를 찾을 수 없습니다.');
+          }
+        } catch (e) {
+          console.error('Error parsing ROI data for panorama image click:', e);
+          this.$toast.error('ROI 데이터를 불러오는 중 오류가 발생했습니다.');
+        }
+      } else {
+        this.$toast.warning('선택된 경보가 없습니다.');
+      }
+    },
+
     // Alert 박스 클릭 이벤트
     onAlertBoxClick(box) {
       console.log('Alert box clicked:', box);
@@ -1378,9 +1507,8 @@ export default {
         this.$toast.info(`박스 ${box.box_id}: 온도차 ${box.temp_diff.toFixed(1)}°C, 경보레벨 ${box.alert_level}`);
         
         // ROI 시계열 데이터 로드 (박스가 속한 ROI의 zone_type 사용)
-        const displayAlerts = this.filteredAlertHistory.length > 0 ? this.filteredAlertHistory : this.alertHistory;
-        if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < displayAlerts.length) {
-          const selectedAlert = displayAlerts[this.selectedAlertIndex];
+        if (this.selectedAlertIndex >= 0 && this.selectedAlertIndex < this.displayAlertHistory.length) {
+          const selectedAlert = this.displayAlertHistory[this.selectedAlertIndex];
           try {
             const alertInfo = selectedAlert.alert_info_json ? JSON.parse(selectedAlert.alert_info_json) : {};
             if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
@@ -1543,15 +1671,39 @@ export default {
         }
         
         // roi_polygon의 main_roi에서 zone_type 추출
+        // zone_type이 0인 경우도 "ROI 0"으로 표시해야 함
+        let roiNumber = null;
         if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
-          return alertInfo.roi_polygon.main_roi.zone_type || alert.roiNumber || '-';
+          const zoneType = alertInfo.roi_polygon.main_roi.zone_type;
+          // zone_type이 0인 경우도 유효한 ROI 번호로 처리
+          if (zoneType !== null && zoneType !== undefined && zoneType !== '') {
+            roiNumber = typeof zoneType === 'number' ? zoneType : parseInt(zoneType);
+            if (!isNaN(roiNumber)) {
+              return roiNumber;
+            }
+          }
+        }
+        
+        // alertInfo.zone_type에서 추출 시도
+        if (roiNumber === null && alertInfo.zone_type !== null && alertInfo.zone_type !== undefined && alertInfo.zone_type !== '') {
+          roiNumber = typeof alertInfo.zone_type === 'number' ? alertInfo.zone_type : parseInt(alertInfo.zone_type);
+          if (!isNaN(roiNumber)) {
+            return roiNumber;
+          }
         }
         
         // 기존 방식으로 fallback
-        return alert.roiNumber || '-';
+        if (alert.roiNumber !== null && alert.roiNumber !== undefined && alert.roiNumber !== '') {
+          return alert.roiNumber;
+        }
+        
+        return '-';
       } catch (error) {
         console.error('Error parsing ROI display name:', error);
-        return alert.roiNumber || '-';
+        if (alert.roiNumber !== null && alert.roiNumber !== undefined && alert.roiNumber !== '') {
+          return alert.roiNumber;
+        }
+        return '-';
       }
     },
 
@@ -1782,22 +1934,36 @@ export default {
       const timeData = this.roiTimeSeriesData.map((item, index) => {
         const date = new Date(item.time);
         
-        // API에서 받은 시간은 UTC이므로 그대로 사용
+        // UTC 시간을 한국 시간(UTC+9)으로 변환
+        const koreaTime = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+        
         // 디버깅용 로그 (첫 번째와 마지막 데이터만)
         if (index === 0 || index === this.roiTimeSeriesData.length - 1) {
           console.log(`⏰ 시계열 그래프 시간 변환 [${index === 0 ? '첫' : '마지막'} 데이터]:`);
           console.log(`  - API 응답 시간 (원본): ${item.time}`);
           console.log(`  - Date 객체 (UTC): ${date.toISOString()}`);
-          console.log(`  - 표시 시간: ${date.getUTCHours()}:${String(date.getUTCMinutes()).padStart(2, '0')}:${String(date.getUTCSeconds()).padStart(2, '0')}`);
+          console.log(`  - 한국 시간 (UTC+9): ${koreaTime.toISOString()}`);
+          console.log(`  - 표시 시간: ${koreaTime.getUTCHours()}:${String(koreaTime.getUTCMinutes()).padStart(2, '0')}:${String(koreaTime.getUTCSeconds()).padStart(2, '0')}`);
         }
         
-        // UTC 시간을 그대로 표시
-        return `${date.getUTCHours()}:${String(date.getUTCMinutes()).padStart(2, '0')}:${String(date.getUTCSeconds()).padStart(2, '0')}`;
+        // 한국 시간으로 표시
+        return `${koreaTime.getUTCHours()}:${String(koreaTime.getUTCMinutes()).padStart(2, '0')}:${String(koreaTime.getUTCSeconds()).padStart(2, '0')}`;
       });
       
       const maxTempData = this.roiTimeSeriesData.map(item => item.maxTemp);
       const avgTempData = this.roiTimeSeriesData.map(item => item.avgTemp);
       const minTempData = this.roiTimeSeriesData.map(item => item.minTemp);
+      
+      // 온도 데이터의 최소값과 최대값 계산 (Y축 범위 동적 설정)
+      const allTemps = [...maxTempData, ...avgTempData, ...minTempData].filter(temp => !isNaN(temp) && temp !== null && temp !== undefined);
+      const minTemp = allTemps.length > 0 ? Math.min(...allTemps) : 0;
+      const maxTemp = allTemps.length > 0 ? Math.max(...allTemps) : 100;
+      
+      // Y축 범위를 데이터에 맞게 조정 (여유 공간 추가)
+      const tempRange = maxTemp - minTemp;
+      const padding = tempRange > 0 ? tempRange * 0.1 : 5; // 10% 여유 공간 또는 최소 5도
+      const yAxisMin = Math.max(0, minTemp - padding);
+      const yAxisMax = maxTemp + padding;
       
       const option = {
         backgroundColor: 'transparent',
@@ -1871,6 +2037,8 @@ export default {
         yAxis: {
           type: 'value',
           name: '온도 (°C)',
+          min: yAxisMin,
+          max: yAxisMax,
           nameTextStyle: {
             color: '#ffffff',
             fontSize: 14,
@@ -1889,7 +2057,11 @@ export default {
           },
           axisLabel: {
             color: '#ffffff',
-            fontSize: 12
+            fontSize: 12,
+            formatter: function (value) {
+              // 소수점 없이 정수로 표시
+              return Math.round(value);
+            }
           },
           splitLine: {
             lineStyle: {
@@ -1989,76 +2161,10 @@ export default {
       }
     },
 
-    // ROI 필터 관련 메서드
-    async loadRoiOptions() {
-      try {
-        const response = await getRoiDataList();
-        
-        // "전체" 항목을 맨 앞에 추가
-        const options = [{
-          text: '전체',
-          value: null
-        }];
-        
-        if (response && response.data && response.data.success && response.data.result) {
-          const roiOptions = response.data.result
-            .map(zone => {
-              // zone_type에서 ROI 번호 추출
-              let roiNumber = null;
-              if (zone.zone_type) {
-                const match = zone.zone_type.toString().match(/Z?0*(\d+)/);
-                if (match) {
-                  roiNumber = parseInt(match[1]);
-                }
-              } else if (zone.zone_desc) {
-                const match = zone.zone_desc.toString().match(/ROI[-\s]?(\d+)/i);
-                if (match) {
-                  roiNumber = parseInt(match[1]);
-                }
-              }
-              
-              if (roiNumber !== null) {
-                return {
-                  text: `ROI ${roiNumber}`,
-                  value: roiNumber
-                };
-              }
-              return null;
-            })
-            .filter(option => option !== null)
-            .sort((a, b) => a.value - b.value);
-          
-          options.push(...roiOptions);
-        } else {
-          // 기본 ROI 옵션 설정 (0-9)
-          const defaultOptions = Array.from({ length: 10 }, (_, i) => ({
-            text: `ROI ${i}`,
-            value: i
-          }));
-          options.push(...defaultOptions);
-        }
-        
-        this.roiOptions = options;
-        
-        // 기본값을 "전체"로 설정
-        this.roiFilter = null;
-      } catch (error) {
-        console.error('ROI 옵션 로드 오류:', error);
-        // 기본 ROI 옵션 설정 (0-9)
-        this.roiOptions = [
-          { text: '전체', value: null },
-          ...Array.from({ length: 10 }, (_, i) => ({
-            text: `ROI ${i}`,
-            value: i
-          }))
-        ];
-        this.roiFilter = null;
-      }
-    },
-
-    applyRoiFilter() {
-      // "전체" 선택 시 (roiFilter가 null) 모든 경보 표시
-      if (this.roiFilter === null || this.roiFilter === undefined) {
+    // 시나리오 필터 관련 메서드
+    applyScenarioFilter() {
+      // "전체" 선택 시 (scenarioFilter가 null) 모든 경보 표시
+      if (this.scenarioFilter === null || this.scenarioFilter === undefined) {
         this.filteredAlertHistory = [];
         // 필터가 없으므로 원본 리스트의 첫 번째 항목 선택
         if (this.alertHistory.length > 0) {
@@ -2070,52 +2176,48 @@ export default {
         return;
       }
 
-      const filterRoi = parseInt(this.roiFilter);
+      const filterScenario = parseInt(this.scenarioFilter);
       this.filteredAlertHistory = this.alertHistory.filter(alert => {
         try {
-          if (alert.alert_info_json) {
+          // alert.type에서 시나리오 확인
+          const alertType = alert.type;
+          let detectedScenario = null;
+          
+          if (alertType === 'S001' || alertType === 1 || alertType === '1') {
+            detectedScenario = 1;
+          } else if (alertType === 'S002' || alertType === 2 || alertType === '2') {
+            detectedScenario = 2;
+          }
+
+          // alert.type에서 시나리오를 찾지 못한 경우 alert_info_json에서 확인
+          if (detectedScenario === null && alert.alert_info_json) {
             let alertInfo = {};
             if (typeof alert.alert_info_json === 'string') {
               const jsonStr = alert.alert_info_json.trim();
               if (jsonStr.endsWith('}') || jsonStr.endsWith(']')) {
                 alertInfo = JSON.parse(jsonStr);
               } else {
-                const lastBrace = jsonStr.lastIndexOf('}');
-                if (lastBrace > 0) {
-                  alertInfo = JSON.parse(jsonStr.substring(0, lastBrace + 1));
+                const lastCompleteJson = this.findLastCompleteJson(jsonStr);
+                if (lastCompleteJson) {
+                  alertInfo = JSON.parse(lastCompleteJson);
                 }
               }
             } else if (typeof alert.alert_info_json === 'object') {
               alertInfo = alert.alert_info_json;
             }
             
-            // ROI 번호 추출
-            let roi = null;
-            if (alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
-              const zoneType = alertInfo.roi_polygon.main_roi.zone_type;
-              if (zoneType) {
-                const match = zoneType.toString().match(/Z?0*(\d+)/);
-                if (match) {
-                  roi = parseInt(match[1]);
-                }
-              }
-            } else if (alertInfo.zone_type) {
-              const match = alertInfo.zone_type.toString().match(/Z?0*(\d+)/);
-              if (match) {
-                roi = parseInt(match[1]);
-              }
-            } else if (alert.type) {
-              const match = alert.type.toString().match(/S?0*(\d+)/);
-              if (match) {
-                roi = parseInt(match[1]) - 1;
-              }
+            // scenario 필드에서 확인
+            if (alertInfo.scenario === 'scenario1') {
+              detectedScenario = 1;
+            } else if (alertInfo.scenario === 'scenario2') {
+              detectedScenario = 2;
             }
-            
-            // 필터와 비교
-            return roi !== null && roi === filterRoi;
           }
+
+          // 필터와 비교
+          return detectedScenario !== null && detectedScenario === filterScenario;
         } catch (e) {
-          console.error('ROI 필터링 오류:', e);
+          console.error('시나리오 필터링 오류:', e, alert);
         }
         return false;
       });
@@ -2504,6 +2606,12 @@ export default {
   object-fit: contain;
   border-radius: 8px;
   background: #000;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  
+  &:hover {
+    opacity: 0.9;
+  }
 }
 
 .visual-image {

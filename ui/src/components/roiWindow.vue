@@ -2,7 +2,7 @@
 <template>
   <v-dialog 
     v-model="dialog" 
-    max-width="2100px"
+    :max-width="maxWidth || '2100px'"
     persistent
   >
     <v-card>
@@ -131,15 +131,17 @@
                     class="selection-overlay"
                     v-if="panoramaImage && !isLoadingPanorama"
                     @mousedown="startDrag"
+                    @mousemove="updateMousePosition"
                   >
                     <div 
                       class="selection-box"
                       v-if="isDragging || region"
                       :style="selectionBoxStyle"
+                      :key="`selection-box-${isDragging}-${dragStart.x}-${dragStart.y}-${dragEnd.x}-${dragEnd.y}`"
                     ></div>
                     <div 
                       class="coordinate-display"
-                      v-if="mousePosition"
+                      v-if="false"
                       :style="coordinateDisplayStyle"
                     >
                       X: {{ mousePosition.x }}px Y: {{ mousePosition.y }}px
@@ -203,6 +205,10 @@ export default {
     checkDuplicate: {
       type: Function,
       default: null
+    },
+    maxWidth: {
+      type: String,
+      default: '2100px'
     }
   },
 
@@ -268,6 +274,7 @@ export default {
       dragEnd: { x: 0, y: 0 },
       mousePosition: null,
       overlayRect: null, // selection-overlay의 rect를 저장
+      imageOffset: { left: 0, top: 0 }, // 이미지의 컨테이너 내에서의 offset
       // 새로운 입력 필드들
       roiId: '',
       startPointX: '',
@@ -302,27 +309,63 @@ export default {
 
     selectionBoxStyle() {
       if (this.isDragging) {
-        // 드래그 중일 때 - 픽셀 좌표 직접 사용
+        // 드래그 중일 때 - 이미지 기준 좌표에 이미지 offset 추가
         const left = Math.min(this.dragStart.x, this.dragEnd.x);
         const top = Math.min(this.dragStart.y, this.dragEnd.y);
         const width = Math.abs(this.dragEnd.x - this.dragStart.x);
         const height = Math.abs(this.dragEnd.y - this.dragStart.y);
         
-        return {
-          left: left + 'px',
-          top: top + 'px',
-          width: width + 'px',
-          height: height + 'px'
+        // 최소 크기 보장 (드래그 시작 시에도 보이도록)
+        const minSize = 1;
+        const finalWidth = Math.max(width, minSize);
+        const finalHeight = Math.max(height, minSize);
+        
+        const offsetLeft = this.imageOffset?.left || 0;
+        const offsetTop = this.imageOffset?.top || 0;
+        
+        const style = {
+          position: 'absolute',
+          left: (left + offsetLeft) + 'px',
+          top: (top + offsetTop) + 'px',
+          width: finalWidth + 'px',
+          height: finalHeight + 'px',
+          display: 'block'
         };
+        
+        console.log('selectionBoxStyle (드래그 중):', {
+          isDragging: this.isDragging,
+          dragStart: this.dragStart,
+          dragEnd: this.dragEnd,
+          imageOffset: this.imageOffset,
+          calculated: { left, top, width, height },
+          final: { left: left + offsetLeft, top: top + offsetTop, width: finalWidth, height: finalHeight },
+          style: style
+        });
+        
+        return style;
       } else if (this.region) {
-        // 그린 후 영역이 있을 때 - 픽셀 좌표 직접 사용
-        return {
-          left: this.region.left + 'px',
-          top: this.region.top + 'px',
+        // 그린 후 영역이 있을 때 - 이미지 기준 좌표에 이미지 offset 추가
+        const offsetLeft = this.imageOffset?.left || 0;
+        const offsetTop = this.imageOffset?.top || 0;
+        
+        const style = {
+          position: 'absolute',
+          left: (this.region.left + offsetLeft) + 'px',
+          top: (this.region.top + offsetTop) + 'px',
           width: (this.region.right - this.region.left) + 'px',
-          height: (this.region.bottom - this.region.top) + 'px'
+          height: (this.region.bottom - this.region.top) + 'px',
+          display: 'block'
         };
+        
+        console.log('selectionBoxStyle (region):', {
+          region: this.region,
+          imageOffset: this.imageOffset,
+          style: style
+        });
+        
+        return style;
       }
+      console.log('selectionBoxStyle - 빈 객체 반환 (isDragging:', this.isDragging, ', region:', this.region, ')');
       return {};
     },
 
@@ -330,8 +373,8 @@ export default {
       if (!this.mousePosition) return {};
       return {
         position: 'absolute',
-        left: (this.mousePosition.x + 10) + 'px',
-        top: (this.mousePosition.y + 10) + 'px',
+        left: (this.mousePosition.x + this.imageOffset.left + 10) + 'px',
+        top: (this.mousePosition.y + this.imageOffset.top + 10) + 'px',
         backgroundColor: 'rgba(0, 0, 0, 0.7)',
         color: 'white',
         padding: '4px 8px',
@@ -359,11 +402,14 @@ export default {
         return {};
       }
       
-      // 픽셀 좌표를 직접 사용 (1920x480 파노라마 고정 크기)
+      // 픽셀 좌표를 직접 사용 (1920x480 파노라마 고정 크기) - 이미지 offset 추가
+      const offsetLeft = this.imageOffset?.left || 0;
+      const offsetTop = this.imageOffset?.top || 0;
+      
       const style = {
         position: 'absolute',
-        left: this.region.left + 'px',
-        top: this.region.top + 'px',
+        left: (this.region.left + offsetLeft) + 'px',
+        top: (this.region.top + offsetTop) + 'px',
         width: (this.region.right - this.region.left) + 'px',
         height: (this.region.bottom - this.region.top) + 'px',
         border: '2px solid rgba(255, 255, 255, 0.5)',
@@ -483,6 +529,11 @@ export default {
       console.log('데이터 준비 완료 - 화면 표시 시작');
       this.isLoading = false;
       this.isDataReady = true;
+      
+      // 이미지 offset 업데이트
+      this.$nextTick(() => {
+        this.updateImageOffset();
+      });
     },
 
     loadEditData(data) {
@@ -543,6 +594,11 @@ export default {
           
           // 강제 DOM 업데이트
           this.$forceUpdate();
+          
+          // 이미지 offset 업데이트
+          this.$nextTick(() => {
+            this.updateImageOffset();
+          });
           
           // region 데이터 로딩 후 데이터 준비 완료
           setTimeout(() => {
@@ -630,115 +686,92 @@ export default {
       this.panoramaImage = null; // 이전 이미지 초기화
       
       try {
-        // 최근 5장의 파노라마 이미지 가져오기
+        // 최근 1장의 파노라마 이미지 가져오기
         console.log('파노라마 이미지 조회 시작...');
-        const response = await getPanoramaData(5);
+        const response = await getPanoramaData(1);
         console.log('파노라마 데이터 응답:', response);
         
         if (response.data && response.data.length > 0) {
           console.log(`파노라마 데이터 ${response.data.length}개 조회됨`);
           
-          // 가로 크기가 1600 이상인 이미지 중 최근 이미지 찾기
-          let selectedPanorama = null;
-          let selectedWidth = 0;
-          
-          for (let i = 0; i < response.data.length; i++) {
-            const panoramaData = response.data[i];
-            try {
-              const parsedData = JSON.parse(panoramaData.panoramaData);
-              if (parsedData.image) {
-                // 이미지 크기 확인
-                const imageWidth = await this.getImageWidth(parsedData.image);
-                console.log(`[${i + 1}/${response.data.length}] 파노라마 이미지 크기 확인: ${imageWidth}px`);
+          // 첫 번째(최신) 이미지 사용
+          const panoramaData = response.data[0];
+          try {
+            const parsedData = JSON.parse(panoramaData.panoramaData);
+            if (parsedData.image) {
+              // 이미지 크기 확인
+              const imageWidth = await this.getImageWidth(parsedData.image);
+              console.log(`파노라마 이미지 크기 확인: ${imageWidth}px`);
+              
+              // 가로 크기가 1600 이상인 경우에만 사용
+              if (imageWidth >= 1600) {
+                console.log(`✅ 파노라마 이미지 선택: ${imageWidth}px`);
+                // 이미지 소스 설정
+                const imageSrc = `data:image/jpeg;base64,${parsedData.image}`;
+                this.panoramaImage = imageSrc;
+                console.log('panoramaImage 설정 완료:', this.panoramaImage ? '설정됨' : 'null');
                 
-                // 가로 크기가 1600 이상인 경우 선택
-                if (imageWidth >= 1600) {
-                  selectedPanorama = parsedData.image;
-                  selectedWidth = imageWidth;
-                  console.log(`✅ 적합한 파노라마 이미지 선택: ${imageWidth}px (${i + 1}번째 이미지)`);
-                  break; // 가장 최근 이미지 선택 (이미 정렬되어 있음)
-                } else {
-                  console.log(`❌ 이미지 크기 부족: ${imageWidth}px < 1600px`);
-                }
-              } else {
-                console.warn(`[${i + 1}/${response.data.length}] 이미지 데이터 없음`);
-              }
-            } catch (error) {
-              console.error(`[${i + 1}/${response.data.length}] 파노라마 데이터 파싱 오류:`, error);
-              continue; // 다음 이미지 확인
-            }
-          }
-          
-          if (selectedPanorama) {
-            console.log(`파노라마 이미지 설정: ${selectedWidth}px`);
-            // 이미지 소스 설정
-            const imageSrc = `data:image/jpeg;base64,${selectedPanorama}`;
-            this.panoramaImage = imageSrc;
-            console.log('panoramaImage 설정 완료:', this.panoramaImage ? '설정됨' : 'null');
-            
-            // 타임아웃 설정 (이미지 로드가 실패하거나 @load 이벤트가 발생하지 않을 경우 대비)
-            const timeoutId = setTimeout(() => {
-              console.warn('이미지 로드 타임아웃 (3초) - 강제로 로딩 상태 해제');
-              this.isLoadingPanorama = false;
-            }, 3000);
-            
-            // 이미지가 이미 로드되어 있을 경우를 대비해 체크
-            this.$nextTick(() => {
-              setTimeout(() => {
-                const imgElement = this.$el?.querySelector('.panorama-image');
-                console.log('이미지 요소 확인:', imgElement ? '찾음' : '없음');
+                // 타임아웃 설정 (이미지 로드가 실패하거나 @load 이벤트가 발생하지 않을 경우 대비)
+                const timeoutId = setTimeout(() => {
+                  console.warn('이미지 로드 타임아웃 (3초) - 강제로 로딩 상태 해제');
+                  this.isLoadingPanorama = false;
+                }, 3000);
                 
-                if (imgElement) {
-                  console.log('이미지 상태:', {
-                    complete: imgElement.complete,
-                    naturalWidth: imgElement.naturalWidth,
-                    naturalHeight: imgElement.naturalHeight
-                  });
-                  
-                  if (imgElement.complete && imgElement.naturalWidth > 0) {
-                    // 이미 로드된 경우
-                    console.log('이미지가 이미 로드되어 있음 - 즉시 표시');
-                    clearTimeout(timeoutId);
-                    this.isLoadingPanorama = false;
-                    // 컨테이너와 이미지 너비 강제 설정
-                    const container = imgElement.closest('.video-container');
-                    if (container) {
-                      container.style.width = '1920px';
-                      container.style.minWidth = '1920px';
-                      imgElement.style.width = '1920px';
-                      imgElement.style.minWidth = '1920px';
-                      console.log('컨테이너와 이미지 너비를 1920px로 강제 설정 (이미 로드됨)');
-                    }
-                  } else {
-                    // 이미지 로드 대기 중 - @load 이벤트에서 처리됨
-                    console.log('이미지 로드 대기 중... (@load 이벤트 대기)');
+                // 이미지가 이미 로드되어 있을 경우를 대비해 체크
+                this.$nextTick(() => {
+                  setTimeout(() => {
+                    const imgElement = this.$el?.querySelector('.panorama-image');
+                    console.log('이미지 요소 확인:', imgElement ? '찾음' : '없음');
                     
-                    // 추가 이벤트 리스너 (이중 체크)
-                    imgElement.addEventListener('load', () => {
-                      console.log('이미지 load 이벤트 리스너에서 로드 완료 확인');
-                      clearTimeout(timeoutId);
-                      this.isLoadingPanorama = false;
-                      // 컨테이너와 이미지 너비 강제 설정
-                      const container = imgElement.closest('.video-container');
-                      if (container) {
-                        container.style.width = '1920px';
-                        container.style.minWidth = '1920px';
-                        imgElement.style.width = '1920px';
-                        imgElement.style.minWidth = '1920px';
-                        console.log('컨테이너와 이미지 너비를 1920px로 강제 설정');
+                    if (imgElement) {
+                      console.log('이미지 상태:', {
+                        complete: imgElement.complete,
+                        naturalWidth: imgElement.naturalWidth,
+                        naturalHeight: imgElement.naturalHeight
+                      });
+                      
+                      if (imgElement.complete && imgElement.naturalWidth > 0) {
+                        // 이미 로드된 경우
+                        console.log('이미지가 이미 로드되어 있음 - 즉시 표시');
+                        clearTimeout(timeoutId);
+                        this.isLoadingPanorama = false;
+                        // CSS로 비율 유지 표시 (강제 설정 제거)
+                        console.log('이미지 로드 완료 - CSS로 비율 유지 표시');
+                      } else {
+                        // 이미지 로드 대기 중 - @load 이벤트에서 처리됨
+                        console.log('이미지 로드 대기 중... (@load 이벤트 대기)');
+                        
+                        // 추가 이벤트 리스너 (이중 체크)
+                        imgElement.addEventListener('load', () => {
+                          console.log('이미지 load 이벤트 리스너에서 로드 완료 확인');
+                          clearTimeout(timeoutId);
+                          this.isLoadingPanorama = false;
+                          // CSS로 비율 유지 표시 (강제 설정 제거)
+                          console.log('이미지 로드 완료 - CSS로 비율 유지 표시');
+                        }, { once: true });
                       }
-                    }, { once: true });
-                  }
-                } else {
-                  console.warn('이미지 요소를 찾을 수 없음');
-                }
-              }, 200); // DOM 업데이트 대기
-            });
-          } else {
+                    } else {
+                      console.warn('이미지 요소를 찾을 수 없음');
+                    }
+                  }, 200); // DOM 업데이트 대기
+                });
+              } else {
+                this.panoramaImage = null;
+                this.isLoadingPanorama = false;
+                console.warn(`이미지 크기 부족: ${imageWidth}px < 1600px`);
+                this.$toast.warning('가로 크기 1600px 이상인 파노라마 이미지를 찾을 수 없습니다.');
+              }
+            } else {
+              this.panoramaImage = null;
+              this.isLoadingPanorama = false;
+              console.warn('이미지 데이터 없음');
+              this.$toast.warning('파노라마 이미지 데이터가 없습니다.');
+            }
+          } catch (error) {
+            console.error('파노라마 데이터 파싱 오류:', error);
             this.panoramaImage = null;
             this.isLoadingPanorama = false;
-            console.warn('가로 크기 1600px 이상인 파노라마 이미지를 찾을 수 없습니다.');
-            this.$toast.warning('가로 크기 1600px 이상인 파노라마 이미지를 찾을 수 없습니다.');
+            this.$toast.error('파노라마 이미지 데이터 파싱에 실패했습니다.');
           }
         } else {
           this.panoramaImage = null;
@@ -759,27 +792,16 @@ export default {
           console.log('파노라마 이미지 @load 이벤트 발생');
           if (event && event.target) {
             console.log('이미지 크기:', event.target.naturalWidth, 'x', event.target.naturalHeight);
-            // 이미지 로드 후 컨테이너 크기 강제 업데이트
-            this.$nextTick(() => {
-              const container = event.target.closest('.video-container');
-              if (container) {
-                // 컨테이너 너비를 강제로 1920px로 설정
-                if (container.style.width !== '1920px') {
-                  container.style.width = '1920px';
-                  container.style.minWidth = '1920px';
-                  console.log('컨테이너 너비를 1920px로 강제 설정');
-                }
-                // 이미지 너비도 강제 설정
-                if (event.target.style.width !== '1920px') {
-                  event.target.style.width = '1920px';
-                  event.target.style.minWidth = '1920px';
-                  console.log('이미지 너비를 1920px로 강제 설정');
-                }
-              }
-            });
+            // CSS로 비율 유지 표시 (강제 설정 제거)
+            console.log('이미지 로드 완료 - CSS로 비율 유지 표시');
           }
           this.isLoadingPanorama = false;
           console.log('파노라마 이미지 로드 완료 - 로딩 상태 해제');
+          
+          // 이미지 위치 업데이트
+          this.$nextTick(() => {
+            this.updateImageOffset();
+          });
         },
     
     // 파노라마 이미지 로드 오류 핸들러
@@ -1172,6 +1194,36 @@ export default {
       }
     },
 
+    updateImageOffset() {
+      // 이미지의 컨테이너 내에서의 offset 계산
+      const imgElement = this.$el?.querySelector('.panorama-image');
+      const containerElement = this.$el?.querySelector('.video-container');
+      
+      if (imgElement && containerElement) {
+        const imgRect = imgElement.getBoundingClientRect();
+        const containerRect = containerElement.getBoundingClientRect();
+        
+        // 이미지의 컨테이너 내에서의 상대 위치 계산
+        this.imageOffset = {
+          left: imgRect.left - containerRect.left,
+          top: imgRect.top - containerRect.top
+        };
+        
+        console.log('이미지 offset 업데이트:', {
+          imgRect: { left: imgRect.left, top: imgRect.top, width: imgRect.width, height: imgRect.height },
+          containerRect: { left: containerRect.left, top: containerRect.top, width: containerRect.width, height: containerRect.height },
+          imageOffset: this.imageOffset
+        });
+      } else {
+        console.warn('updateImageOffset - 요소를 찾을 수 없음:', {
+          imgElement: !!imgElement,
+          containerElement: !!containerElement
+        });
+        // 기본값 설정
+        this.imageOffset = { left: 0, top: 0 };
+      }
+    },
+    
     startDrag(event) {
       // customizing을 강제로 true로 설정하여 항상 드래그 가능하도록 변경
       this.customizing = true;
@@ -1183,65 +1235,181 @@ export default {
         return;
       }
       
-      const rect = overlayElement.getBoundingClientRect();
-      this.overlayRect = rect; // rect 저장
+      const overlayRect = overlayElement.getBoundingClientRect();
+      this.overlayRect = overlayRect; // rect 저장
       
-      this.isDragging = true;
-      this.dragStart = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top
-      };
-      this.dragEnd = { ...this.dragStart };
-      this.updateMousePosition(event);
-      
-      // 전역 mousemove와 mouseup 이벤트 리스너 추가
-      document.addEventListener('mousemove', this.onDrag);
-      document.addEventListener('mouseup', this.endDrag);
-      
-      // Clear existing region when starting new drag
-      this.region = null;
+      // DOM 업데이트를 기다린 후 이미지 요소 찾기
+      this.$nextTick(() => {
+        // 이미지 offset 업데이트
+        this.updateImageOffset();
+        
+        // 실제 이미지 요소의 렌더링 크기와 위치 가져오기
+        const imgElement = this.$el?.querySelector('.panorama-image');
+        
+        let imageWidth = this.videoContainerWidth; // 기본값: 1920
+        let imageHeight = this.videoContainerHeight; // 기본값: 480
+        let imageLeft = overlayRect.left; // overlay 기준으로 시작
+        let imageTop = overlayRect.top; // overlay 기준으로 시작
+        
+        if (imgElement) {
+          const imgRect = imgElement.getBoundingClientRect();
+          imageWidth = imgRect.width;
+          imageHeight = imgRect.height;
+          imageLeft = imgRect.left; // 이미지의 실제 시작 X 좌표
+          imageTop = imgRect.top; // 이미지의 실제 시작 Y 좌표
+        } else {
+          console.warn('panorama-image 요소를 찾을 수 없습니다. overlay 기준으로 계산합니다.');
+          // 이미지 offset이 있으면 사용
+          if (this.imageOffset && this.imageOffset.left > 0) {
+            imageLeft = overlayRect.left + this.imageOffset.left;
+            imageTop = overlayRect.top + this.imageOffset.top;
+          }
+        }
+        
+        console.log('startDrag - 크기 정보:', {
+          imageWidth: imageWidth,
+          imageHeight: imageHeight,
+          imageLeft: imageLeft,
+          imageTop: imageTop,
+          imageOffset: this.imageOffset,
+          overlayRect: overlayRect
+        });
+        
+        // 이미지의 시작 위치를 기준으로 좌표 계산
+        const normalizedX = event.clientX - imageLeft;
+        const normalizedY = event.clientY - imageTop;
+        
+        // 이미지 크기 범위를 벗어나지 않도록 제한
+        const clampedX = Math.max(0, Math.min(imageWidth, Math.round(normalizedX)));
+        const clampedY = Math.max(0, Math.min(imageHeight, Math.round(normalizedY)));
+        
+        this.isDragging = true;
+        this.dragStart = {
+          x: clampedX,
+          y: clampedY
+        };
+        // 초기에는 dragEnd를 약간 오프셋하여 최소 크기 보장
+        this.dragEnd = {
+          x: clampedX + 1,
+          y: clampedY + 1
+        };
+        
+        console.log('startDrag 완료:', {
+          isDragging: this.isDragging,
+          dragStart: this.dragStart,
+          dragEnd: this.dragEnd,
+          imageOffset: this.imageOffset
+        });
+        
+        // Vue 반응성 보장을 위해 강제 업데이트
+        this.$forceUpdate();
+        
+        this.updateMousePosition(event);
+        
+        // 전역 mousemove와 mouseup 이벤트 리스너 추가
+        document.addEventListener('mousemove', this.onDrag);
+        document.addEventListener('mouseup', this.endDrag);
+        
+        // Clear existing region when starting new drag
+        this.region = null;
+      });
     },
     
     onDrag(event) {
       if (!this.isDragging) return;
       
-      // 저장된 overlayRect 사용 (없으면 다시 계산)
-      let rect = this.overlayRect;
-      if (!rect) {
+      // 이미지 offset 업데이트 (윈도우 리사이즈 등으로 변경될 수 있음)
+      this.updateImageOffset();
+      
+      // overlay rect가 없으면 다시 계산
+      let overlayRect = this.overlayRect;
+      if (!overlayRect) {
         const overlayElement = this.$el?.querySelector('.selection-overlay');
         if (overlayElement) {
-          rect = overlayElement.getBoundingClientRect();
-          this.overlayRect = rect;
-        } else {
-          console.warn('selection-overlay 요소를 찾을 수 없습니다.');
-          return;
+          overlayRect = overlayElement.getBoundingClientRect();
+          this.overlayRect = overlayRect;
         }
       }
       
+      // 실제 이미지 요소의 렌더링 크기와 위치 가져오기
+      const imgElement = this.$el?.querySelector('.panorama-image');
+      
+      let imageWidth = this.videoContainerWidth; // 기본값: 1920
+      let imageHeight = this.videoContainerHeight; // 기본값: 480
+      let imageLeft = overlayRect ? overlayRect.left : 0;
+      let imageTop = overlayRect ? overlayRect.top : 0;
+      
+      if (imgElement) {
+        const imgRect = imgElement.getBoundingClientRect();
+        imageWidth = imgRect.width;
+        imageHeight = imgRect.height;
+        imageLeft = imgRect.left; // 이미지의 실제 시작 X 좌표
+        imageTop = imgRect.top; // 이미지의 실제 시작 Y 좌표
+      } else if (overlayRect && this.imageOffset) {
+        // 이미지 요소를 찾지 못했지만 overlay와 offset이 있으면 사용
+        imageLeft = overlayRect.left + (this.imageOffset.left || 0);
+        imageTop = overlayRect.top + (this.imageOffset.top || 0);
+      }
+      
+      // 이미지의 시작 위치를 기준으로 좌표 계산
+      const normalizedX = event.clientX - imageLeft;
+      const normalizedY = event.clientY - imageTop;
+      
+      // 이미지 크기 범위를 벗어나지 않도록 제한
+      const clampedX = Math.max(0, Math.min(imageWidth, Math.round(normalizedX)));
+      const clampedY = Math.max(0, Math.min(imageHeight, Math.round(normalizedY)));
+      
       this.dragEnd = {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top
+        x: clampedX,
+        y: clampedY
       };
+      
+      console.log('onDrag 업데이트:', {
+        dragStart: this.dragStart,
+        dragEnd: this.dragEnd,
+        imageOffset: this.imageOffset,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight
+      });
+
+      // Vue 반응성 보장을 위해 강제 업데이트
+      this.$forceUpdate();
 
       // Update mouse position for coordinate display
       this.updateMousePosition(event);
     },
     
     updateMousePosition(event) {
-      // 저장된 overlayRect 사용 (없으면 다시 계산)
-      let rect = this.overlayRect;
-      if (!rect) {
-        const overlayElement = this.$el?.querySelector('.selection-overlay');
-        if (overlayElement) {
-          rect = overlayElement.getBoundingClientRect();
-          this.overlayRect = rect;
-        } else {
-          return;
-        }
+      // 실제 이미지 요소의 렌더링 크기와 위치 가져오기
+      const imgElement = this.$el?.querySelector('.panorama-image');
+      
+      let imageWidth = this.videoContainerWidth; // 기본값: 1920
+      let imageHeight = this.videoContainerHeight; // 기본값: 480
+      let imageLeft = 0;
+      let imageTop = 0;
+      
+      if (imgElement) {
+        const imgRect = imgElement.getBoundingClientRect();
+        imageWidth = imgRect.width;
+        imageHeight = imgRect.height;
+        imageLeft = imgRect.left; // 이미지의 실제 시작 X 좌표
+        imageTop = imgRect.top; // 이미지의 실제 시작 Y 좌표
+      } else if (this.overlayRect && this.imageOffset) {
+        // 이미지 요소를 찾지 못했지만 overlay와 offset이 있으면 사용
+        imageLeft = this.overlayRect.left + (this.imageOffset.left || 0);
+        imageTop = this.overlayRect.top + (this.imageOffset.top || 0);
+      } else {
+        // 요소를 찾을 수 없으면 좌표 표시하지 않음
+        return;
       }
       
-      const x = Math.round(event.clientX - rect.left);
-      const y = Math.round(event.clientY - rect.top);
+      // 이미지의 시작 위치를 기준으로 좌표 계산
+      const normalizedX = event.clientX - imageLeft;
+      const normalizedY = event.clientY - imageTop;
+      
+      // 이미지 크기 범위를 벗어나지 않도록 제한
+      const x = Math.max(0, Math.min(imageWidth, Math.round(normalizedX)));
+      const y = Math.max(0, Math.min(imageHeight, Math.round(normalizedY)));
       this.mousePosition = { x, y };
     },
     
@@ -1699,20 +1867,24 @@ export default {
 
   .video-container {
     position: relative;
-    width: 100%;
-    min-width: 1920px; // 최소 너비 고정
+    width: 1920px; // 1920px로 고정
+    min-width: 1920px; // 최소 너비 보장
+    max-width: 1920px; // 최대 너비 제한
     height: 480px;
-    overflow: hidden; // 가로 스크롤 제거
+    overflow: hidden; // 스크롤 제거 (이미지가 1920x480으로 강제 리사이즈됨)
     margin: 0 auto; // 중앙 정렬
     background-color: #f0f0f0;
     border-radius: 8px;
     border: 1px solid #e0e0e0;
+    display: flex;
+    align-items: center; // 세로 중앙 정렬
+    justify-content: center; // 가로 중앙 정렬
 
     .panorama-image {
-      width: 100%;
-      min-width: 1920px; // 최소 너비 고정
-      height: 100%;
-      object-fit: cover; // 레이어에 꽉 차게 표시
+      height: 480px; // 높이 480px로 고정
+      width: auto; // 비율에 맞춰 자동 조정
+      max-width: 1920px; // 최대 너비 제한
+      object-fit: contain; // 비율 유지하며 컨테이너 안에 완전히 표시
       display: block;
       pointer-events: none;
     }
@@ -1747,18 +1919,25 @@ export default {
       position: absolute;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
-      cursor: crosshair;
+      width: 1920px; // 이미지 전체 너비에 맞춤 (고정)
+      min-width: 1920px; // 최소 너비 보장
+      max-width: 1920px; // 최대 너비 제한
+      height: 480px; // 이미지 전체 높이에 맞춤 (고정)
+      min-height: 480px; // 최소 높이 보장
+      max-height: 480px; // 최대 높이 제한
+      cursor: crosshair !important; // 항상 crosshair 커서 유지
       z-index: 1000; // 높은 z-index 추가
       pointer-events: auto; // 마우스 이벤트 활성화
       
       .selection-box {
-        position: absolute;
-        border: 2px solid rgba(255, 140, 0, 0.8); // 주황색 테두리로 변경
-        background-color: rgba(255, 140, 0, 0.1); // 주황색 배경으로 변경
+        position: absolute !important;
+        border: 2px solid rgba(255, 140, 0, 0.8) !important; // 주황색 테두리로 변경
+        background-color: rgba(255, 140, 0, 0.1) !important; // 주황색 배경으로 변경
         pointer-events: none;
-        z-index: 1001; // selection-box보다 높은 z-index
+        z-index: 1001 !important; // selection-box보다 높은 z-index
+        box-sizing: border-box;
+        min-width: 1px;
+        min-height: 1px;
       }
 
       .coordinate-display {
