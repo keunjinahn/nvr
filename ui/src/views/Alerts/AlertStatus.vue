@@ -1962,7 +1962,7 @@ export default {
       // Y축 범위를 데이터에 맞게 조정 (여유 공간 추가)
       const tempRange = maxTemp - minTemp;
       const padding = tempRange > 0 ? tempRange * 0.1 : 5; // 10% 여유 공간 또는 최소 5도
-      const yAxisMin = Math.max(0, minTemp - padding);
+      const yAxisMin = minTemp - padding; // 음수값 허용
       const yAxisMax = maxTemp + padding;
       
       const option = {

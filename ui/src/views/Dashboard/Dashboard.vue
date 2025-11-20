@@ -762,6 +762,15 @@ computed: {
       sampleAvg: avgTemps[0]
     });
 
+    // Y축 범위 계산 (음수값 허용)
+    const allTemps = [...minTemps, ...maxTemps, ...avgTemps].filter(temp => !isNaN(temp) && temp !== null && temp !== undefined);
+    const minTemp = allTemps.length > 0 ? Math.min(...allTemps) : 0;
+    const maxTemp = allTemps.length > 0 ? Math.max(...allTemps) : 100;
+    const tempRange = maxTemp - minTemp;
+    const padding = tempRange > 0 ? tempRange * 0.1 : 5; // 10% 여유 공간 또는 최소 5도
+    const yAxisMin = minTemp - padding; // 음수값 허용
+    const yAxisMax = maxTemp + padding;
+
     const options = {
       tooltip: { 
         trigger: 'axis',
@@ -794,12 +803,18 @@ computed: {
       yAxis: {
         type: 'value',
         name: '온도(°C)',
-        min: Math.min(...minTemps) - 5,
-        max: Math.max(...maxTemps) + 5,
+        min: yAxisMin,
+        max: yAxisMax,
         axisLabel: {
           color: '#fff',
           formatter: function (value) {
             return Math.round(value) + '°C';
+          }
+        },
+        splitLine: {
+          show: true,
+          lineStyle: {
+            color: 'rgba(255, 255, 255, 0.1)'
           }
         }
       },
