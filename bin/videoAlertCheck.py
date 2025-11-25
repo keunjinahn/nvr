@@ -22,6 +22,7 @@ from pathlib import Path
 from scipy import stats
 import argparse
 import pymysql
+import oracledb
 import socket
 import atexit
 import cv2
@@ -221,6 +222,13 @@ class VideoAlertChecker:
         self.last_settings_check = 0
         self.last_data_check = 0
         self.settings_check_interval = 30  # 30 seconds
+
+    def _row_to_dict(self, cursor, row):
+        """oracledb row를 dictionary로 변환"""
+        if row is None:
+            return None
+        columns = [d[0] for d in cursor.description]
+        return dict(zip(columns, row))
         self.data_check_interval = 600  # 1 hour (3600 seconds)
         self.running = True
         self.force_exit = False  # 강제 종료 플래그
@@ -317,46 +325,43 @@ class VideoAlertChecker:
             return None
 
     def connect_to_msdb(self):
-        """MSDB에 연결 (tic_data INSERT용)"""
+        """Tibero6 MSDB에 연결 (tic_data INSERT용)"""
         global msdb_conn
         try:
             if msdb_conn is not None:
                 try:
                     cursor = msdb_conn.cursor()
-                    cursor.execute('SELECT 1')
+                    cursor.execute('SELECT 1 FROM DUAL')
                     cursor.close()
                     return True
                 except Exception as e:
                     logger.error(f"MSDB connection check failed: {str(e)}")
                     msdb_conn = None
             
-            msdb_conn = pymysql.connect(
-                host=MSDB_IP,
-                port=MSDB_PORT,
+            # Tibero6 DSN 생성 (SID 사용)
+            dsn = oracledb.makedsn(MSDB_IP, MSDB_PORT, sid=MSDB_DB)
+            msdb_conn = oracledb.connect(
                 user=MSDB_USER,
                 password=MSDB_PASSWORD,
-                db=MSDB_DB,
-                charset='utf8mb4',
-                autocommit=True,
-                cursorclass=pymysql.cursors.DictCursor,
-                connect_timeout=5
+                dsn=dsn,
+                encoding='UTF-8'
             )
-            logger.info("MSDB connected successfully")
+            logger.info("MSDB (Tibero6) connected successfully")
             return True
         except Exception as e:
-            logger.error(f'MSDB connection failed: {str(e)}')
-            logger.error(f'Connection params: host={MSDB_IP}, port={MSDB_PORT}, user={MSDB_USER}, db={MSDB_DB}')
+            logger.error(f'MSDB (Tibero6) connection failed: {str(e)}')
+            logger.error(f'Connection params: host={MSDB_IP}, port={MSDB_PORT}, user={MSDB_USER}, sid={MSDB_DB}')
             msdb_conn = None
             return False
 
     def insert_tic_data(self, max_temp, min_temp, avg_temp, alert_level, file_path, file_name):
-        """MSDB의 tic_data 테이블에 데이터 INSERT"""
+        """Tibero6 MSDB의 tic_data 테이블에 데이터 INSERT (MERGE 사용)"""
         try:
             if not self.connect_to_msdb():
-                logger.error("MSDB 연결 실패 - tic_data INSERT 건너뜀")
+                logger.error("MSDB (Tibero6) 연결 실패 - tic_data INSERT 건너뜀")
                 return False
 
-            cursor = msdb_conn.cursor(pymysql.cursors.DictCursor)
+            cursor = msdb_conn.cursor()
             
             # 현재 시간
             now = datetime.now()
@@ -376,38 +381,43 @@ class VideoAlertChecker:
             min_temp_float = convert_decimal(min_temp)
             avg_temp_float = convert_decimal(avg_temp)
             
-            # INSERT 쿼리 (ON DUPLICATE KEY UPDATE로 중복 방지)
-            query = """
-                INSERT INTO tic_data 
-                (DAMNAME, DAMCD, DATE_TIME, MAX_TEMP, MIN_TEMP, AVG_TEMP, ALERT_NUM, FILE_PATH, FILE_NAME, NUM_IMAGES)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                MAX_TEMP = VALUES(MAX_TEMP),
-                MIN_TEMP = VALUES(MIN_TEMP),
-                AVG_TEMP = VALUES(AVG_TEMP),
-                ALERT_NUM = VALUES(ALERT_NUM),
-                FILE_PATH = VALUES(FILE_PATH),
-                FILE_NAME = VALUES(FILE_NAME),
-                NUM_IMAGES = VALUES(NUM_IMAGES)
-            """
-            
             # FILE_PATH는 config.ini의 MSDB root_path 사용
             msdb_file_path = MSDB_ROOT_PATH if MSDB_ROOT_PATH else file_path
             
-            values = (
-                MSDB_DAMNAME,  # DAMNAME
-                int(MSDB_CODE),  # DAMCD
-                now,  # DATE_TIME
-                max_temp_float,  # MAX_TEMP
-                min_temp_float,  # MIN_TEMP
-                avg_temp_float,  # AVG_TEMP
-                int(alert_level),  # ALERT_NUM
-                msdb_file_path,  # FILE_PATH (config.ini의 root_path 사용)
-                file_name,  # FILE_NAME
-                3  # NUM_IMAGES (고정값)
-            )
+            # MERGE 쿼리 (Oracle/Tibero 방식 - 중복 시 UPDATE, 없으면 INSERT)
+            query = """
+                MERGE INTO tic_data t
+                USING (
+                    SELECT :damname as DAMNAME, :damcd as DAMCD, :date_time as DATE_TIME FROM DUAL
+                ) s
+                ON (t.DAMCD = s.DAMCD AND t.DATE_TIME = s.DATE_TIME)
+                WHEN MATCHED THEN
+                    UPDATE SET
+                        MAX_TEMP = :max_temp,
+                        MIN_TEMP = :min_temp,
+                        AVG_TEMP = :avg_temp,
+                        ALERT_NUM = :alert_num,
+                        FILE_PATH = :file_path,
+                        FILE_NAME = :file_name,
+                        NUM_IMAGES = :num_images
+                WHEN NOT MATCHED THEN
+                    INSERT (DAMNAME, DAMCD, DATE_TIME, MAX_TEMP, MIN_TEMP, AVG_TEMP, ALERT_NUM, FILE_PATH, FILE_NAME, NUM_IMAGES)
+                    VALUES (:damname, :damcd, :date_time, :max_temp, :min_temp, :avg_temp, :alert_num, :file_path, :file_name, :num_images)
+            """
             
-            cursor.execute(query, values)
+            cursor.execute(query, {
+                'damname': MSDB_DAMNAME,
+                'damcd': int(MSDB_CODE),
+                'date_time': now,
+                'max_temp': max_temp_float,
+                'min_temp': min_temp_float,
+                'avg_temp': avg_temp_float,
+                'alert_num': int(alert_level),
+                'file_path': msdb_file_path,
+                'file_name': file_name,
+                'num_images': 3
+            })
+            msdb_conn.commit()
             cursor.close()
             # logger.info(f"tic_data INSERT 성공: DAMCD={MSDB_CODE}, ALERT_NUM={alert_level}, FILE_NAME={file_name}")
             return True
@@ -4394,11 +4404,46 @@ class VideoAlertChecker:
                             import traceback
                             logger.error(traceback.format_exc())
                     
+                    
                     # ROI가 있는 경우에만 시나리오1과 시나리오2 실행
                     if self.zone_list:
                         # 시나리오1과 시나리오2 실행
-                        self.scenario1_judge()
-                        self.scenario2_judge()
+                        scenario1_alert = self.scenario1_judge()
+                        scenario2_alert = self.scenario2_judge()
+
+                        # 시나리오에 의한 경고가 발생하지 않는 경우 MSDB에 insert (alert level 0으로)
+                        if not scenario1_alert and not scenario2_alert:
+                            try:
+                                # 온도 데이터 추출 (panorama_data_record에서)
+                                if panorama_data_record:
+                                    temp_matrix = self.create_temperature_matrix(panorama_data_record['panoramaData'])
+                                    if temp_matrix is not None:
+                                        # 전체 온도 매트릭스에서 유효한 온도 값만 추출
+                                        valid_temps = temp_matrix[~np.isnan(temp_matrix)]
+                                        if len(valid_temps) > 0:
+                                            max_temp = float(np.max(valid_temps))
+                                            min_temp = float(np.min(valid_temps))
+                                            avg_temp = float(np.mean(valid_temps))
+                                            
+                                            # SFTP 업로드된 파일명 사용
+                                            file_name = self.uploaded_panorama_filename if self.uploaded_panorama_filename else None
+                                            
+                                            if file_name:
+                                                # insert_tic_data 호출 (alert level 0)
+                                                self.insert_tic_data(max_temp, min_temp, avg_temp, 0, None, file_name)
+                                                logger.info(f"경고 없음 - MSDB에 데이터 INSERT 완료: max={max_temp:.1f}°C, min={min_temp:.1f}°C, avg={avg_temp:.1f}°C, file={file_name}")
+                                            else:
+                                                logger.warning("경고 없음 - SFTP 업로드 파일명이 없어 MSDB INSERT 건너뜀")
+                                        else:
+                                            logger.warning("경고 없음 - 유효한 온도 데이터가 없어 MSDB INSERT 건너뜀")
+                                    else:
+                                        logger.warning("경고 없음 - 온도 매트릭스 생성 실패로 MSDB INSERT 건너뜀")
+                                else:
+                                    logger.warning("경고 없음 - 파노라마 데이터가 없어 MSDB INSERT 건너뜀")
+                            except Exception as e:
+                                logger.error(f"경고 없음 - MSDB INSERT 오류: {str(e)}")
+                                import traceback
+                                logger.error(traceback.format_exc())
                     else:
                         logger.warning("DB에 ROI가 없어 경고 발생 알고리즘을 수행하지 않습니다")
                    

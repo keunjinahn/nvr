@@ -11,7 +11,7 @@ import subprocess
 from logging.handlers import RotatingFileHandler
 from configparser import ConfigParser
 from pathlib import Path
-import pymysql
+import oracledb
 from datetime import datetime, timedelta
 try:
     import urllib.request
@@ -96,35 +96,32 @@ class VideoDataReceiver:
         self.project_dir = os.path.dirname(os.path.dirname(__file__))
 
     def connect_to_msdb(self):
-        """MSDB에 연결"""
+        """Tibero6 MSDB에 연결"""
         global msdb_conn
         try:
             if msdb_conn is not None:
                 try:
                     cursor = msdb_conn.cursor()
-                    cursor.execute('SELECT 1')
+                    cursor.execute('SELECT 1 FROM DUAL')
                     cursor.close()
                     return True
                 except Exception as e:
                     logger.error(f"MSDB connection check failed: {str(e)}")
                     msdb_conn = None
             
-            msdb_conn = pymysql.connect(
-                host=MSDB_IP,
-                port=MSDB_PORT,
+            # Tibero6 DSN 생성 (SID 사용)
+            dsn = oracledb.makedsn(MSDB_IP, MSDB_PORT, sid=MSDB_DB)
+            msdb_conn = oracledb.connect(
                 user=MSDB_USER,
                 password=MSDB_PASSWORD,
-                db=MSDB_DB,
-                charset='utf8mb4',
-                autocommit=True,
-                cursorclass=pymysql.cursors.DictCursor,
-                connect_timeout=5
+                dsn=dsn,
+                encoding='UTF-8'
             )
-            logger.info("MSDB connected successfully")
+            logger.info("MSDB (Tibero6) connected successfully")
             return True
         except Exception as e:
-            logger.error(f'MSDB connection failed: {str(e)}')
-            logger.error(f'Connection params: host={MSDB_IP}, port={MSDB_PORT}, user={MSDB_USER}, db={MSDB_DB}')
+            logger.error(f'MSDB (Tibero6) connection failed: {str(e)}')
+            logger.error(f'Connection params: host={MSDB_IP}, port={MSDB_PORT}, user={MSDB_USER}, sid={MSDB_DB}')
             msdb_conn = None
             return False
 
@@ -183,33 +180,48 @@ class VideoDataReceiver:
         except Exception as e:
             logger.error(f'Error disconnecting nvrdb: {str(e)}')
 
+    def _row_to_dict(self, cursor, row):
+        """cx_Oracle row를 dictionary로 변환"""
+        if row is None:
+            return None
+        columns = [d[0] for d in cursor.description]
+        return dict(zip(columns, row))
+
     def get_dam_data_from_msdb(self):
-        """MSDB에서 댐 데이터 조회"""
+        """Tibero6 MSDB에서 댐 데이터 조회"""
         try:
             if not self.connect_to_msdb():
-                logger.error("MSDB 연결 실패")
+                logger.error("MSDB (Tibero6) 연결 실패")
                 return None
 
-            cursor = msdb_conn.cursor(pymysql.cursors.DictCursor)
+            cursor = msdb_conn.cursor()
             
             # 현재 데이터베이스 확인
-            cursor.execute("SELECT DATABASE() as current_db")
-            current_db = cursor.fetchone()
-            logger.info(f"현재 데이터베이스: {current_db.get('current_db') if current_db else 'None'}")
+            cursor.execute("SELECT SYS_CONTEXT('USERENV', 'DB_NAME') as CURRENT_DB FROM DUAL")
+            current_db_row = cursor.fetchone()
+            current_db = self._row_to_dict(cursor, current_db_row)
+            logger.info(f"현재 데이터베이스: {current_db.get('CURRENT_DB') if current_db else 'None'}")
             
             # 테이블명은 소문자로 처리
             table_name = 'dubhrdamtif_vw'
             
-            # 테이블 존재 여부 확인
+            # 테이블 존재 여부 확인 (Oracle/Tibero 방식)
             try:
-                check_query = f"SHOW TABLES LIKE '{table_name}'"
-                cursor.execute(check_query)
-                if not cursor.fetchone():
+                check_query = """
+                    SELECT COUNT(*) as CNT 
+                    FROM USER_TABLES 
+                    WHERE TABLE_NAME = UPPER(:table_name)
+                """
+                cursor.execute(check_query, table_name=table_name.upper())
+                table_exists_row = cursor.fetchone()
+                table_exists = self._row_to_dict(cursor, table_exists_row)
+                if not table_exists or table_exists.get('CNT', 0) == 0:
                     # 모든 테이블 목록 확인 (디버깅용)
                     try:
-                        cursor.execute("SHOW TABLES")
-                        tables = cursor.fetchall()
-                        logger.warning(f"사용 가능한 테이블 목록: {[list(t.values())[0] for t in tables]}")
+                        cursor.execute("SELECT TABLE_NAME FROM USER_TABLES ORDER BY TABLE_NAME")
+                        tables_rows = cursor.fetchall()
+                        tables = [self._row_to_dict(cursor, row) for row in tables_rows]
+                        logger.warning(f"사용 가능한 테이블 목록: {[t.get('TABLE_NAME') for t in tables]}")
                     except:
                         pass
                     logger.error(f"{table_name} 테이블을 찾을 수 없습니다")
@@ -221,22 +233,22 @@ class VideoDataReceiver:
                 cursor.close()
                 return None
             
-            # MariaDB 형식으로 쿼리 작성 (Oracle의 to_char(sysdate - 1/24, 'yyyymmddhh24')를 MariaDB로 변환)
+            # Tibero6/Oracle 형식으로 쿼리 작성
             # 1시간 전의 날짜시간을 YYYYMMDDHH 형식으로 변환
-            # %를 %%로 이스케이프 처리 (pymysql이 %를 플레이스홀더로 인식하므로)
-            # 테이블명은 소문자, 필드명은 대문자
-            query = f"""
-                SELECT `RWL`, `DAMBSARF`, `DQTY` 
+            # Oracle/Tibero는 대소문자 구분이 있으므로 컬럼명을 정확히 지정
+            query = """
+                SELECT RWL, DAMBSARF, DQTY 
                 FROM dubhrdamtif_vw 
-                WHERE `DAMCD` = {MSDB_CODE}
-                AND `obsdh` > DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 1 HOUR), '%%Y%%m%%d%%H')
-                ORDER BY `obsdh` DESC
-                LIMIT 1
+                WHERE DAMCD = :damcd
+                AND obsdh > TO_CHAR(SYSDATE - 1/24, 'YYYYMMDDHH24')
+                ORDER BY obsdh DESC
+                FETCH FIRST 1 ROW ONLY
             """
             
-            logger.info(f"MSDB (MariaDB) 쿼리 실행: DAMCD = {MSDB_CODE}, 테이블 = {table_name}")
-            cursor.execute(query)
-            result = cursor.fetchone()
+            logger.info(f"MSDB (Tibero6) 쿼리 실행: DAMCD = {MSDB_CODE}, 테이블 = {table_name}")
+            cursor.execute(query, damcd=MSDB_CODE)
+            result_row = cursor.fetchone()
+            result = self._row_to_dict(cursor, result_row)
             cursor.close()
             
             if result:
@@ -247,7 +259,7 @@ class VideoDataReceiver:
                 return None
                 
         except Exception as e:
-            logger.error(f"MSDB 데이터 조회 오류: {str(e)}")
+            logger.error(f"MSDB (Tibero6) 데이터 조회 오류: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
             return None
