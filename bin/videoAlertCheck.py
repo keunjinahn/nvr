@@ -22,7 +22,7 @@ from pathlib import Path
 from scipy import stats
 import argparse
 import pymysql
-import oracledb
+import jaydebeapi
 import socket
 import atexit
 import cv2
@@ -78,6 +78,7 @@ MSDB_DB = config.get('MSDB', 'dbname')
 MSDB_DAMNAME = config.get('MSDB', 'damname', fallback='')
 MSDB_CODE = config.get('MSDB', 'code', fallback='1001210')
 MSDB_ROOT_PATH = config.get('MSDB', 'root_path', fallback='')
+MSDB_JDBC_JAR = config.get('MSDB', 'jdbc_jar', fallback='tibero6-jdbc.jar')
 msdb_conn = None
 ########################
 
@@ -222,14 +223,7 @@ class VideoAlertChecker:
         self.last_settings_check = 0
         self.last_data_check = 0
         self.settings_check_interval = 30  # 30 seconds
-
-    def _row_to_dict(self, cursor, row):
-        """oracledb row를 dictionary로 변환"""
-        if row is None:
-            return None
-        columns = [d[0] for d in cursor.description]
-        return dict(zip(columns, row))
-        self.data_check_interval = 600  # 1 hour (3600 seconds)
+        self.data_check_interval = 600  # 10 minutes (600 seconds)
         self.running = True
         self.force_exit = False  # 강제 종료 플래그
         self.uploaded_panorama_filename = None  # SFTP 업로드된 파일명
@@ -241,6 +235,14 @@ class VideoAlertChecker:
         
         # 종료 시 정리 작업 등록
         atexit.register(self.cleanup)
+
+    def _row_to_dict(self, cursor, row):
+        """JDBC row를 dictionary로 변환"""
+        if row is None:
+            return None
+        # JDBC cursor.description은 튜플 리스트: [(column_name, type, ...), ...]
+        columns = [column[0] for column in cursor.description]
+        return dict(zip(columns, row))
 
     def signal_handler(self, signum, frame):
         """시그널 핸들러"""
@@ -325,32 +327,82 @@ class VideoAlertChecker:
             return None
 
     def connect_to_msdb(self):
-        """Tibero6 MSDB에 연결 (tic_data INSERT용)"""
+        """Tibero6 MSDB에 연결 (JayDeBeApi를 사용하여 JDBC jar 파일로 연결)"""
         global msdb_conn
         try:
             if msdb_conn is not None:
                 try:
                     cursor = msdb_conn.cursor()
                     cursor.execute('SELECT 1 FROM DUAL')
+                    cursor.fetchone()
                     cursor.close()
                     return True
                 except Exception as e:
                     logger.error(f"MSDB connection check failed: {str(e)}")
                     msdb_conn = None
             
-            # Tibero6 DSN 생성 (SID 사용)
-            dsn = oracledb.makedsn(MSDB_IP, MSDB_PORT, sid=MSDB_DB)
-            msdb_conn = oracledb.connect(
-                user=MSDB_USER,
-                password=MSDB_PASSWORD,
-                dsn=dsn,
-                encoding='UTF-8'
-            )
-            logger.info("MSDB (Tibero6) connected successfully")
-            return True
+            logger.info(f"MSDB (Tibero6) 연결 시도 중... host={MSDB_IP}, port={MSDB_PORT}, database={MSDB_DB}, user={MSDB_USER}")
+            
+            # JDBC 드라이버 클래스
+            jdbc_driver = 'com.tmax.tibero.jdbc.TbDriver'
+            
+            # JDBC URL 형식: jdbc:tibero:thin:@host:port:database
+            jdbc_url = f'jdbc:tibero:thin:@{MSDB_IP}:{MSDB_PORT}:{MSDB_DB}'
+            
+            # JDBC jar 파일 경로 찾기
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(script_dir)
+            
+            # jar 파일 경로 시도 (여러 위치 확인)
+            # ~ 경로 확장
+            expanded_jar = os.path.expanduser(MSDB_JDBC_JAR) if MSDB_JDBC_JAR.startswith('~') else MSDB_JDBC_JAR
+            
+            jar_paths = [
+                expanded_jar  # config.ini에서 지정한 경로 (절대 경로 또는 ~ 경로)
+            ]
+            
+            jar_path = None
+            for path in jar_paths:
+                # 경로 정규화 (중복 제거)
+                normalized_path = os.path.normpath(path)
+                if os.path.exists(normalized_path):
+                    jar_path = normalized_path
+                    logger.info(f"JDBC jar 파일 발견: {jar_path}")
+                    break
+            
+            if not jar_path:
+                logger.error(f"JDBC jar 파일을 찾을 수 없습니다: {MSDB_JDBC_JAR}")
+                logger.error(f"시도한 경로: {jar_paths}")
+                return False
+            
+            # 연결 정보
+            driver_args = [MSDB_USER, MSDB_PASSWORD]
+            
+            try:
+                logger.info(f"JDBC 연결 시도: URL={jdbc_url}, Driver={jdbc_driver}, JAR={jar_path}")
+                msdb_conn = jaydebeapi.connect(
+                    jdbc_driver,
+                    jdbc_url,
+                    driver_args,
+                    jar_path
+                )
+                logger.info("MSDB (Tibero6) connected successfully via JDBC")
+                return True
+            except Exception as e:
+                logger.error(f'MSDB (Tibero6) JDBC connection failed: {str(e)}')
+                logger.error(f'JDBC URL: {jdbc_url}')
+                logger.error(f'JDBC Driver: {jdbc_driver}')
+                logger.error(f'JAR Path: {jar_path}')
+                import traceback
+                logger.error(traceback.format_exc())
+                msdb_conn = None
+                return False
+            
         except Exception as e:
             logger.error(f'MSDB (Tibero6) connection failed: {str(e)}')
-            logger.error(f'Connection params: host={MSDB_IP}, port={MSDB_PORT}, user={MSDB_USER}, sid={MSDB_DB}')
+            logger.error(f'Connection params: host={MSDB_IP}, port={MSDB_PORT}, database={MSDB_DB}, user={MSDB_USER}')
+            import traceback
+            logger.error(traceback.format_exc())
             msdb_conn = None
             return False
 
@@ -363,11 +415,14 @@ class VideoAlertChecker:
 
             cursor = msdb_conn.cursor()
             
-            # 현재 시간
+            # 현재 시간 (JDBC 호환을 위해 문자열로 변환)
             now = datetime.now()
+            now_str = now.strftime('%Y-%m-%d %H:%M:%S')  # JDBC 호환 형식
             
-            # Decimal 타입을 float로 변환
+            # Decimal 타입을 float로 변환 후 소수점 절삭
             from decimal import Decimal
+            import math
+            
             def convert_decimal(value):
                 if value is None:
                     return None
@@ -377,6 +432,7 @@ class VideoAlertChecker:
                     return float(value)
                 return value
             
+            # 소수점 절삭 (버림)
             max_temp_float = convert_decimal(max_temp)
             min_temp_float = convert_decimal(min_temp)
             avg_temp_float = convert_decimal(avg_temp)
@@ -385,39 +441,59 @@ class VideoAlertChecker:
             msdb_file_path = MSDB_ROOT_PATH if MSDB_ROOT_PATH else file_path
             
             # MERGE 쿼리 (Oracle/Tibero 방식 - 중복 시 UPDATE, 없으면 INSERT)
+            # JDBC에서는 ? 형식의 positional parameter 사용
             query = """
                 MERGE INTO tic_data t
                 USING (
-                    SELECT :damname as DAMNAME, :damcd as DAMCD, :date_time as DATE_TIME FROM DUAL
+                    SELECT ? as DAMNAME, ? as DAMCD, ? as DATE_TIME FROM DUAL
                 ) s
                 ON (t.DAMCD = s.DAMCD AND t.DATE_TIME = s.DATE_TIME)
                 WHEN MATCHED THEN
                     UPDATE SET
-                        MAX_TEMP = :max_temp,
-                        MIN_TEMP = :min_temp,
-                        AVG_TEMP = :avg_temp,
-                        ALERT_NUM = :alert_num,
-                        FILE_PATH = :file_path,
-                        FILE_NAME = :file_name,
-                        NUM_IMAGES = :num_images
+                        MAX_TEMP = ?,
+                        MIN_TEMP = ?,
+                        AVG_TEMP = ?,
+                        ALERT_NUM = ?,
+                        FILE_PATH = ?,
+                        FILE_NAME = ?,
+                        NUM_IMAGES = ?
                 WHEN NOT MATCHED THEN
                     INSERT (DAMNAME, DAMCD, DATE_TIME, MAX_TEMP, MIN_TEMP, AVG_TEMP, ALERT_NUM, FILE_PATH, FILE_NAME, NUM_IMAGES)
-                    VALUES (:damname, :damcd, :date_time, :max_temp, :min_temp, :avg_temp, :alert_num, :file_path, :file_name, :num_images)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             
-            cursor.execute(query, {
-                'damname': MSDB_DAMNAME,
-                'damcd': int(MSDB_CODE),
-                'date_time': now,
-                'max_temp': max_temp_float,
-                'min_temp': min_temp_float,
-                'avg_temp': avg_temp_float,
-                'alert_num': int(alert_level),
-                'file_path': msdb_file_path,
-                'file_name': file_name,
-                'num_images': 3
-            })
-            msdb_conn.commit()
+            # JDBC positional parameter 순서: USING 절 (3개) + UPDATE 절 (7개) + INSERT 절 (10개)
+            # USING: damname, damcd, date_time
+            # UPDATE: max_temp, min_temp, avg_temp, alert_num, file_path, file_name, num_images
+            # INSERT: damname, damcd, date_time, max_temp, min_temp, avg_temp, alert_num, file_path, file_name, num_images
+            # JDBC에서는 datetime 객체 대신 문자열 사용
+            cursor.execute(query, (
+                MSDB_DAMNAME,  # USING damname
+                int(MSDB_CODE),  # USING damcd
+                now_str,  # USING date_time (문자열)
+                max_temp_float,  # UPDATE max_temp
+                min_temp_float,  # UPDATE min_temp
+                avg_temp_float,  # UPDATE avg_temp
+                int(alert_level),  # UPDATE alert_num
+                msdb_file_path,  # UPDATE file_path
+                file_name,  # UPDATE file_name
+                3,  # UPDATE num_images
+                MSDB_DAMNAME,  # INSERT damname
+                int(MSDB_CODE),  # INSERT damcd
+                now_str,  # INSERT date_time (문자열)
+                max_temp_float,  # INSERT max_temp
+                min_temp_float,  # INSERT min_temp
+                avg_temp_float,  # INSERT avg_temp
+                int(alert_level),  # INSERT alert_num
+                msdb_file_path,  # INSERT file_path
+                file_name,  # INSERT file_name
+                3  # INSERT num_images
+            ))
+            # JDBC는 autocommit이 기본이지만, 명시적으로 commit
+            try:
+                msdb_conn.commit()
+            except:
+                pass  # autocommit 모드일 수 있음
             cursor.close()
             # logger.info(f"tic_data INSERT 성공: DAMCD={MSDB_CODE}, ALERT_NUM={alert_level}, FILE_NAME={file_name}")
             return True
