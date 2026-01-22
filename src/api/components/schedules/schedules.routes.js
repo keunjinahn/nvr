@@ -80,14 +80,14 @@ export const routesConfig = (app) => {
     SchedulesController.toggleSchedule
   ]);
 
-  // 서버 종료 시 녹화 프로세스 정리
-  process.on('SIGTERM', () => {
-    RecordingProcess.stop();
-  });
+  // // 서버 종료 시 녹화 프로세스 정리
+  // process.on('SIGTERM', () => {
+  //   RecordingProcess.stop();
+  // });
 
-  process.on('SIGINT', () => {
-    RecordingProcess.stop();
-  });
+  // process.on('SIGINT', () => {
+  //   RecordingProcess.stop();
+  // });
 
   // Log when routes are registered
   log.info('Schedules routes registered successfully', 'Schedules');

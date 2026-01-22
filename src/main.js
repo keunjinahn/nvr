@@ -89,6 +89,17 @@ export default class Interface extends EventEmitter {
 
     this.log.debug('Starting interface...');
     this.#server.listen(this.config.ui.port);
+
+    // 서버 시작 후 RecordingCleanupService 시작
+    this.once('finishLaunching', () => {
+      this.log.debug('Server finished launching, starting RecordingCleanupService...');
+      import('./services/recording/recording.cleanup.service.js').then((module) => {
+        const RecordingCleanupService = module.default;
+        RecordingCleanupService.startOnServerReady();
+      }).catch((error) => {
+        this.log.error('Failed to start RecordingCleanupService:', error);
+      });
+    });
   }
 
   /**

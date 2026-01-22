@@ -57,6 +57,17 @@ export default class Interface extends EventEmitter {
     const Server = (await import('./api/index.js')).default;
     this.server = new Server(this);
 
+    // 서버 시작 후 RecordingCleanupService 시작
+    this.once('finishLaunching', () => {
+      console.log('[interface.js] Server finished launching, starting RecordingCleanupService...');
+      import('./services/recording/recording.cleanup.service.js').then((module) => {
+        const RecordingCleanupService = module.default;
+        RecordingCleanupService.startOnServerReady();
+      }).catch((error) => {
+        console.error('[interface.js] Failed to start RecordingCleanupService:', error);
+      });
+    });
+
     // 포트 정보 안전하게 추출
     const port =
       (this.config && this.config.ui && this.config.ui.port) ||

@@ -1016,13 +1016,13 @@ export const routesConfig = (app) => {
     }
   });
 
-  logger.info('Initializing recordings routes', {
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV,
-    appRoutes: Object.keys(app._router.stack)
-      .filter(key => app._router.stack[key].route)
-      .map(key => app._router.stack[key].route.path)
-  });
+  // logger.info('Initializing recordings routes', {
+  //   timestamp: new Date().toISOString(),
+  //   environment: process.env.NODE_ENV,
+  //   appRoutes: Object.keys(app._router.stack)
+  //     .filter(key => app._router.stack[key].route)
+  //     .map(key => app._router.stack[key].route.path)
+  // });
 
   // 헤더 크기 제한 설정
   app.use((req, res, next) => {
@@ -1700,11 +1700,11 @@ export const routesConfig = (app) => {
       method: Object.keys(r.route.methods)[0].toUpperCase()
     }));
 
-  logger.info('Registered routes:', {
-    count: routes.length,
-    routes: routes,
-    timestamp: new Date().toISOString()
-  });
+  // logger.info('Registered routes:', {
+  //   count: routes.length,
+  //   routes: routes,
+  //   timestamp: new Date().toISOString()
+  // });
 };
 // Helper function to find video file by filename
 async function findVideoFileByFilename(videoPath, filename) {

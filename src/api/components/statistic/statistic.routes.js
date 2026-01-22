@@ -160,5 +160,5 @@ export const routesConfig = (app) => {
       path: r.route.path,
       method: Object.keys(r.route.methods)[0].toUpperCase()
     }));
-  console.log('Registered statistic routes:', routes);
+  // console.log('Registered statistic routes:', routes);
 }; 

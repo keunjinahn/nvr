@@ -161,9 +161,9 @@ export default class ConfigService {
       console.log('No camera config found in config parameter');
     }
 
-    if (config.recordings) {
-      ConfigService.#configRecordings(config.recordings);
-    }
+    // if (config.recordings) {
+    //   ConfigService.#configRecordings(config.recordings);
+    // }
 
     if (config.ssl) {
       ConfigService.#configSSL(config.ssl);
