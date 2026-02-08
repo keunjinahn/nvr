@@ -597,9 +597,9 @@
 
       <!-- Footer -->
       <v-footer app class="text-center footer-copyright">
-        <v-col class="text-center">
+        <!-- <v-col class="text-center">
           ©ASINCNT. All rights reserved.
-        </v-col>
+        </v-col> -->
       </v-footer>
     </v-main>
 

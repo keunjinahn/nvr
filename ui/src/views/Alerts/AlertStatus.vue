@@ -1932,22 +1932,54 @@ export default {
       }
       
       const timeData = this.roiTimeSeriesData.map((item, index) => {
-        const date = new Date(item.time);
+        // DB 시간 문자열을 직접 파싱 (Date 객체 사용 안 함)
+        const timeStr = String(item.time);
+        let hours, minutes, seconds;
         
-        // UTC 시간을 한국 시간(UTC+9)으로 변환
-        const koreaTime = new Date(date.getTime() + (9 * 60 * 60 * 1000));
+        // ISO 형식: "2025-01-01T10:00:00.000Z" 또는 "2025-01-01T10:00:00Z"
+        if (timeStr.includes('T')) {
+          // ISO 형식에서 시간 부분 추출
+          const timeMatch = timeStr.match(/T(\d{2}):(\d{2}):(\d{2})/);
+          if (timeMatch) {
+            hours = parseInt(timeMatch[1], 10);
+            minutes = parseInt(timeMatch[2], 10);
+            seconds = parseInt(timeMatch[3], 10);
+          } else {
+            // 파싱 실패 시 기본값
+            hours = 0;
+            minutes = 0;
+            seconds = 0;
+          }
+        } 
+        // MySQL DATETIME 형식: "2025-01-01 10:00:00"
+        else if (timeStr.match(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}/)) {
+          const timeMatch = timeStr.match(/(\d{2}):(\d{2}):(\d{2})/);
+          if (timeMatch) {
+            hours = parseInt(timeMatch[1], 10);
+            minutes = parseInt(timeMatch[2], 10);
+            seconds = parseInt(timeMatch[3], 10);
+          } else {
+            hours = 0;
+            minutes = 0;
+            seconds = 0;
+          }
+        }
+        // 기타 형식: Date 객체로 파싱 후 시간 추출 (fallback)
+        else {
+          const date = new Date(item.time);
+          hours = date.getHours();
+          minutes = date.getMinutes();
+          seconds = date.getSeconds();
+        }
         
         // 디버깅용 로그 (첫 번째와 마지막 데이터만)
         if (index === 0 || index === this.roiTimeSeriesData.length - 1) {
           console.log(`⏰ 시계열 그래프 시간 변환 [${index === 0 ? '첫' : '마지막'} 데이터]:`);
           console.log(`  - API 응답 시간 (원본): ${item.time}`);
-          console.log(`  - Date 객체 (UTC): ${date.toISOString()}`);
-          console.log(`  - 한국 시간 (UTC+9): ${koreaTime.toISOString()}`);
-          console.log(`  - 표시 시간: ${koreaTime.getUTCHours()}:${String(koreaTime.getUTCMinutes()).padStart(2, '0')}:${String(koreaTime.getUTCSeconds()).padStart(2, '0')}`);
+          console.log(`  - 파싱된 시간: ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`);
         }
         
-        // 한국 시간으로 표시
-        return `${koreaTime.getUTCHours()}:${String(koreaTime.getUTCMinutes()).padStart(2, '0')}:${String(koreaTime.getUTCSeconds()).padStart(2, '0')}`;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
       });
       
       const maxTempData = this.roiTimeSeriesData.map(item => item.maxTemp);

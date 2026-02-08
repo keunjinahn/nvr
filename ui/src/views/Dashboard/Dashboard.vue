@@ -2359,7 +2359,7 @@ methods: {
           return {
             id: alert.id,
             time: this.formatDate(alert.alert_accur_time),
-            type: alert.alert_type,
+            type: alert.zone_type,
             level: alert.alert_level,
             maxTemp,
             minTemp,
@@ -2376,15 +2376,54 @@ methods: {
           .filter(alert => (alert.popup_close || 0) === 0)
           .slice(0, 20) // 최대 20개까지 제한
           .map(alert => {
-            // alert_type에서 ROI 번호 추출 (S001 -> ROI 0, S002 -> ROI 1, ...)
-            let roiNumber = '미지정';
-            if (alert.alert_type) {
-              // alert_type에서 숫자 추출 (예: "S001" -> "001" -> 1 -> ROI 0)
-              const match = alert.alert_type.match(/\d+/);
-              if (match) {
-                const number = parseInt(match[0]);
-                roiNumber = `ROI ${number - 1}`;
+            console.log('======> alert', JSON.stringify(alert));
+            // alert_info_json에서 zone_type 추출
+            let number = null;
+            
+            try {
+              let alertInfo = {};
+              
+              // alert_info_json 안전하게 파싱
+              if (alert.alert_info_json && typeof alert.alert_info_json === 'string') {
+                const jsonStr = alert.alert_info_json.trim();
+                if (jsonStr.endsWith('}') || jsonStr.endsWith(']')) {
+                  alertInfo = JSON.parse(jsonStr);
+                } else {
+                  // JSON이 잘린 경우, 마지막 완전한 객체나 배열을 찾아서 파싱 시도
+                  const lastCompleteJson = this.findLastCompleteJson(jsonStr);
+                  if (lastCompleteJson) {
+                    alertInfo = JSON.parse(lastCompleteJson);
+                  }
+                }
+              } else if (alert.alert_info_json && typeof alert.alert_info_json === 'object') {
+                alertInfo = alert.alert_info_json;
               }
+              
+              // alert_info_json에서 zone_type 추출
+              if (alertInfo.zone_type !== null && alertInfo.zone_type !== undefined && alertInfo.zone_type !== '') {
+                number = typeof alertInfo.zone_type === 'number' ? alertInfo.zone_type : parseInt(alertInfo.zone_type);
+              }
+              
+              // roi_polygon.main_roi.zone_type에서도 시도
+              if (number === null && alertInfo.roi_polygon && alertInfo.roi_polygon.main_roi) {
+                const zoneType = alertInfo.roi_polygon.main_roi.zone_type;
+                if (zoneType !== null && zoneType !== undefined && zoneType !== '') {
+                  number = typeof zoneType === 'number' ? zoneType : parseInt(zoneType);
+                }
+              }
+            } catch (e) {
+              console.error('alert_info_json 파싱 오류:', e);
+            }
+            
+            // fallback: alert.zone_type 사용
+            if (number === null && alert.zone_type !== null && alert.zone_type !== undefined && alert.zone_type !== '') {
+              number = typeof alert.zone_type === 'number' ? alert.zone_type : parseInt(alert.zone_type);
+            }
+            
+            // ROI 번호 추출
+            let roiNumber = '미지정';
+            if (number !== null && !isNaN(number)) {
+              roiNumber = `ROI ${number}`;
             }
             
             return {

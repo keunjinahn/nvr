@@ -1887,7 +1887,7 @@ class MultiCameraRecorder:
                     output_dir=Path("./outputs/nvr/recordings"),
                     segment_seconds=SPLIT_SECONDS,  # DB에서 로드된 세그먼트 분할 시간
                     video_bitrate=DEFAULT_BITRATE,  # DB에서 로드된 비트레이트
-                    reencode_video=is_thermal,  # 열화상 카메라는 인코딩 필요 (해상도/프레임레이트 강제)
+                    reencode_video=True,  # 열화상 카메라는 인코딩 필요 (해상도/프레임레이트 강제)
                     rtsp_transport="tcp",
                     use_timeouts=True,  # 타임아웃 활성화
                     timeout_mode="timeout",  # timeout 옵션 사용

@@ -342,7 +342,7 @@ export const getRoiTimeSeriesData = async (req, res) => {
 
 export const getRoiTemperatureTimeSeries = async (req, res) => {
   try {
-    const { roiNumber } = req.query;
+    const { roiNumber, days } = req.query;
 
     // 필수 파라미터 검증
     if (!roiNumber) {
@@ -360,16 +360,25 @@ export const getRoiTemperatureTimeSeries = async (req, res) => {
       });
     }
 
-    // 24시간 전 시간 계산
+    // days가 있으면 해당 일수만큼, 없으면 24시간(1일) 기준으로 조회
     const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    let startDate;
+    let rangeLabel;
+    const daysNum = days != null && days !== '' ? parseInt(days, 10) : null;
+    if (daysNum != null && !isNaN(daysNum) && daysNum > 0) {
+      startDate = new Date(now.getTime() - daysNum * 24 * 60 * 60 * 1000);
+      rangeLabel = `최근 ${daysNum}일`;
+    } else {
+      startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      rangeLabel = '최근 24시간';
+    }
 
-    // VideoReceiveData에서 해당 ROI 번호의 최근 24시간 데이터 조회
+    // VideoReceiveData에서 해당 ROI 번호의 기간 내 데이터 조회
     const allTimeSeriesData = await VideoReceiveData.findAll({
       where: {
         roiNumber: roiNum,
         create_date: {
-          [Op.gte]: twentyFourHoursAgo
+          [Op.gte]: startDate
         }
       },
       order: [['create_date', 'ASC']], // 시간순 정렬 (오래된 것부터)
@@ -402,7 +411,7 @@ export const getRoiTemperatureTimeSeries = async (req, res) => {
     });
 
     // 이미 시간순으로 정렬되어 있으므로 reverse 불필요
-    console.log(`Found ${temperatureData.length} records for ROI ${roiNum} (last 24 hours)`);
+    console.log(`Found ${temperatureData.length} records for ROI ${roiNum} (${rangeLabel})`);
 
     res.json({
       success: true,
@@ -410,7 +419,7 @@ export const getRoiTemperatureTimeSeries = async (req, res) => {
         roiNumber: roiNum,
         dataCount: temperatureData.length,
         timeRange: {
-          start: twentyFourHoursAgo.toISOString(),
+          start: startDate.toISOString(),
           end: now.toISOString()
         },
         timeSeriesData: temperatureData

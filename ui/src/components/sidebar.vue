@@ -98,7 +98,7 @@
         </v-btn>
       </div>
       
-      <div class="contact-info">
+      <!-- <div class="contact-info">
         <div class="contact-title">시스템문의</div>
         <div class="contact-detail">Tel. 000-0000-0000</div>
         <div class="contact-detail">E-Mail. 0000@daum.com</div>
@@ -106,7 +106,7 @@
       
       <div class="copyright">
         Copyright © 0000. All rights reserved.
-      </div>
+      </div> -->
     </div>
   </v-navigation-drawer>
     

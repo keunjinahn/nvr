@@ -34,6 +34,150 @@ import random
 import string
 import pickle
 
+# ========================
+# 중복 실행 방지 (Single Instance)
+# ========================
+PID_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.panorama_generator.pid')
+
+def get_running_pid():
+    """PID 파일에서 실행 중인 프로세스의 PID 가져오기"""
+    try:
+        if os.path.exists(PID_FILE_PATH):
+            with open(PID_FILE_PATH, 'r') as f:
+                pid_str = f.read().strip()
+                if pid_str:
+                    return int(pid_str)
+    except Exception:
+        pass
+    return None
+
+def save_pid():
+    """현재 프로세스 PID 저장"""
+    try:
+        with open(PID_FILE_PATH, 'w') as f:
+            f.write(str(os.getpid()))
+    except Exception as e:
+        print(f"PID 파일 저장 오류: {e}")
+
+def remove_pid_file():
+    """PID 파일 삭제"""
+    try:
+        if os.path.exists(PID_FILE_PATH):
+            os.remove(PID_FILE_PATH)
+    except Exception as e:
+        print(f"PID 파일 삭제 오류: {e}")
+
+def is_process_running(pid):
+    """해당 PID의 프로세스가 실행 중인지 확인"""
+    if pid is None:
+        return False
+    try:
+        if platform.system() == 'Windows':
+            # Windows: tasklist로 확인
+            result = subprocess.run(
+                ['tasklist', '/FI', f'PID eq {pid}', '/NH'],
+                capture_output=True, text=True
+            )
+            return str(pid) in result.stdout
+        else:
+            # Linux/Unix: kill -0 으로 확인
+            os.kill(pid, 0)
+            return True
+    except ProcessLookupError:
+        # 프로세스가 존재하지 않음
+        return False
+    except PermissionError:
+        # 권한은 없지만 프로세스는 존재함
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+def kill_process(pid):
+    """지정된 PID의 프로세스 종료"""
+    if pid is None:
+        return True
+
+    try:
+        if platform.system() == 'Windows':
+            # Windows: taskkill 사용
+            result = subprocess.run(
+                ['taskkill', '/F', '/PID', str(pid)],
+                capture_output=True, text=True
+            )
+            # 종료 확인 (최대 3초 대기)
+            for _ in range(30):
+                time.sleep(0.1)
+                if not is_process_running(pid):
+                    return True
+            return not is_process_running(pid)
+        else:
+            # Linux/Unix: SIGTERM 전송
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                # 이미 종료됨
+                return True
+            except PermissionError:
+                print(f"⚠️ PID {pid} 종료 권한 없음 (다른 사용자의 프로세스)")
+                return False
+
+            # 프로세스 종료 대기 (최대 5초)
+            for _ in range(50):
+                time.sleep(0.1)
+                if not is_process_running(pid):
+                    return True
+
+            # 아직 실행 중이면 SIGKILL 전송
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                # 이미 종료됨
+                return True
+            except PermissionError:
+                print(f"⚠️ PID {pid} 강제 종료 권한 없음")
+                return False
+
+            time.sleep(0.5)
+            return not is_process_running(pid)
+
+    except ProcessLookupError:
+        # 프로세스가 이미 종료됨
+        return True
+    except Exception as e:
+        print(f"프로세스 종료 오류: {e}")
+        return False
+
+def ensure_single_instance():
+    """단일 인스턴스 보장 - 기존 프로세스가 있으면 종료"""
+    existing_pid = get_running_pid()
+
+    # 기존 PID가 현재 프로세스와 같으면 무시
+    if existing_pid == os.getpid():
+        return True
+
+    # 기존 프로세스가 실행 중인지 확인
+    if existing_pid and is_process_running(existing_pid):
+        print(f"🔄 기존 프로세스 발견 (PID: {existing_pid}), 종료 중...")
+
+        if kill_process(existing_pid):
+            print(f"✅ 기존 프로세스 종료 완료 (PID: {existing_pid})")
+            time.sleep(0.5)  # 안정화 대기
+        else:
+            print(f"❌ 기존 프로세스 종료 실패 (PID: {existing_pid})")
+            return False
+    elif existing_pid:
+        print(f"ℹ️ PID {existing_pid}의 프로세스가 이미 종료되었습니다.")
+
+    # 새 PID 저장
+    save_pid()
+    return True
+
+def cleanup_pid_file():
+    """프로그램 종료 시 PID 파일 정리"""
+    # 현재 프로세스의 PID와 파일의 PID가 일치할 때만 삭제
+    if get_running_pid() == os.getpid():
+        remove_pid_file()
+
 # 컬러바 분석 함수 직접 구현
 def analyze_colorbar(colorbar_image_path, temp_min, temp_max, num_steps=256):
     """컬러바 이미지를 분석하여 색상-온도 매핑 생성"""
@@ -230,7 +374,7 @@ config = load_config()
 API_BASE_URL = config.get('API', 'base_url', fallback='http://localhost:9001')
 
 # 글로벌 상수 설정
-PANORAMA_INTERVAL_SECONDS = 3600  # 1시간 = 3600초
+PANORAMA_INTERVAL_SECONDS = 600  # 1시간 = 3600초
 PANORAMA_INTERVAL_MINUTES = PANORAMA_INTERVAL_SECONDS // 60  # 60분
 
 # PTZ 프리셋 이동 여부 설정
@@ -1256,7 +1400,16 @@ def main():
     parser.add_argument('--debug', action='store_true', help='디버그 모드')
     parser.add_argument('--once', action='store_true', help='한 번만 실행')
     args = parser.parse_args()
-    
+
+    # 단일 인스턴스 보장 (기존 프로세스 있으면 종료)
+    if not ensure_single_instance():
+        print("❌ 단일 인스턴스 확보 실패")
+        logger.error("단일 인스턴스 확보 실패")
+        return 1
+
+    # 프로그램 종료 시 PID 파일 정리 등록
+    atexit.register(cleanup_pid_file)
+
     generator = None
     try:
         print("🚀 파노라마 생성기 시작...")

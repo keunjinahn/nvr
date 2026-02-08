@@ -202,7 +202,7 @@
                   label.form-input-label 녹화 비트레이트
                   v-select(
                     v-model="settings.object.recording.recodingBitrate"
-                    :items="['512k', '1024k', '2048k', '4096k']"
+                    :items="['256k', '512k', '1024k', '2048k', '4096k']"
                     prepend-inner-icon="mdi-video"
                     background-color="var(--cui-bg-card)"
                     color="var(--cui-text-default)"

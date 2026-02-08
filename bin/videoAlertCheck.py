@@ -214,8 +214,9 @@ if not COLORBAR_ANALYZER_AVAILABLE:
 
 
 class VideoAlertChecker:
-    def __init__(self, debug_mode=False):
+    def __init__(self, debug_mode=False, time_mode=False):
         self.debug_mode = debug_mode
+        self.time_mode = time_mode  # True면 매일 한 번 체크 없이 항상 FTP 업로드·DB INSERT
         self.config = config
         self.alert_settings = None
         self.zone_list = None
@@ -223,20 +224,26 @@ class VideoAlertChecker:
         self.last_settings_check = 0
         self.last_data_check = 0
         self.settings_check_interval = 30  # 30 seconds
-        self.data_check_interval = 600  # 10 minutes (600 seconds)
+        self.data_check_interval = 60  # 10 minutes (600 seconds)
         self.running = True
         self.force_exit = False  # 강제 종료 플래그
         self.uploaded_panorama_filename = None  # SFTP 업로드된 파일명
         self.uploaded_panorama_snapshot = None  # SFTP 업로드된 파노라마 스냅샷
         
-        # SFTP 업로드 스케줄링 관련 변수
-        self.sftp_upload_scheduled_hour = 15  # 오후 3시 (15:00)
+        # SFTP 업로드 스케줄링 관련 변수 (시·분)
+        self.sftp_upload_scheduled_hour = 16  # 오후 3시
+        self.sftp_upload_scheduled_minute = 22 # 0~59 (15:00)
         self.last_sftp_upload_date = None  # 마지막 업로드 날짜 (YYYY-MM-DD 형식)
         self.pending_sftp_upload_info = None  # 업로드 대기 중인 파일 정보 (가장 최근 파일)
         
         # MSDB tic_data INSERT 스케줄링 관련 변수
         self.last_tic_data_insert_date = None  # 마지막 tic_data INSERT 날짜 (YYYY-MM-DD 형식)
         self.pending_tic_data_info = None  # INSERT 대기 중인 데이터 정보 (가장 최근 데이터)
+
+        # 매일 지정 시각 FTP/DB 점검 (시·분)
+        self.daily_check_hour = 16
+        self.daily_check_minute = 22  # 0~59
+        self.last_daily_check_date = None  # 마지막 일일 점검 날짜 (YYYY-MM-DD)
         
         # 시그널 핸들러 등록
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -282,6 +289,29 @@ class VideoAlertChecker:
             logger.info("Cleanup completed successfully")
         except Exception as e:
             logger.error(f"Error during cleanup: {str(e)}")
+
+    def _daily_ftp_and_db_check(self):
+        """매일 지정 시각(시·분) FTP 업로드·DB INSERT 여부 점검 (로그만 출력)"""
+        check_label = f"{self.daily_check_hour:02d}:{self.daily_check_minute:02d} 점검"
+        try:
+            # FTP 업로드 여부
+            if self.pending_sftp_upload_info:
+                fn = self.pending_sftp_upload_info.get('filename', '')
+                logger.info(f"[{check_label}] FTP 업로드 대기 있음 - 파일: {fn}, {self.sftp_upload_scheduled_hour:02d}:{self.sftp_upload_scheduled_minute:02d} 업로드 예정")
+            else:
+                logger.warning(f"[{check_label}] FTP 업로드 대기 없음 - pending_sftp_upload_info 없음")
+            logger.info(f"[{check_label}] FTP 마지막 업로드 완료일: {self.last_sftp_upload_date or '없음'}")
+
+            # DB INSERT 여부
+            if self.pending_tic_data_info:
+                ti = self.pending_tic_data_info
+                logger.info(f"[{check_label}] DB(tic_data) INSERT 대기 있음 - file={ti.get('file_name')}, max={ti.get('max_temp')}, min={ti.get('min_temp')}, avg={ti.get('avg_temp')}, {self.sftp_upload_scheduled_hour:02d}:{self.sftp_upload_scheduled_minute:02d} INSERT 예정")
+            else:
+                logger.warning(f"[{check_label}] DB(tic_data) INSERT 대기 없음 - pending_tic_data_info 없음")
+            logger.info(f"[{check_label}] DB(tic_data) 마지막 INSERT 완료일: {self.last_tic_data_insert_date or '없음'}")
+        except Exception as e:
+            logger.error(f"[{check_label}] 오류: {str(e)}")
+            logger.error(traceback.format_exc())
 
     def connect_to_db(self):
         global nvrdb
@@ -442,7 +472,7 @@ class VideoAlertChecker:
                 'timestamp': datetime.now(),
                 'date': datetime.now().strftime("%Y-%m-%d")
             }
-            logger.info(f"tic_data INSERT 대기 정보 저장: max={max_temp}, min={min_temp}, avg={avg_temp}, alert={alert_level}, file={final_file_name} (오후 {self.sftp_upload_scheduled_hour}시에 INSERT 예정)")
+            logger.info(f"tic_data INSERT 대기 정보 저장: max={max_temp}, min={min_temp}, avg={avg_temp}, alert={alert_level}, file={final_file_name} ({self.sftp_upload_scheduled_hour:02d}:{self.sftp_upload_scheduled_minute:02d}에 INSERT 예정)")
             return True  # 성공적으로 저장되었음을 의미
         except Exception as e:
             logger.error(f"tic_data INSERT 정보 저장 실패: {e}")
@@ -546,8 +576,61 @@ class VideoAlertChecker:
             logger.error(traceback.format_exc())
             return False
 
+    def _ensure_debug_upload_table(self):
+        """debug 모드용 업로드 테이블이 없으면 생성 (MariaDB)"""
+        cursor = None
+        try:
+            cursor = self.get_db_cursor()
+            if not cursor:
+                return False
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS tb_debug_upload (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    filename VARCHAR(255) NOT NULL,
+                    image_data MEDIUMBLOB,
+                    create_date DATETIME NOT NULL,
+                    INDEX idx_create_date (create_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            if nvrdb:
+                nvrdb.commit()
+            return True
+        except Exception as e:
+            logger.error(f"tb_debug_upload 테이블 생성/확인 실패: {e}")
+            return False
+        finally:
+            if cursor:
+                cursor.close()
+
+    def _upload_image_to_mariadb(self, image_base64, filename):
+        """debug 모드: 이미지를 paramiko(SFTP) 대신 MariaDB tb_debug_upload에 저장"""
+        cursor = None
+        try:
+            if not self._ensure_debug_upload_table():
+                return None
+            cursor = self.get_db_cursor()
+            if not cursor:
+                return None
+            image_data = base64.b64decode(image_base64)
+            create_date = datetime.now()
+            cursor.execute(
+                "INSERT INTO tb_debug_upload (filename, image_data, create_date) VALUES (%s, %s, %s)",
+                (filename, image_data, create_date)
+            )
+            if nvrdb:
+                nvrdb.commit()
+            logger.info(f"debug 모드 - MariaDB 업로드 완료: {filename} (tb_debug_upload)")
+            return filename
+        except Exception as e:
+            logger.error(f"debug 모드 - MariaDB 업로드 실패: {e}")
+            logger.error(traceback.format_exc())
+            return None
+        finally:
+            if cursor:
+                cursor.close()
+
     def create_sftp_connection(self):
-        """SFTP 서버 연결"""
+        """SFTP 서버 연결. debug 모드에서도 실제 SFTP 연결 수행 (메인 루프에서 호출 시)"""
         try:
             logger.info(f"SFTP 서버 연결 시도: {SFTP_USER}@{SFTP_IP}:{SFTP_PORT}")
             
@@ -620,10 +703,22 @@ class VideoAlertChecker:
             return None
 
     def upload_image_to_sftp(self, image_base64, filename):
-        """이미지 정보를 클래스 변수에 저장 (실제 업로드는 오후 3시에 수행)
+        """이미지 업로드: debug 모드면 MariaDB에 저장, 아니면 대기 정보 저장 후 오후 3시 SFTP 업로드.
         가장 최근 파일 정보로 덮어쓰기
         """
         try:
+            if self.debug_mode:
+                # debug: paramiko 대신 MariaDB에 즉시 저장
+                uploaded = self._upload_image_to_mariadb(image_base64, filename)
+                if uploaded:
+                    self.pending_sftp_upload_info = {
+                        'image_base64': image_base64,
+                        'filename': filename,
+                        'timestamp': datetime.now(),
+                        'date': datetime.now().strftime("%Y-%m-%d")
+                    }
+                    return uploaded
+                return None
             # 파일 정보를 클래스 변수에 저장 (가장 최근 파일로 덮어쓰기)
             self.pending_sftp_upload_info = {
                 'image_base64': image_base64,
@@ -631,15 +726,16 @@ class VideoAlertChecker:
                 'timestamp': datetime.now(),
                 'date': datetime.now().strftime("%Y-%m-%d")
             }
-            logger.info(f"SFTP 업로드 대기 정보 저장: {filename} (오후 {self.sftp_upload_scheduled_hour}시에 업로드 예정)")
+            logger.info(f"SFTP 업로드 대기 정보 저장: {filename} ({self.sftp_upload_scheduled_hour:02d}:{self.sftp_upload_scheduled_minute:02d}에 업로드 예정)")
             return filename  # 성공적으로 저장되었음을 의미
         except Exception as e:
             logger.error(f"SFTP 업로드 정보 저장 실패: {e}")
             return None
     
     def _execute_sftp_upload(self, image_base64, filename):
-        """실제 SFTP 업로드 수행 (내부 함수)
+        """실제 업로드 수행: SFTP(paramiko)로 업로드.
         1920 너비 이미지를 640 너비 3장으로 분할하여 총 4장 업로드 (원본 1장 + 분할 3장)
+        debug 모드에서도 실제 SFTP 업로드를 수행 (메인 루프에서 호출 시)
         """
         try:
             # SFTP 연결
@@ -722,14 +818,21 @@ class VideoAlertChecker:
                         temp_file_path = temp_file.name
                         temp_files.append(temp_file_path)
                     
+                    # root_path에 직접 업로드
                     remote_file_path = f"{root_path}/{filename}"
                     sftp_client.put(temp_file_path, remote_file_path)
-                    logger.info(f"원본 이미지 SFTP 업로드 완료: {remote_file_path}")
-                    uploaded_files.append(filename)
                     
-                    # 업로드된 파일 크기 확인
-                    remote_file_stat = sftp_client.stat(remote_file_path)
-                    logger.info(f"원본 이미지 파일 크기: {remote_file_stat.st_size} bytes")
+                    # 업로드된 파일 존재 및 크기 확인
+                    try:
+                        remote_file_stat = sftp_client.stat(remote_file_path)
+                        if remote_file_stat.st_size == 0:
+                            logger.error(f"원본 이미지 SFTP 업로드 실패: 파일 크기가 0 bytes - {remote_file_path}")
+                            return None
+                        logger.info(f"원본 이미지 SFTP 업로드 완료: {remote_file_path} (크기: {remote_file_stat.st_size} bytes)")
+                        uploaded_files.append(filename)
+                    except Exception as e:
+                        logger.error(f"원본 이미지 SFTP 업로드 확인 실패: {remote_file_path}, 오류: {e}")
+                        return None
                     
                     # 2. 1920 너비 이미지를 640 너비 3장으로 분할
                     if width == 1920:
@@ -752,20 +855,41 @@ class VideoAlertChecker:
                                 temp_file_path = temp_file.name
                                 temp_files.append(temp_file_path)
                             
-                            # SFTP로 분할 이미지 업로드
+                            # SFTP로 분할 이미지 업로드 (root_path에 직접)
                             remote_segment_path = f"{root_path}/{segment_filename}"
                             sftp_client.put(temp_file_path, remote_segment_path)
-                            logger.info(f"분할 이미지 {i+1} SFTP 업로드 완료: {remote_segment_path} (크기: {segment_image.shape[1]}x{segment_image.shape[0]})")
-                            uploaded_files.append(segment_filename)
                             
-                            # 업로드된 파일 크기 확인
-                            remote_file_stat = sftp_client.stat(remote_segment_path)
-                            logger.info(f"분할 이미지 {i+1} 파일 크기: {remote_file_stat.st_size} bytes")
+                            # 업로드된 파일 존재 및 크기 확인
+                            try:
+                                remote_file_stat = sftp_client.stat(remote_segment_path)
+                                if remote_file_stat.st_size == 0:
+                                    logger.error(f"분할 이미지 {i+1} SFTP 업로드 실패: 파일 크기가 0 bytes - {remote_segment_path}")
+                                    return None
+                                logger.info(f"분할 이미지 {i+1} SFTP 업로드 완료: {remote_segment_path} (크기: {segment_image.shape[1]}x{segment_image.shape[0]}, 파일 크기: {remote_file_stat.st_size} bytes)")
+                                uploaded_files.append(segment_filename)
+                            except Exception as e:
+                                logger.error(f"분할 이미지 {i+1} SFTP 업로드 확인 실패: {remote_segment_path}, 오류: {e}")
+                                return None
                     else:
                         logger.warning(f"이미지 너비가 1920이 아니어서 분할하지 않습니다: {width}")
                     
-                    logger.info(f"총 {len(uploaded_files)}개 이미지 업로드 완료: {uploaded_files}")
-                    return filename
+                    # 최종 확인: 모든 파일이 업로드되었는지 확인
+                    if len(uploaded_files) == 0:
+                        logger.error("업로드된 파일이 없습니다")
+                        return None
+                    
+                    # 원본 파일이 업로드되었는지 최종 확인
+                    final_check_path = f"{root_path}/{filename}"
+                    try:
+                        final_stat = sftp_client.stat(final_check_path)
+                        if final_stat.st_size == 0:
+                            logger.error(f"최종 확인 실패: 파일 크기가 0 bytes - {final_check_path}")
+                            return None
+                        logger.info(f"총 {len(uploaded_files)}개 이미지 업로드 완료: {uploaded_files} (저장 경로: {root_path})")
+                        return filename
+                    except Exception as e:
+                        logger.error(f"최종 확인 실패: {final_check_path}, 오류: {e}")
+                        return None
                     
                 finally:
                     # 임시 파일 삭제
@@ -4394,14 +4518,14 @@ class VideoAlertChecker:
                                 if x + w <= temp_matrix.shape[1] and y + h <= temp_matrix.shape[0]:
                                     roi_temp = temp_matrix[y:y+h, x:x+w]
                                     valid_temps = roi_temp[~np.isnan(roi_temp)]
-                                        if len(valid_temps) > 0:
-                                            if max_temp is None:
-                                                max_temp = float(np.max(valid_temps))
-                                            if min_temp is None:
-                                                min_temp = float(np.min(valid_temps))
-                                            if avg_temp is None:
-                                                avg_temp = float(np.mean(valid_temps))
-                                        logger.info(f"시나리오2: 파노라마 데이터에서 온도 정보 추출 - max={max_temp:.1f}°C, min={min_temp:.1f}°C, avg={avg_temp:.1f}°C")
+                                    if len(valid_temps) > 0:
+                                        if max_temp is None:
+                                            max_temp = float(np.max(valid_temps))
+                                        if min_temp is None:
+                                            min_temp = float(np.min(valid_temps))
+                                        if avg_temp is None:
+                                            avg_temp = float(np.mean(valid_temps))
+                                    logger.info(f"시나리오2: 파노라마 데이터에서 온도 정보 추출 - max={max_temp:.1f}°C, min={min_temp:.1f}°C, avg={avg_temp:.1f}°C")
                     except Exception as e:
                         logger.error(f"시나리오2: 파노라마 데이터에서 온도 정보 추출 오류: {str(e)}")
                 
@@ -4534,60 +4658,18 @@ class VideoAlertChecker:
                         logger.info("강제 종료 요청됨, 즉시 종료")
                         break
                     
-                    # 오후 3시 SFTP 업로드 및 tic_data INSERT 체크 (하루에 한 번만)
+                    # 매일 지정 시각(시·분) FTP 업로드·DB INSERT 여부 점검 (하루 한 번)
                     current_datetime = datetime.now()
                     current_hour = current_datetime.hour
+                    current_minute = current_datetime.minute
                     current_date = current_datetime.strftime("%Y-%m-%d")
+                    is_check_time = (current_hour > self.daily_check_hour or
+                        (current_hour == self.daily_check_hour and current_minute >= self.daily_check_minute))
+                    if is_check_time and self.last_daily_check_date != current_date:
+                        self._daily_ftp_and_db_check()
+                        self.last_daily_check_date = current_date
                     
-                    # 오후 3시이고 오늘 아직 업로드하지 않았으며, 대기 중인 파일이 있는 경우
-                    if (current_hour == self.sftp_upload_scheduled_hour and 
-                        self.last_sftp_upload_date != current_date and 
-                        self.pending_sftp_upload_info is not None):
-                        
-                        logger.info(f"오후 {self.sftp_upload_scheduled_hour}시 SFTP 업로드 시작 (대기 중인 파일: {self.pending_sftp_upload_info['filename']})")
-                        
-                        # 실제 SFTP 업로드 수행
-                        upload_info = self.pending_sftp_upload_info
-                        uploaded_filename = self._execute_sftp_upload(
-                            upload_info['image_base64'], 
-                            upload_info['filename']
-                        )
-                        
-                        if uploaded_filename:
-                            logger.info(f"오후 {self.sftp_upload_scheduled_hour}시 SFTP 업로드 완료: {uploaded_filename}")
-                            # 마지막 업로드 날짜 업데이트
-                            self.last_sftp_upload_date = current_date
-                            # 업로드 완료 후 정보 초기화 (선택사항)
-                            # self.pending_sftp_upload_info = None  # 다음 날을 위해 유지
-                        else:
-                            logger.warning(f"오후 {self.sftp_upload_scheduled_hour}시 SFTP 업로드 실패")
-                    
-                    # 오후 3시 tic_data INSERT 체크 (하루에 한 번만)
-                    if (current_hour == self.sftp_upload_scheduled_hour and 
-                        self.last_tic_data_insert_date != current_date and 
-                        self.pending_tic_data_info is not None):
-                        
-                        logger.info(f"오후 {self.sftp_upload_scheduled_hour}시 tic_data INSERT 시작 (대기 중인 데이터: max={self.pending_tic_data_info['max_temp']}, min={self.pending_tic_data_info['min_temp']}, avg={self.pending_tic_data_info['avg_temp']}, file={self.pending_tic_data_info['file_name']})")
-                        
-                        # 실제 tic_data INSERT 수행
-                        tic_info = self.pending_tic_data_info
-                        insert_success = self._execute_tic_data_insert(
-                            tic_info['max_temp'],
-                            tic_info['min_temp'],
-                            tic_info['avg_temp'],
-                            tic_info['alert_level'],
-                            tic_info['file_path'],
-                            tic_info['file_name']  # FTP 업로드 파일명과 동일
-                        )
-                        
-                        if insert_success:
-                            logger.info(f"오후 {self.sftp_upload_scheduled_hour}시 tic_data INSERT 완료: FILE_NAME={tic_info['file_name']}")
-                            # 마지막 INSERT 날짜 업데이트
-                            self.last_tic_data_insert_date = current_date
-                        else:
-                            logger.warning(f"오후 {self.sftp_upload_scheduled_hour}시 tic_data INSERT 실패")
-                    
-                    # 파노라마 데이터 조회 및 SFTP 업로드 정보 저장 (가장 최근 파일로 덮어쓰기)
+                    # 파노라마 데이터 조회 및 SFTP 업로드 정보 저장 (업로드 체크 전에 먼저 실행 - 중요!)
                     panorama_data_record = self.get_latest_temperature_data()
                     uploaded_filename = None
                     if panorama_data_record:
@@ -4598,10 +4680,10 @@ class VideoAlertChecker:
                             timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                             filename = f"{timestamp}_{SFTP_CODE}.jpg"
                             
-                            # SFTP 업로드 정보 저장 (실제 업로드는 오후 3시에 수행)
+                            # SFTP 업로드 정보 저장 (실제 업로드는 지정 시각에 수행)
                             uploaded_filename = self.upload_image_to_sftp(panorama_snapshot['image_data'], filename)
                             if uploaded_filename:
-                                logger.info(f"파노라마 이미지 SFTP 업로드 정보 저장 완료: {uploaded_filename} (오후 {self.sftp_upload_scheduled_hour}시에 업로드 예정)")
+                                logger.info(f"파노라마 이미지 SFTP 업로드 정보 저장 완료: {uploaded_filename} ({self.sftp_upload_scheduled_hour:02d}:{self.sftp_upload_scheduled_minute:02d}에 업로드 예정)")
                                 # 업로드된 파일명을 인스턴스 변수에 저장
                                 self.uploaded_panorama_filename = uploaded_filename
                                 self.uploaded_panorama_snapshot = panorama_snapshot
@@ -4615,6 +4697,94 @@ class VideoAlertChecker:
                     else:
                         self.uploaded_panorama_filename = None
                         self.uploaded_panorama_snapshot = None
+                    
+                    # 지정 시각(시·분) SFTP 업로드 및 tic_data INSERT 체크 (파노라마 데이터 조회 후 실행)
+                    # --debug 모드: 대기 파일이 있으면 바로 업로드 (시간 체크 없음)
+                    # --time 모드: 매일 한 번 체크 없이 항상 수행
+                    # 일반 모드: 지정 시각에만 업로드
+                    sftp_scheduled_label = f"{self.sftp_upload_scheduled_hour:02d}:{self.sftp_upload_scheduled_minute:02d}"
+                    is_sftp_time = (current_hour > self.sftp_upload_scheduled_hour or
+                        (current_hour == self.sftp_upload_scheduled_hour and current_minute >= self.sftp_upload_scheduled_minute))
+                    
+                    # 업로드 조건 체크 로그 (일반 모드에서만 상세 로그)
+                    if not self.debug_mode:
+                        logger.info(f"[SFTP 업로드 체크] 현재 시간: {current_hour:02d}:{current_minute:02d}, 지정 시각: {sftp_scheduled_label}, is_sftp_time={is_sftp_time}")
+                        logger.info(f"[SFTP 업로드 체크] last_sftp_upload_date={self.last_sftp_upload_date}, current_date={current_date}, 날짜 체크={self.last_sftp_upload_date != current_date}")
+                        logger.info(f"[SFTP 업로드 체크] pending_sftp_upload_info={'있음' if self.pending_sftp_upload_info is not None else '없음'}")
+                        if self.pending_sftp_upload_info:
+                            logger.info(f"[SFTP 업로드 체크] 대기 파일명: {self.pending_sftp_upload_info.get('filename', 'N/A')}")
+                    
+                    # debug 모드: 대기 파일이 있으면 바로 업로드
+                    should_upload = False
+                    if self.debug_mode and self.pending_sftp_upload_info is not None:
+                        should_upload = True
+                        logger.info(f"debug 모드 - SFTP 업로드 시작 (대기 중인 파일: {self.pending_sftp_upload_info['filename']})")
+                    # 일반 모드 또는 --time 모드: 기존 로직
+                    elif ((is_sftp_time or self.time_mode) and
+                        (self.last_sftp_upload_date != current_date or self.time_mode) and
+                        self.pending_sftp_upload_info is not None):
+                        should_upload = True
+                        logger.info(f"{sftp_scheduled_label} SFTP 업로드 시작 (대기 중인 파일: {self.pending_sftp_upload_info['filename']})")
+                    elif not self.debug_mode:
+                        # 일반 모드에서 업로드가 실행되지 않는 이유 로깅
+                        reasons = []
+                        if not is_sftp_time:
+                            reasons.append(f"지정 시각({sftp_scheduled_label})이 아님")
+                        if self.last_sftp_upload_date == current_date:
+                            reasons.append(f"오늘 이미 업로드 완료 (last_sftp_upload_date={self.last_sftp_upload_date})")
+                        if self.pending_sftp_upload_info is None:
+                            reasons.append("대기 파일 없음 (pending_sftp_upload_info=None)")
+                        if reasons:
+                            logger.info(f"[SFTP 업로드 체크] 업로드 건너뜀 - 이유: {', '.join(reasons)}")
+                    
+                    if should_upload:
+                        # 실제 SFTP 업로드 수행
+                        upload_info = self.pending_sftp_upload_info
+                        uploaded_filename = self._execute_sftp_upload(
+                            upload_info['image_base64'], 
+                            upload_info['filename']
+                        )
+                        
+                        if uploaded_filename:
+                            if self.debug_mode:
+                                logger.info(f"debug 모드 - SFTP 업로드 완료: {uploaded_filename}")
+                            else:
+                                logger.info(f"{sftp_scheduled_label} SFTP 업로드 완료: {uploaded_filename}")
+                            # 마지막 업로드 날짜 업데이트 (debug 모드에서는 날짜 체크 없이 계속 업로드 가능하도록 업데이트 안 함)
+                            if not self.debug_mode:
+                                self.last_sftp_upload_date = current_date
+                            # 업로드 완료 후 정보 초기화 (선택사항)
+                            # self.pending_sftp_upload_info = None  # 다음 날을 위해 유지
+                        else:
+                            if self.debug_mode:
+                                logger.warning(f"debug 모드 - SFTP 업로드 실패")
+                            else:
+                                logger.warning(f"{sftp_scheduled_label} SFTP 업로드 실패")
+                    
+                    # 지정 시각(시·분) tic_data INSERT 체크 (--time이면 매일 한 번 체크 없이 항상 수행)
+                    if ((is_sftp_time or self.time_mode) and
+                        (self.last_tic_data_insert_date != current_date or self.time_mode) and
+                        self.pending_tic_data_info is not None):
+                        
+                        logger.info(f"{sftp_scheduled_label} tic_data INSERT 시작 (대기 중인 데이터: max={self.pending_tic_data_info['max_temp']}, min={self.pending_tic_data_info['min_temp']}, avg={self.pending_tic_data_info['avg_temp']}, file={self.pending_tic_data_info['file_name']})")
+                        
+                        # 실제 tic_data INSERT 수행
+                        tic_info = self.pending_tic_data_info
+                        insert_success = self._execute_tic_data_insert(
+                            tic_info['max_temp'],
+                            tic_info['min_temp'],
+                            tic_info['avg_temp'],
+                            tic_info['alert_level'],
+                            tic_info['file_path'],
+                            tic_info['file_name']  # FTP 업로드 파일명과 동일
+                        )
+                        
+                        if insert_success:
+                            logger.info(f"{sftp_scheduled_label} tic_data INSERT 완료: FILE_NAME={tic_info['file_name']}")
+                            # 마지막 INSERT 날짜 업데이트
+                            self.last_tic_data_insert_date = current_date
+                        else:
+                            logger.warning(f"{sftp_scheduled_label} tic_data INSERT 실패")
                     
                     # ROI 온도 데이터 추출 및 DB 삽입 (시나리오1,2 실행 전에 모든 ROI에 대해 실행)
                     if panorama_data_record:
@@ -4672,7 +4842,7 @@ class VideoAlertChecker:
                     if self.zone_list:
                         # 시나리오1과 시나리오2 실행
                         scenario1_alert = self.scenario1_judge()
-                        scenario2_alert = self.scenario2_judge()
+                        #scenario2_alert = self.scenario2_judge()
 
                         # 시나리오에 의한 경고가 발생하지 않는 경우 MSDB에 insert (alert level 0으로)
                         if not scenario1_alert and not scenario2_alert:
@@ -4698,7 +4868,7 @@ class VideoAlertChecker:
                                             if file_name:
                                                 # insert_tic_data 호출 (alert level 0) - 정보만 저장, 실제 INSERT는 오후 3시에 수행
                                                 self.insert_tic_data(max_temp, min_temp, avg_temp, 0, None, file_name)
-                                                logger.info(f"경고 없음 - MSDB INSERT 정보 저장 완료: max={max_temp:.1f}°C, min={min_temp:.1f}°C, avg={avg_temp:.1f}°C, file={file_name} (오후 {self.sftp_upload_scheduled_hour}시에 INSERT 예정)")
+                                                logger.info(f"경고 없음 - MSDB INSERT 정보 저장 완료: max={max_temp:.1f}°C, min={min_temp:.1f}°C, avg={avg_temp:.1f}°C, file={file_name} ({self.sftp_upload_scheduled_hour:02d}:{self.sftp_upload_scheduled_minute:02d}에 INSERT 예정)")
                                             else:
                                                 logger.warning("경고 없음 - SFTP 업로드 파일명이 없어 MSDB INSERT 정보 저장 건너뜀")
                                         else:
@@ -4746,9 +4916,10 @@ if __name__ == "__main__":
         # 명령행 인자 파싱
         parser = argparse.ArgumentParser(description='Video Alert Checker')
         parser.add_argument('--debug', action='store_true', help='Enable debug mode with UI')
+        parser.add_argument('--time', action='store_true', help='Always do FTP upload and DB insert every cycle (no once-per-day check)')
         args = parser.parse_args()
         
-        alertChecker = VideoAlertChecker(debug_mode=args.debug)
+        alertChecker = VideoAlertChecker(debug_mode=args.debug, time_mode=args.time)
         alertChecker.run()
 
     except KeyboardInterrupt:
